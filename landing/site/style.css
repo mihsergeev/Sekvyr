@@ -27,18 +27,26 @@ h3{font-size:17px; margin:0 0 8px; letter-spacing:-.01em}
 p{margin:0 0 14px}
 code{font-family:var(--mono); font-size:.92em; background:var(--surface-2);
      border:1px solid var(--border-soft); border-radius:6px; padding:1px 6px}
-section[id], .hero{scroll-margin-top:66px}
+section[id], .hero{scroll-margin-top:74px}
 
 /* шапка */
 .top{
   position:sticky; top:0; z-index:50; border-bottom:1px solid var(--border-soft);
   background:rgba(15,17,23,.82); backdrop-filter:blur(10px);
 }
-.top .wrap{display:flex; align-items:center; gap:22px; height:66px}
-.brand{display:flex; align-items:center; gap:11px; color:var(--text); font-size:19px;
-       font-weight:650; letter-spacing:-.015em}
+.top .wrap{display:flex; align-items:center; gap:22px; height:74px}
+.brand{display:flex; align-items:center; flex:0 0 auto}
 .brand:hover{text-decoration:none}
-.brand img{width:30px; height:30px; display:block}
+/* Тот же горизонтальный логотип, что в герое и в шапке панели. Внутри
+   logo.svg широкие поля (12% по бокам, 22% сверху и снизу): отрицательные
+   отступы их съедают, чтобы знак вставал вровень с краем колонки, а шапка не
+   раздувалась. */
+.brand img{display:block; height:76px; width:auto; margin:-17px -37px}
+@media(max-width:640px){
+  .top .wrap{height:64px; gap:16px}
+  .brand img{height:62px; margin:-14px -30px}
+}
+@media(max-width:400px){ nav .hide-xs{display:none} }
 nav{margin-left:auto; display:flex; align-items:center; gap:22px; font-size:14.5px}
 nav a{color:var(--muted)}
 nav a:hover{color:var(--text); text-decoration:none}
@@ -56,12 +64,15 @@ nav .sep{width:1px; height:18px; background:var(--border); flex:0 0 auto}
   background:radial-gradient(circle, rgba(24,227,110,.10), transparent 62%);
 }
 .hero-inner{position:relative; text-align:center}
-.hero-logo{height:96px; margin-bottom:24px; max-width:100%}
-@media(max-width:900px){ .hero-logo{height:72px} }
-@media(max-width:560px){ .hero-logo{height:54px} }
+/* поля внутри svg (22% сверху и снизу) съедаются отступами, как в шапке */
+.hero-logo{height:150px; margin:-26px 0 -6px; max-width:100%}
+@media(max-width:900px){ .hero-logo{height:116px; margin:-20px 0 -4px} }
+@media(max-width:560px){ .hero-logo{height:auto; width:100%; max-width:340px; margin:-16px 0 -2px} }
 .eyebrow{color:var(--dim); font-size:13px; letter-spacing:.09em; text-transform:uppercase;
          margin:0 0 12px}
 /* разделители рисуются, а не набираются: в тексте только символы с клавиатуры */
+/* nowrap: точка уходит на новую строку вместе со своим словом, а не висит в конце */
+.eyebrow span{white-space:nowrap}
 .eyebrow span + span::before{
   content:""; display:inline-block; width:4px; height:4px; border-radius:50%;
   background:currentColor; vertical-align:middle; margin:0 10px 2px;

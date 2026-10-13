@@ -4,27 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sekvyr - secrets and environment variables on your own server</title>
-<meta name="description" content="A self-hosted panel for secrets and environment variables: versions with rollback, per-project permissions, delivery to servers and clusters. One command to install. Open source, AGPL-3.0.">
+<meta name="description" content="Sekvyr keeps passwords, tokens and environment variables on your own server. Full history of every value, per-project permissions, delivery to servers and Kubernetes. One command to install, open source under AGPL-3.0.">
 <link rel="canonical" href="https://sekvyr.ru/en/">
 <link rel="alternate" hreflang="ru" href="https://sekvyr.ru/">
 <link rel="alternate" hreflang="en" href="https://sekvyr.ru/en/">
 <meta property="og:title" content="Sekvyr - secrets and environment variables on your own server">
-<meta property="og:description" content="People edit values in the web UI, servers pull them on their own. The admin UI answers only your addresses, the machine API only reads secrets. One command to install.">
+<meta property="og:description" content="You change values in the browser, and your servers pick them up on their own. The admin UI can be closed to everyone but your addresses, and servers can only read. One command to install.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://sekvyr.ru/en/">
-<meta property="og:image" content="https://sekvyr.ru/shots/en/og.png">
+<meta property="og:image" content="https://sekvyr.ru/shots/en/og.png?v=3">
 <meta property="og:locale" content="en_US">
 <meta name="theme-color" content="#0f1117">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="alternate icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png">
-<link rel="stylesheet" href="/style.css?v=2">
+<link rel="stylesheet" href="/style.css?v=3">
 </head>
 <body>
 
 <div class="top">
   <div class="wrap">
-    <a class="brand" href="/en/"><img src="/mark.svg?v=2" alt="">Sekvyr</a>
+    <a class="brand" href="/en/" aria-label="Sekvyr"><img src="/logo.svg?v=2" alt="Sekvyr" width="2048" height="512"></a>
     <nav>
       <a class="hide-sm" href="#what">Features</a>
       <a class="hide-sm" href="#ui">Screens</a>
@@ -32,7 +32,7 @@
       <a class="hide-sm" href="#compare">Comparison</a>
       <a href="#install">Install</a>
       <span class="sep hide-sm"></span>
-      <a href="https://github.com/mihsergeev/Sekvyr">GitHub</a>
+      <a class="hide-xs" href="https://github.com/mihsergeev/Sekvyr">GitHub</a>
       <a class="lang" href="/" hreflang="ru">RU</a>
     </nav>
   </div>
@@ -41,13 +41,13 @@
 <div class="hero">
   <div class="wrap hero-inner">
     <img class="hero-logo" src="/logo.svg?v=2" alt="Sekvyr">
-    <p class="eyebrow"><span>Open source</span><span>AGPL-3.0</span><span>self-hosted</span></p>
+    <p class="eyebrow"><span>Open source</span><span>AGPL-3.0</span><span>self-hosted</span><span>version 1.0.0</span></p>
     <h1>Secrets live in a panel, not in chat messages</h1>
     <p class="lead">
-      People edit values in the web UI; servers and clusters pull them on their
-      own and keep their <code>.env</code> files up to date. The admin UI answers
-      only your addresses, the machine API is public and only reads secrets: two
-      separate surfaces, not one with caveats.
+      Passwords, tokens and app settings sit in one panel on your own server.
+      Change a value in the browser, and your servers pull it into their
+      <code>.env</code> files on their own. The admin UI can be closed to
+      everyone but your addresses, and servers can only read values.
     </p>
     <div class="cta">
       <a class="btn" href="#install">Install</a>
@@ -55,17 +55,17 @@
     </div>
     <div class="chips">
       <span class="chip">Docker Compose</span>
-      <span class="chip">one Postgres, nothing else</span>
+      <span class="chip">just Postgres</span>
       <span class="chip">agent for Linux</span>
-      <span class="chip">Kubernetes without static secrets</span>
-      <span class="chip">RU / EN</span>
+      <span class="chip">Kubernetes without stored tokens</span>
+      <span class="chip">English and Russian</span>
     </div>
   </div>
 
   <div class="wrap hero-shot">
-    <a class="frame" href="/shots/en/home.webp" data-lb>
+    <a class="frame" href="/shots/en/home.webp?v=3" data-lb>
       <div class="frame-bar"><i></i><i></i><i></i><span>sekvyr.example.com</span><em>enlarge</em></div>
-      <img src="/shots/en/home.webp" alt="Sekvyr home screen: projects by group, environments, servers" width="1440" height="900" loading="eager"></a>
+      <img src="/shots/en/home.webp?v=3" alt="Sekvyr home screen: projects by group, environments, servers" width="1440" height="900" loading="eager"></a>
   </div>
 </div>
 
@@ -73,67 +73,74 @@
   <div class="wrap">
     <div class="section-head">
       <h2>What it does</h2>
-      <p>Everything a secrets vault is usually installed for, and nothing beyond that.</p>
+      <p>Everything people usually install a secrets vault for, and nothing extra.</p>
     </div>
     <div class="grid">
       <div class="card">
-        <h3><span class="dot"></span>Projects and environments</h3>
-        <p>A project holds environments such as dev, stage and prod; those hold
-        folders and keys. <code>.env</code> import and export, inherited values,
-        Ctrl+K search across the whole panel. The navigation is built for
-        hundreds of projects.</p>
+        <h3><span class="dot"></span>Projects, environments, folders</h3>
+        <p>Each project has its own environments, like dev, stage and prod, and
+        the keys inside can be sorted into folders. A <code>.env</code> file goes
+        in and out in one piece, and shared values can come from another
+        environment. Ctrl+K searches the whole panel, so even with a hundred
+        projects you find things fast.</p>
       </div>
       <div class="card">
-        <h3><span class="dot"></span>Versions and rollback</h3>
-        <p>Values are never overwritten: every edit is a new version. You can see
-        what a key held yesterday, diff two versions and see what changed in a
-        week. A deletion is a version too, and therefore reversible.</p>
+        <h3><span class="dot"></span>History and rollback</h3>
+        <p>A value is never overwritten, every edit is saved as a new version.
+        You can see what a key held yesterday and what changed over the week,
+        and bring back any version with one click. A deleted key comes back
+        too.</p>
       </div>
       <div class="card">
-        <h3><span class="dot"></span>Permissions enforced by the API</h3>
-        <p>Who, where and what, with <code>list</code> and <code>read</code> kept
-        apart: a developer sees which variables an app needs without seeing
-        production passwords. A grant can expire and can require two-factor
-        authentication.</p>
+        <h3><span class="dot"></span>Permissions down to a folder</h3>
+        <p>Access is granted on a project, an environment or a folder. You can
+        let someone see only the list of keys: a developer knows which variables
+        an app needs but never sees production passwords. A grant can expire,
+        and for sensitive places it can require two-factor authentication. The
+        server checks permissions itself, so going around the UI does not help.</p>
       </div>
       <div class="card">
-        <h3><span class="dot"></span>Approvals by role</h3>
-        <p>An edit from a role below the project threshold waits for someone more
-        senior and does not reach the servers until then. Authors cannot approve
-        their own edits, and only the owner changes the threshold.</p>
+        <h3><span class="dot"></span>Approvals</h3>
+        <p>An edit from a junior role waits for someone more senior and does not
+        reach the servers until then. Nobody can approve their own edit, and the
+        owner decides which roles need approval.</p>
       </div>
       <div class="card">
         <h3><span class="dot"></span>One command per server</h3>
-        <p>The panel gives you a line with a one-time token; the agent installs
-        itself and receives its own credentials, of which the panel keeps only a
-        hash. Access is granted with a click, and a change reaches the service on
-        its own. The agent updates itself too, only on a valid release
-        signature.</p>
+        <p>The panel shows a command, you run it on the server. The agent gets an
+        identity of its own, and the panel keeps only a hash of it. From then on
+        it picks up changes, updates the <code>.env</code> file and restarts the
+        app. The agent updates itself as well, and installs only releases with
+        a valid signature.</p>
       </div>
       <div class="card">
-        <h3><span class="dot"></span>Kubernetes without static secrets</h3>
-        <p>A pod presents a short-lived ServiceAccount token issued for the panel
-        specifically, and the panel checks the signature against the cluster
-        keys. If you already run External Secrets Operator, that works too.</p>
+        <h3><span class="dot"></span>Kubernetes without stored tokens</h3>
+        <p>A pod needs no token saved in the cluster. It shows the panel a
+        short-lived token of its ServiceAccount, and the panel checks the
+        signature against the cluster keys. If you already run External Secrets
+        Operator, you can work through it.</p>
       </div>
       <div class="card">
-        <h3><span class="dot"></span>Migration from Infisical and Vault</h3>
-        <p>A separate screen with a preview: you see what arrives new and what is
-        already there. Existing values are not overwritten by default, and the
-        panel does not store the source credentials.</p>
+        <h3><span class="dot"></span>Moving from Infisical and Vault</h3>
+        <p>Values come over from Infisical and Vault KV. Before the move you see
+        what will be added and what is already there, and existing values are
+        left alone by default. The panel does not keep the credentials of the
+        old store.</p>
       </div>
       <div class="card">
-        <h3><span class="dot"></span>Value hygiene</h3>
-        <p>A key carries a note on why it exists and a date by which it must be
-        replaced, and the panel reminds you ahead of time. Missing required keys
-        show in every environment, and <code>changeme</code> in production gets
-        caught on its own.</p>
+        <h3><span class="dot"></span>Keeping keys tidy</h3>
+        <p>A key can carry a note on why it exists and a date to replace it by,
+        and the panel reminds you in advance. You see which required keys are
+        missing and which ones nobody has read for a year. Environments can be
+        compared without showing values, and <code>changeme</code> in production
+        gets caught on its own.</p>
       </div>
       <div class="card">
-        <h3><span class="dot"></span>Operations</h3>
-        <p>Encrypted backups with a freshness check, one-command restore, upgrades
-        that take a backup before the migrations, a watchdog outside the
-        containers. Telegram and webhook alerts, a weekly digest of changes.</p>
+        <h3><span class="dot"></span>Backups and alerts</h3>
+        <p>Every night the panel makes an encrypted backup and tells you if it
+        failed. Restore is one command, and upgrades take a backup first. Alerts
+        go to Telegram or a webhook and never carry values. Once a week you get
+        a digest of what changed.</p>
       </div>
     </div>
   </div>
@@ -143,33 +150,33 @@
   <div class="wrap">
     <div class="section-head">
       <h2>What it looks like</h2>
-      <p>Captured from a running panel on demo data: the projects, servers and
+      <p>Screenshots of a real panel with demo data: the projects, servers and
       addresses are made up.</p>
     </div>
     <div class="gallery">
       <figure>
-        <a class="frame" href="/shots/en/environment.webp" data-lb>
+        <a class="frame" href="/shots/en/environment.webp?v=3" data-lb>
           <div class="frame-bar"><i></i><i></i><i></i><span>/p/acme/api/prod</span><em>enlarge</em></div>
-          <img src="/shots/en/environment-960.webp" alt="An environment with its keys" width="960" height="600" loading="lazy"></a>
-        <figcaption>An environment: keys, notes, replacement dates, which servers read it.</figcaption>
+          <img src="/shots/en/environment-960.webp?v=3" alt="An environment with its keys" width="960" height="600" loading="lazy"></a>
+        <figcaption>An environment: keys, notes, replacement dates and the servers that read it.</figcaption>
       </figure>
       <figure>
-        <a class="frame" href="/shots/en/history.webp" data-lb>
+        <a class="frame" href="/shots/en/history.webp?v=3" data-lb>
           <div class="frame-bar"><i></i><i></i><i></i><span>/p/acme/api/prod</span><em>enlarge</em></div>
-          <img src="/shots/en/history-960.webp" alt="Version history of a key" width="960" height="600" loading="lazy"></a>
-        <figcaption>Key versions: who, when, what it was before, rollback in one click.</figcaption>
+          <img src="/shots/en/history-960.webp?v=3" alt="Version history of a key" width="960" height="600" loading="lazy"></a>
+        <figcaption>Key history: who changed it and when, what it was before, rollback in one click.</figcaption>
       </figure>
       <figure>
-        <a class="frame" href="/shots/en/servers.webp" data-lb>
+        <a class="frame" href="/shots/en/servers.webp?v=3" data-lb>
           <div class="frame-bar"><i></i><i></i><i></i><span>/servers</span><em>enlarge</em></div>
-          <img src="/shots/en/servers-960.webp" alt="The server list" width="960" height="600" loading="lazy"></a>
-        <figcaption>Servers: what each one pulls, agent versions, who went quiet.</figcaption>
+          <img src="/shots/en/servers-960.webp?v=3" alt="The server list" width="960" height="600" loading="lazy"></a>
+        <figcaption>Servers: what each one pulls, which agent version it runs, who has gone quiet.</figcaption>
       </figure>
       <figure>
-        <a class="frame" href="/shots/en/access.webp" data-lb>
+        <a class="frame" href="/shots/en/access.webp?v=3" data-lb>
           <div class="frame-bar"><i></i><i></i><i></i><span>/access</span><em>enlarge</em></div>
-          <img src="/shots/en/access-960.webp" alt="Access grants" width="960" height="600" loading="lazy"></a>
-        <figcaption>Access: who may see, read and change what, and until when.</figcaption>
+          <img src="/shots/en/access-960.webp?v=3" alt="Access grants" width="960" height="600" loading="lazy"></a>
+        <figcaption>Access: who can see, read and change what, and until when.</figcaption>
       </figure>
     </div>
   </div>
@@ -179,50 +186,52 @@
   <div class="wrap">
     <div class="section-head">
       <h2>Security</h2>
-      <p>The project's main rule: compromising the database must not yield the
-      values. Everything else is an implementation detail of that rule.</p>
+      <p>The main rule: a stolen database must not give away the values.
+      Everything else is built around it.</p>
     </div>
     <div class="grid">
       <div class="card">
-        <h3><span class="dot"></span>Three key levels</h3>
-        <p>A value is encrypted with its environment key, which is wrapped by the
-        root key. Ciphertext is bound to its place, so a row cannot be moved to
-        another environment or swapped for someone else's value.</p>
+        <h3><span class="dot"></span>Layered encryption</h3>
+        <p>Every value is encrypted with AES-256-GCM using the key of its
+        environment, and environment keys are encrypted with the root key. A
+        value is tied to its place in the database: it cannot be moved to
+        another environment or swapped for someone else's.</p>
       </div>
       <div class="card">
-        <h3><span class="dot"></span>The panel starts sealed</h3>
-        <p>Until the root key is entered, nobody can read values, the owner
-        included. The key is kept as shares (3 of 5 by default), as one key you
-        enter after every restart, or as a file on the server.</p>
+        <h3><span class="dot"></span>The panel locks itself</h3>
+        <p>After a restart the panel is sealed, and until someone enters the root
+        key nobody can read values, not even the owner. The key can be split
+        into shares among several people (3 of 5 by default), entered whole, or
+        kept as a file on the server so the panel unseals on its own.</p>
       </div>
       <div class="card">
         <h3><span class="dot"></span>Servers only read</h3>
-        <p>A connected machine cannot change or delete a secret: the machine API
-        has no such routes at all, and a test in CI checks that rather than a
-        promise in the documentation.</p>
+        <p>A connected server cannot change or delete a secret: the panel simply
+        has no such requests for servers. A test checks this on every build, so
+        one cannot slip in by accident.</p>
       </div>
       <div class="card">
-        <h3><span class="dot"></span>Hash-chained audit log</h3>
-        <p>Every entry carries the hash of the previous one, and the panel
-        rechecks the chain daily. A copy of the entries can go to an external
-        webhook, otherwise the log could be trimmed together with the database.
-        Values never get into the log.</p>
+        <h3><span class="dot"></span>A log you cannot quietly edit</h3>
+        <p>Every log entry stores the hash of the previous one, and once a day
+        the panel checks that the chain is intact. Entries can also go straight
+        to an external webhook, so they are not lost along with the database.
+        The values themselves never get into the log.</p>
       </div>
       <div class="card">
-        <h3><span class="dot"></span>Browser-side encryption</h3>
-        <p>For selected projects: values are encrypted with a key the server never
-        has. The price is honest: a forgotten project password means the values
-        are lost.</p>
+        <h3><span class="dot"></span>Encryption in the browser</h3>
+        <p>For especially sensitive projects, values are encrypted right in the
+        browser with a key the server never has. But if the project password is
+        forgotten, the values are gone for good.</p>
       </div>
       <div class="card">
         <h3><span class="dot"></span>Emergency access</h3>
-        <p>Every value in one sealed file under your password. A separate utility
-        opens it without the panel and without a network, for the day the panel
-        is gone.</p>
+        <p>All values can be exported into one encrypted file under a password of
+        your choice. A separate utility opens it without the panel and without a
+        network, for the day the panel is gone.</p>
       </div>
     </div>
-    <p class="note">What is protected and what is not:
-      <a href="https://github.com/mihsergeev/Sekvyr/blob/main/docs/security-model.md">security model</a> and
+    <p class="note">What Sekvyr protects against, and what it does not, is covered in the
+      <a href="https://github.com/mihsergeev/Sekvyr/blob/main/docs/security-model.md">security model</a> and the
       <a href="https://github.com/mihsergeev/Sekvyr/blob/main/docs/threat-model.md">threat model</a>.</p>
   </div>
 </section>
@@ -231,9 +240,9 @@
   <div class="wrap">
     <div class="section-head">
       <h2>How it differs</h2>
-      <p>Sekvyr does not try to replace Vault at everything. It covers the more
-      common case: dozens of servers, a couple of people on infrastructure, and
-      a wish to see everything in one place.</p>
+      <p>Sekvyr does not try to replace Vault entirely. It is made for the more
+      common case: dozens of servers, a couple of people running them, and the
+      wish to see everything in one place.</p>
     </div>
     <div class="table-wrap">
       <table>
@@ -243,25 +252,25 @@
         <tbody>
           <tr>
             <td>Getting started</td>
-            <td>a panel where everything is visible at once</td>
-            <td>HCL policies, secrets engines, its own vocabulary</td>
-            <td>a web panel, the closest in spirit</td>
+            <td>open the panel, everything is in view</td>
+            <td>learn HCL policies, secrets engines and the terminology</td>
+            <td>a web panel, the closest to Sekvyr in spirit</td>
           </tr>
           <tr>
-            <td>Runs on</td>
-            <td>one Postgres</td>
+            <td>What it needs</td>
+            <td>just Postgres</td>
             <td>integrated Raft storage or Consul</td>
             <td>Postgres and Redis</td>
           </tr>
           <tr>
-            <td>Strong side</td>
-            <td>env files, versions, delivery to servers, audit log</td>
+            <td>Best at</td>
+            <td><code>.env</code> files, version history, delivery to servers, audit log</td>
             <td>dynamic secrets, PKI, encryption as a service</td>
             <td>integrations with CI and clouds</td>
           </tr>
           <tr>
             <td>License</td>
-            <td>AGPL-3.0, every feature open</td>
+            <td>AGPL-3.0, every feature free</td>
             <td>BSL 1.1</td>
             <td>MIT, some features paid</td>
           </tr>
@@ -275,35 +284,39 @@
   <div class="wrap">
     <div class="section-head">
       <h2>Install</h2>
-      <p>A Linux server with ports 80 and 443 free. The command installs Docker
-      if it is missing, brings up Caddy with a Let's Encrypt certificate, starts
-      the panel with nightly encrypted backups and a watchdog, and prints the
-      address and the owner password.</p>
+      <p>You need a Linux server with ports 80 and 443 free. The command installs
+      Docker if it is missing, brings up Caddy with a Let's Encrypt certificate
+      and starts the panel from the released images, with nightly encrypted
+      backups from day one. At the end it prints the panel address and the
+      owner password.</p>
     </div>
     <div class="cmd"><span class="p">$</span><code>curl -fsSL https://raw.githubusercontent.com/mihsergeev/Sekvyr/main/ops/quickstart.sh | sudo sh</code><button class="copy" type="button" data-copy>copy</button></div>
-    <p class="lede">No domain of your own is needed: the panel works on
-    <code>&lt;server-ip&gt;.sslip.io</code> right away, with an ordinary
-    certificate. For a permanent install pass your domain and the addresses
-    allowed into the admin UI:</p>
+    <p class="lede">You do not need a domain of your own: the panel opens right
+    away at an address like <code>&lt;server-ip&gt;.sslip.io</code> with an
+    ordinary certificate. Without an address list, though, the admin UI is open
+    to everyone, so for a permanent install pass your domain and the addresses
+    allowed to log in:</p>
     <div class="cmd"><span class="p">$</span><code>curl -fsSL https://raw.githubusercontent.com/mihsergeev/Sekvyr/main/ops/quickstart.sh | sudo sh -s -- --domain sekvyr.example.com --allow-ips "203.0.113.10"</code><button class="copy" type="button" data-copy>copy</button></div>
     <div class="steps">
       <div class="step"><p><b>Log in and change the password</b>, turn on two-factor
         authentication. The installer's password sits in <code>.env</code> in plain text.</p></div>
       <div class="step"><p><b>Create the vault.</b> The root key shares are shown
-        once and never again: hand them to different people.</p></div>
-      <div class="step"><p><b>Set up alerts.</b> A panel holding secrets should not
-        fail quietly.</p></div>
-      <div class="step"><p><b>Connect your first server.</b> The panel shows the
-        ready-made agent install command.</p></div>
+        only once, hand them to different people.</p></div>
+      <div class="step"><p><b>Set up alerts</b>, so you hear about it right away if
+        something goes wrong with the panel.</p></div>
+      <div class="step"><p><b>Connect your first server.</b> The panel shows a
+        ready-made command to install the agent.</p></div>
     </div>
-    <p class="note">Manual install, your own HTTPS proxy, Kubernetes and backups
-      are covered in the <a href="https://github.com/mihsergeev/Sekvyr/blob/main/docs/install.md">documentation</a>.</p>
+    <p class="note">Manual install, your own HTTPS proxy, Kubernetes and backups are covered
+      in the <a href="https://github.com/mihsergeev/Sekvyr/blob/main/docs/install.md">documentation</a>.
+      The released panel images are built for amd64, on other servers the
+      installer builds the panel from source by itself.</p>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
-    <span>Sekvyr, AGPL-3.0</span>
+    <span>Sekvyr 1.0.0, AGPL-3.0</span>
     <a href="https://github.com/mihsergeev/Sekvyr">Source</a>
     <a href="https://github.com/mihsergeev/Sekvyr/blob/main/docs/install.md">Documentation</a>
     <a href="https://github.com/mihsergeev/Sekvyr/blob/main/CHANGELOG.md">Changelog</a>
