@@ -1,0 +1,16 @@
+{
+  "brand": "Sekvyr",
+  "pronunciationRu": "Секвир",
+  "colors": {
+    "navy": "#0B1320",
+    "white": "#F1F5F9",
+    "coreGreen": "#18E36E",
+    "lightSurface": "#F8FAFC"
+  },
+  "minimumSize": {
+    "markPx": 24,
+    "horizontalPx": 140,
+    "stackedPx": 96
+  },
+  "clearSpace": "12%"
+}

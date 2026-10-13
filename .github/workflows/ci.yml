@@ -1,0 +1,203 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install
+        # Те же версии, что в образе (constraints.txt).
+        run: pip install -c constraints.txt .[dev]
+      - name: Tests
+        run: pytest -q
+      - name: Dependency audit (pip-audit)
+        continue-on-error: true # информативно, не блокирует
+        run: |
+          pip install pip-audit
+          pip-audit
+
+  # Списки, написанные руками (уровни ролей на двух сторонах, подписи действий
+  # журнала, имена переменных окружения), не ломаются с ошибкой - они молча
+  # расходятся. Ловим машинно.
+  selfcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Consistency selfcheck
+        # cryptography - для сверки подписи агента; без нее самопроверка
+        # падала на первом импорте, и ни одна из проверок не выполнялась.
+        run: |
+          pip install cryptography
+          python ops/selfcheck.py
+      - name: Shell scripts parse
+        # Скрипты исполняет sh (dash на Debian и Ubuntu), а не bash: ошибка
+        # разбора в редкой ветке иначе всплывала бы у человека посреди
+        # обновления или восстановления.
+        run: |
+          for f in ops/*.sh agent/install.sh backend/docker-entrypoint.sh; do
+            sh -n "$f" || { echo "$f: syntax error"; exit 1; }
+          done
+
+  # Права проверяются дважды: статически (selfcheck выше - ни один маршрут не
+  # обходит проверку) и на живой панели. Второе ловит то, чего не видно в коде:
+  # недопримененную миграцию, разъехавшуюся политику по умолчанию, маршрут,
+  # который отвечает не тем, чем должен.
+  #
+  # Дважды: на SQLite и на Postgres. Прод работает на Postgres, и то, что SQLite
+  # прощает (типы, нулевой символ, длина строки, порядок миграций), видно
+  # только там.
+  live-rights-audit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        db:
+          - sqlite+aiosqlite:///./data/ci.db
+          - postgresql+asyncpg://sekvyr:ci-db-password@127.0.0.1:5432/sekvyr
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: sekvyr
+          POSTGRES_PASSWORD: ci-db-password
+          POSTGRES_DB: sekvyr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sekvyr"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      SEKVYR_DB_URL: ${{ matrix.db }}
+      SEKVYR_ADMIN_USER: admin
+      SEKVYR_ADMIN_PASSWORD: ci-password-2026-long
+      SEKVYR_JWT_SECRET: ci-secret-0123456789abcdef0123456789abcdef
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -c backend/constraints.txt ./backend
+      - name: Migrate and start the panel
+        working-directory: backend
+        run: |
+          mkdir -p data
+          alembic upgrade head
+          uvicorn app.main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8000/api/health && break
+            sleep 1
+          done
+          # Цикл кончается и без ответа панели: тогда шаг должен упасть здесь,
+          # с журналом запуска, а не дальше непонятной ошибкой подключения.
+          curl -sf http://127.0.0.1:8000/api/health >/dev/null || { cat uvicorn.log; exit 1; }
+      - name: Create the vault
+        run: python ops/ci_bootstrap.py --password "$SEKVYR_ADMIN_PASSWORD"
+      - name: Live rights audit
+        run: python ops/audit_live.py --url http://127.0.0.1:8000 --owner admin --password "$SEKVYR_ADMIN_PASSWORD"
+
+  # Агент работает на серверах от root и обновляет себя сам, поэтому его
+  # проверяют отдельно. Последний шаг собирает его так же, как образ панели, и
+  # сверяет с подписанным manifest.json: панель отдает бинарь, только если хеш
+  # сошелся, а иначе отвечает 500, и подключение серверов ломается.
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.1"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: gofmt
+        working-directory: agent
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go vet
+        working-directory: agent
+        run: go vet ./...
+      - name: go test
+        working-directory: agent
+        run: go test ./...
+      - name: Build as the panel image does and compare with the signature
+        run: |
+          docker build --target agent -f backend/Dockerfile -t sekvyr-agent-build .
+          id=$(docker create sekvyr-agent-build sh)
+          docker cp "$id:/out" agent-out
+          docker rm "$id"
+          pip install cryptography
+          python ops/agent_release.py --compare agent-out
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Tests
+        # Верстку и поведение страниц раньше проверяли только руками в браузере.
+        # Тесты появились, но без этой строки их запускал бы один человек и
+        # только когда вспомнит.
+        run: npm test
+      - name: Dependency audit (npm audit)
+        continue-on-error: true # информативно, не блокирует
+        run: npm audit --audit-level=high
+      - name: Build
+        run: npm run build
+
+  image-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Контекст - КОРЕНЬ репозитория: Dockerfile бэкенда копирует backend/ из него.
+      - name: Build backend image
+        run: docker build -f backend/Dockerfile -t sekvyr-backend .
+      - name: Trivy scan (backend image)
+        continue-on-error: true # отчет по уязвимостям в образе, не блокирует
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sekvyr-backend
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+      # Заголовки безопасности нужны самой странице панели, а не только /api/:
+      # nginx молча отбрасывает их в location со своим add_header, и главная
+      # страница так однажды жила без CSP и без запрета фрейма.
+      - name: Security headers on the panel pages
+        run: |
+          docker build -t sekvyr-frontend frontend
+          docker run -d --name fe -p 127.0.0.1:8080:8080 sekvyr-frontend
+          sleep 2
+          for path in / /p/acme/api/prod /assets/missing.js; do
+            headers=$(curl -s -o /dev/null -D - "http://127.0.0.1:8080$path")
+            for h in content-security-policy x-frame-options x-content-type-options strict-transport-security x-robots-tag; do
+              echo "$headers" | grep -qi "^$h:" || { echo "$path: no $h"; exit 1; }
+            done
+          done

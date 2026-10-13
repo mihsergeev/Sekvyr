@@ -1,0 +1,117 @@
+/* Палитра Sekvyr.
+ *
+ * Основа - нейтральные темные тона: панель открывают рядом с терминалом, и
+ * цветной фон там утомляет быстрее, чем кажется. Зеленое ядро бренда осталось,
+ * но перешло из фона в состояние: им светится открытое значение, добавленная
+ * строка и "все в порядке". Действие - синее: кнопка, фокус, активный раздел.
+ *
+ * Четыре брендовых значения ниже приходят из logos/brand-tokens.json и
+ * используются как есть, чтобы панель и знак не разъезжались по цвету.
+ */
+:root {
+  --brand-navy: #0b1320;
+  --brand-white: #f1f5f9;
+  --brand-green: #18e36e;
+  --brand-surface: #f8fafc;
+
+  --bg: #0f1117;
+  --bg-card: #171a23;
+  --bg-sunken: #12151d;
+  --border: #262b38;
+  --border-strong: #333c50;
+  --text: var(--brand-white);
+  --text-muted: #8b93a7;
+
+  --hover: rgba(255, 255, 255, 0.06);
+  --card-hover: #191d28;
+
+  /* Поле ввода: в темной теме утоплено в карточку. */
+  --field: var(--bg-sunken);
+  /* Всплывающее (меню, списки, уведомления) и затемнение под окном. */
+  --shadow-pop: 0 12px 34px rgba(0, 0, 0, 0.45);
+  --overlay: rgba(4, 9, 18, 0.62);
+
+  /* Действие */
+  --accent: #4b74ff;
+  --accent-dim: #3f63e0;
+  --accent-ink: #ffffff;
+
+  /* Состояние */
+  --ok: var(--brand-green);
+  --warn: #f59e0b;
+  --danger: #ef4444;
+
+  color-scheme: dark;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* Светлая тема: белая шапка, рабочая область на нейтральном сером, белые
+   карточки с легкой тенью. Почти белый фон с тонкими рамками не читался:
+   строки сливались со страницей, а серый текст терялся. Поэтому здесь
+   поверхности отделены от фона заметно, текст почти черный, вторичный -
+   темно-серый, а плашки окружений залиты цветом, а не обведены линией. */
+:root[data-theme='light'] {
+  --bg: #eceef2;
+  --bg-card: #ffffff;
+  --bg-sunken: #f3f5f8;
+  --border: #d9dee5;
+  --border-strong: #bcc4cf;
+  --text: #0d121a;
+  --text-muted: #485161;
+
+  --hover: rgba(13, 18, 26, 0.05);
+  --card-hover: #fbfbfc;
+
+  --field: #ffffff;
+  --shadow-pop: 0 12px 32px rgba(16, 24, 40, 0.14), 0 2px 6px rgba(16, 24, 40, 0.07);
+  --overlay: rgba(11, 19, 32, 0.4);
+
+  --accent: #2957e6;
+  --accent-dim: #1e45c2;
+  --accent-ink: #ffffff;
+
+  /* Цвета состояния глубже, чем в темной теме: мелкий текст на белом должен
+     читаться (контраст не ниже 4.5), а брендовый зеленый на белом слепит. */
+  --ok: #06793d;
+  --warn: #935700;
+  --danger: #bf282d;
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.07), 0 1px 1px rgba(15, 23, 42, 0.03);
+  --shadow-row: 0 1px 2px rgba(15, 23, 42, 0.06);
+
+  /* Шапка и то, что есть только в светлой теме (см. конец App.css). */
+  --header-bg: #ffffff;
+  --header-line: #d9dee5;
+  --badge-bg: #e2e6ec;
+  --badge-ink: #353e4c;
+  --chip-bg: #e7ebf0;
+  --chip-line: #c9d0da;
+  --chip-ink: #1d2531;
+  --prod-bg: #e6f4ec;
+  --prod-line: #a9d6ba;
+  --prod-ink: #05652f;
+
+  color-scheme: light;
+}
+
+/* Тени только в светлой теме - в темной глубину дает сам фон */
+:root[data-theme='light'] .card {
+  box-shadow: var(--shadow-card);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Атрибут hidden прячет всегда. Без этого его перебивает любой display из
+   панели: у подписи поля, например, flex. */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}

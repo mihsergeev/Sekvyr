@@ -1,0 +1,23 @@
+# Готовые образы из GHCR вместо сборки из исходников.
+#
+#   docker compose -f compose.yml -f compose.ghcr.yml -f compose.caddy.yml up -d
+#
+# или COMPOSE_FILE=compose.yml:compose.ghcr.yml:compose.caddy.yml в .env. Так
+# ставит ops/quickstart.sh, если не передать ему --build.
+#
+# Сборка из исходников просит около 2 ГБ памяти и нескольких минут: агент
+# собирается под две архитектуры, фронтенд - целиком. На небольшом сервере
+# проще взять образы, собранные из того же тега в CI.
+#
+# SEKVYR_IMAGE_TAG закрепляет версию образов, и она должна совпадать с версией
+# репозитория рядом: compose-файлы, миграции и скрипты берутся из него.
+# quickstart и ops/update.sh держат их вместе сами. Имя не SEKVYR_VERSION
+# намеренно: так называется версия, которую панель о себе показывает.
+services:
+  backend:
+    build: !reset null
+    image: ghcr.io/mihsergeev/sekvyr-backend:${SEKVYR_IMAGE_TAG:-latest}
+
+  frontend:
+    build: !reset null
+    image: ghcr.io/mihsergeev/sekvyr-frontend:${SEKVYR_IMAGE_TAG:-latest}

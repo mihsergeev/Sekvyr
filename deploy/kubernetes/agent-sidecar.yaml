@@ -1,0 +1,149 @@
+# Secrets for a pod without a single static secret.
+#
+# The pod presents its projected ServiceAccount token, the panel checks the
+# cluster signature and returns the values. Nothing that could be stolen and
+# used elsewhere is stored in the cluster: the token lives an hour (the panel
+# refuses anything living over a day) and carries the panel audience.
+#
+# Once, in the panel:
+#   1) Servers -> menu "..." -> "Add a cluster": name, issuer, audience and the
+#      cluster keys (kubectl get --raw /openid/v1/jwks);
+#   2) Servers -> menu "..." -> "Identity in a cluster": this cluster, the
+#      namespace and the ServiceAccount below;
+#   3) the panel owner grants it the environment in the Access section.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: billing-app
+  namespace: billing
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sekvyr-agent
+  namespace: billing
+data:
+  # The machine API of the panel: it is open to the world, unlike the admin UI.
+  SEKVYR_URL: "https://sekvyr.example.com"
+  SEKVYR_GROUP: "acme" # leave empty if the project has no group
+  SEKVYR_PROJECT: "billing"
+  SEKVYR_ENV: "prod"
+  # Agent output language: ru or en, English by default.
+  # SEKVYR_LANG: "ru"
+  # Only for projects with browser-side encryption, see the node-key volume.
+  # SEKVYR_NODE_KEY: /var/run/secrets/sekvyr-node/node.key
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-app
+  namespace: billing
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: billing-app }
+  template:
+    metadata:
+      labels: { app: billing-app }
+    spec:
+      serviceAccountName: billing-app
+      securityContext:
+        # The agent runs as nobody, the application may run as anyone. With
+        # fsGroup the file in the shared volume belongs to this group, and mode
+        # 0440 lets both containers read it and nobody else.
+        fsGroup: 2000
+      volumes:
+        # A token for the panel specifically: the audience is required, and a
+        # token "for kubernetes" will not do. It lives an hour, kubelet renews it.
+        - name: sekvyr-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: sekvyr
+                  expirationSeconds: 3600
+        # The values file lives in memory and does not survive a pod restart.
+        - name: secrets
+          emptyDir:
+            medium: Memory
+        # Only for projects with browser-side encryption: the node key shared
+        # by all replicas. Create it once:
+        #   kubectl -n billing create secret generic sekvyr-node-key \
+        #     --from-literal=node.key="$(head -c 32 /dev/urandom | base64)"
+        # then seal the project key to this identity in the panel.
+        # - name: node-key
+        #   secret:
+        #     secretName: sekvyr-node-key
+        #     defaultMode: 0440
+
+      initContainers:
+        # The first render happens before the application starts: a container
+        # should not come up without its values and crash in a loop.
+        - name: sekvyr-init
+          image: ghcr.io/mihsergeev/sekvyr-agent:1.0.0
+          args: ["render", "-o", "/secrets/.env", "--mode", "0440", "--no-cache"]
+          envFrom:
+            - configMapRef: { name: sekvyr-agent }
+          # The agent needs neither root nor a writable image: it only writes
+          # into the shared volume.
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+          volumeMounts:
+            - { name: sekvyr-token, mountPath: /var/run/secrets/sekvyr, readOnly: true }
+            - { name: secrets, mountPath: /secrets }
+            # - { name: node-key, mountPath: /var/run/secrets/sekvyr-node, readOnly: true }
+
+      containers:
+        - name: app
+          image: registry.example.com/billing/app:1.4.2
+          # The application reads the ready file: the secrets do not pass through
+          # the Deployment env and are not visible in `kubectl describe`.
+          args: ["--env-file", "/secrets/.env"]
+          volumeMounts:
+            - { name: secrets, mountPath: /secrets, readOnly: true }
+
+        # The sidecar keeps the file fresh: a change reaches it within a minute.
+        # The application sees it when it reads the file again: best on a
+        # timer or on inotify for the directory (the file is replaced whole).
+        # A signal from the sidecar works only with shareProcessNamespace: true
+        # in the pod spec AND the same runAsUser for the sidecar and the
+        # application (the sidecar image runs as 65534 without capabilities);
+        # then add
+        #   --on-change "pkill -HUP -x app"
+        # to the arguments below. Otherwise restart the pods.
+        - name: sekvyr-agent
+          image: ghcr.io/mihsergeev/sekvyr-agent:1.0.0
+          args:
+            - agent
+            - -o
+            - /secrets/.env
+            - --mode
+            - "0440"
+            - --interval
+            - 60s
+            # The image is updated by its tag, not by the agent itself.
+            - --no-update
+            - --no-cache
+          envFrom:
+            - configMapRef: { name: sekvyr-agent }
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          volumeMounts:
+            - { name: sekvyr-token, mountPath: /var/run/secrets/sekvyr, readOnly: true }
+            - { name: secrets, mountPath: /secrets }
+            # - { name: node-key, mountPath: /var/run/secrets/sekvyr-node, readOnly: true }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }

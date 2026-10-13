@@ -1,0 +1,109 @@
+# Логи контейнеров Docker по умолчанию не ротирует, а агенты ходят в панель
+# каждую минуту: за год на десятке серверов набегают гигабайты, и маленькая
+# VPS однажды останавливается с полным диском. Пятидесяти мегабайт на сервис
+# хватает, чтобы разобрать вчерашнее.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    logging: *logging
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_DB: ${SEKVYR_DB_NAME:-sekvyr}
+      POSTGRES_USER: ${SEKVYR_DB_USER:-sekvyr}
+      POSTGRES_PASSWORD: ${SEKVYR_DB_PASSWORD}
+    volumes:
+      # PG18+ хранит данные в подкаталоге с мажорной версией (.../18/docker) -
+      # монтируем корень кластера, а не сам каталог данных.
+      - ./data/postgres:/var/lib/postgresql
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SEKVYR_DB_USER:-sekvyr} -d ${SEKVYR_DB_NAME:-sekvyr}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    logging: *logging
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      SEKVYR_DB_URL: postgresql+asyncpg://${SEKVYR_DB_USER:-sekvyr}:${SEKVYR_DB_PASSWORD}@db:5432/${SEKVYR_DB_NAME:-sekvyr}
+      SEKVYR_JWT_SECRET: ${SEKVYR_JWT_SECRET}
+      SEKVYR_JWT_TTL_MINUTES: ${SEKVYR_JWT_TTL_MINUTES:-720}
+      SEKVYR_ADMIN_USER: ${SEKVYR_ADMIN_USER:-admin}
+      SEKVYR_ADMIN_PASSWORD: ${SEKVYR_ADMIN_PASSWORD}
+      # break-glass: 1 сбрасывает пароль владельца и второй фактор при старте
+      SEKVYR_ADMIN_PASSWORD_RESET: ${SEKVYR_ADMIN_PASSWORD_RESET:-0}
+      SEKVYR_DATA_DIR: /data
+      # Пусто = панель поднимается запертой и ждет долей (режим по умолчанию)
+      SEKVYR_ROOT_KEY: ${SEKVYR_ROOT_KEY:-}
+      # Путь, по которому панель может сохранить корневой ключ, если владелец
+      # включит автоматическое отпирание. Пусто - сохранять некуда, и панель
+      # всегда будет ждать ввода.
+      SEKVYR_ROOT_KEY_FILE: ${SEKVYR_ROOT_KEY_FILE:-}
+      SEKVYR_TIMEZONE: ${SEKVYR_TIMEZONE:-UTC}
+      SEKVYR_PANEL_URL: ${SEKVYR_PANEL_URL:-}
+      # Оповещения: панель берет их отсюда, если в интерфейсе не задано свое.
+      # ops/backup.sh и ops/panel-watchdog.sh берут канал не отсюда, а из
+      # файла пульса data/heartbeat, который пишет панель.
+      SEKVYR_ALERT_TELEGRAM_TOKEN: ${SEKVYR_ALERT_TELEGRAM_TOKEN:-}
+      SEKVYR_ALERT_TELEGRAM_CHAT: ${SEKVYR_ALERT_TELEGRAM_CHAT:-}
+      SEKVYR_ALERT_TELEGRAM_API: ${SEKVYR_ALERT_TELEGRAM_API:-}
+      SEKVYR_ALERT_WEBHOOK: ${SEKVYR_ALERT_WEBHOOK:-}
+      # Окружения, правка которых стоит отдельного сообщения. Подстановка без
+      # двоеточия намеренно: пустое значение (не сообщать) должно дойти пустым,
+      # а не замениться умолчанием.
+      SEKVYR_ALERT_ON_ENVS: ${SEKVYR_ALERT_ON_ENVS-prod production}
+      # Копия журнала на чужом приемнике: единственное, что мешает срезать
+      # журнал вместе с базой.
+      SEKVYR_AUDIT_WEBHOOK: ${SEKVYR_AUDIT_WEBHOOK:-}
+      SEKVYR_AUDIT_SHIP_INTERVAL: ${SEKVYR_AUDIT_SHIP_INTERVAL:-30}
+      # Отметку оставляет ops/backup.sh, панель её только читает.
+      # Без двоеточия: пустое значение в .env выключает слежку за бэкапом,
+      # как и обещает .env.example. С :- оно подменялось умолчанием.
+      SEKVYR_BACKUP_STATE_FILE: ${SEKVYR_BACKUP_STATE_FILE-/data/backup.json}
+      SEKVYR_BACKUP_MAX_AGE_HOURS: ${SEKVYR_BACKUP_MAX_AGE_HOURS:-48}
+      # 1 = перед бэкендом только nginx фронтенда; 2 = еще и внешний прокси
+      SEKVYR_TRUSTED_PROXY_HOPS: ${SEKVYR_TRUSTED_PROXY_HOPS:-1}
+    volumes:
+      - ./data:/data
+      # Отдельный каталог для корневого ключа - намеренно не внутри ./data:
+      # бэкап базы не должен увозить ключ вместе с шифротекстом. Пустует, пока
+      # автоматическое отпирание не включено.
+      - ./secret:/secret
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    logging: *logging
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - backend
+    # Панель публикуется на хосте по SEKVYR_BIND (по умолчанию только localhost).
+    # Впереди должен стоять обратный прокси с HTTPS - либо compose.caddy.yml.
+    ports:
+      - "${SEKVYR_BIND:-127.0.0.1:8080}:8080"
+    networks:
+      - internal
+
+networks:
+  internal:

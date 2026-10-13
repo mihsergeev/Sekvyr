@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sekvyr - секреты и переменные окружения на своем сервере</title>
+<meta name="description" content="Панель для секретов и переменных окружения на своем сервере: версии с откатом, права по проектам, доставка на серверы и в кластеры. Ставится одной командой. Open source, AGPL-3.0.">
+<link rel="canonical" href="https://sekvyr.ru/">
+<link rel="alternate" hreflang="ru" href="https://sekvyr.ru/">
+<link rel="alternate" hreflang="en" href="https://sekvyr.ru/en/">
+<meta property="og:title" content="Sekvyr - секреты и переменные окружения на своем сервере">
+<meta property="og:description" content="Значения правят в вебе, серверы забирают их сами. Админка открыта только вашим адресам, машинный контур секреты только читает. Установка одной командой.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://sekvyr.ru/">
+<meta property="og:image" content="https://sekvyr.ru/shots/ru/og.png">
+<meta property="og:locale" content="ru_RU">
+<meta name="theme-color" content="#0f1117">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="alternate icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png">
+<link rel="stylesheet" href="/style.css?v=2">
+</head>
+<body>
+
+<div class="top">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/mark.svg?v=2" alt="">Sekvyr</a>
+    <nav>
+      <a class="hide-sm" href="#what">Что умеет</a>
+      <a class="hide-sm" href="#ui">Интерфейс</a>
+      <a class="hide-sm" href="#security">Безопасность</a>
+      <a class="hide-sm" href="#compare">Сравнение</a>
+      <a href="#install">Установка</a>
+      <span class="sep hide-sm"></span>
+      <a href="https://github.com/mihsergeev/Sekvyr">GitHub</a>
+      <a class="lang" href="/en/" hreflang="en">EN</a>
+    </nav>
+  </div>
+</div>
+
+<div class="hero">
+  <div class="wrap hero-inner">
+    <img class="hero-logo" src="/logo.svg?v=2" alt="Sekvyr">
+    <p class="eyebrow"><span>Open source</span><span>AGPL-3.0</span><span>self-hosted</span></p>
+    <h1>Секреты живут в панели, а не в переписке</h1>
+    <p class="lead">
+      Люди правят значения в вебе, серверы и кластеры забирают их сами и держат
+      свои <code>.env</code> в актуальном состоянии. Админка открыта только вашим
+      адресам, машинный контур открыт наружу и секреты только читает: это два
+      разных контура, а не один с оговорками.
+    </p>
+    <div class="cta">
+      <a class="btn" href="#install">Установить</a>
+      <a class="btn btn-ghost" href="https://github.com/mihsergeev/Sekvyr">Смотреть на GitHub</a>
+    </div>
+    <div class="chips">
+      <span class="chip">Docker Compose</span>
+      <span class="chip">один Postgres и больше ничего</span>
+      <span class="chip">агент для Linux</span>
+      <span class="chip">Kubernetes без статических секретов</span>
+      <span class="chip">RU / EN</span>
+    </div>
+  </div>
+
+  <div class="wrap hero-shot">
+    <a class="frame" href="/shots/ru/home.webp" data-lb>
+      <div class="frame-bar"><i></i><i></i><i></i><span>sekvyr.example.ru</span><em>увеличить</em></div>
+      <img src="/shots/ru/home.webp" alt="Главный экран Sekvyr: проекты по группам, окружения, серверы" width="1440" height="900" loading="eager"></a>
+  </div>
+</div>
+
+<section id="what">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Что умеет</h2>
+      <p>Все, ради чего обычно ставят хранилище секретов, и ничего сверх того.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h3><span class="dot"></span>Проекты и окружения</h3>
+        <p>Проект, внутри окружения dev, stage и prod, внутри папки и ключи.
+        Импорт и экспорт <code>.env</code>, наследование значений, поиск по
+        Ctrl+K через всю панель. Навигация рассчитана на сотни проектов.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Версии и откат</h3>
+        <p>Значение не перезаписывается: каждая правка - новая версия. Видно,
+        каким ключ был вчера, чем отличаются две версии и что поменялось за
+        неделю. Удаление тоже версия, поэтому обратимо.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Права, которые проверяет API</h3>
+        <p>Кому, где и что можно, причем <code>list</code> и <code>read</code>
+        разделены: разработчик видит, какие переменные нужны приложению, не видя
+        прод-паролей. Право бывает до даты и с условием второго фактора.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Согласование по ролям</h3>
+        <p>Правка от роли ниже порога проекта ждет подтверждения старшего и до
+        тех пор не уезжает на серверы. Свою правку автор не подтвердит, а порог
+        меняет только владелец.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Сервер одной командой</h3>
+        <p>Панель выдает строку с одноразовым токеном, агент ставится на ноду и
+        получает свою учетку, от которой у панели остается только хеш. Доступ
+        выдается мышью, изменение доезжает до сервиса само. Обновляется агент
+        тоже сам и только по подписи релиза.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Kubernetes без статических секретов</h3>
+        <p>Под предъявляет короткоживущий ServiceAccount-токен, выписанный именно
+        для панели, а панель проверяет подпись по ключам кластера. Если уже стоит
+        External Secrets Operator, работает и он.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Переезд с Infisical и Vault</h3>
+        <p>Отдельный экран с предпросмотром: видно, что приедет нового и что уже
+        есть. Существующие значения по умолчанию не переписываются, а реквизиты
+        источника панель не сохраняет.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Гигиена значений</h3>
+        <p>У ключа есть подпись, зачем он нужен, и дата, к которой его надо
+        заменить: панель напомнит заранее. Нехватка обязательных ключей видна в
+        каждом окружении, а <code>changeme</code> в проде панель найдет сама.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Эксплуатация</h3>
+        <p>Шифрованные бэкапы с проверкой свежести, восстановление одной
+        командой, обновление с бэкапом перед миграциями, сторож вне контейнеров.
+        Оповещения в Telegram и вебхуки, сводка правок раз в неделю.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="ui">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Как это выглядит</h2>
+      <p>Кадры сняты с работающей панели на демо-данных: проекты, серверы и
+      адреса на них выдуманы.</p>
+    </div>
+    <div class="gallery">
+      <figure>
+        <a class="frame" href="/shots/ru/environment.webp" data-lb>
+          <div class="frame-bar"><i></i><i></i><i></i><span>/p/acme/api/prod</span><em>увеличить</em></div>
+          <img src="/shots/ru/environment-960.webp" alt="Окружение с ключами" width="960" height="600" loading="lazy"></a>
+        <figcaption>Окружение: ключи, подписи, сроки замены, какие серверы его читают.</figcaption>
+      </figure>
+      <figure>
+        <a class="frame" href="/shots/ru/history.webp" data-lb>
+          <div class="frame-bar"><i></i><i></i><i></i><span>/p/acme/api/prod</span><em>увеличить</em></div>
+          <img src="/shots/ru/history-960.webp" alt="История версий ключа" width="960" height="600" loading="lazy"></a>
+        <figcaption>Версии ключа: кто, когда, что было раньше, откат одной кнопкой.</figcaption>
+      </figure>
+      <figure>
+        <a class="frame" href="/shots/ru/servers.webp" data-lb>
+          <div class="frame-bar"><i></i><i></i><i></i><span>/servers</span><em>увеличить</em></div>
+          <img src="/shots/ru/servers-960.webp" alt="Список серверов" width="960" height="600" loading="lazy"></a>
+        <figcaption>Серверы: что забирает каждый, версии агентов, кто замолчал.</figcaption>
+      </figure>
+      <figure>
+        <a class="frame" href="/shots/ru/access.webp" data-lb>
+          <div class="frame-bar"><i></i><i></i><i></i><span>/access</span><em>увеличить</em></div>
+          <img src="/shots/ru/access-960.webp" alt="Права доступа" width="960" height="600" loading="lazy"></a>
+        <figcaption>Доступ: кому что можно видеть, читать и менять и до какого числа.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="security">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Безопасность</h2>
+      <p>Главное правило проекта: компрометация базы не должна давать значений.
+      Все остальное - детали реализации этого правила.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h3><span class="dot"></span>Три уровня ключей</h3>
+        <p>Значение шифруется ключом окружения, ключ окружения - корневым.
+        Шифротекст привязан к своему месту: строку в базе нельзя переставить в
+        другое окружение или подменить чужим значением.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Запертая панель</h3>
+        <p>Пока корневой ключ не введен, значения не читает никто, включая
+        владельца. Ключ хранится долями (по умолчанию 3 из 5), одним ключом,
+        который вводят после каждого перезапуска, или файлом на сервере.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Сервер только читает</h3>
+        <p>Подключенная машина не может изменить или удалить секрет: в машинном
+        контуре таких маршрутов нет вовсе, и это проверяет тест в CI, а не
+        обещает документация.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Журнал с хеш-цепочкой</h3>
+        <p>Каждая запись хранит хеш предыдущей, панель пересчитывает цепочку раз
+        в сутки. Копию записей можно отправлять на внешний вебхук, иначе журнал
+        срезали бы вместе с базой. Значений в журнале нет.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Шифрование в браузере</h3>
+        <p>Для отдельных проектов: значения шифруются ключом, которого у сервера
+        нет вовсе. Плата честная: забытый пароль проекта означает потерю
+        значений.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot"></span>Аварийный доступ</h3>
+        <p>Все значения одним запечатанным файлом под вашим паролем. Открывает
+        его отдельная утилита без панели и без сети, на случай дня, когда панели
+        уже нет.</p>
+      </div>
+    </div>
+    <p class="note">Что защищено и что нет:
+      <a href="https://github.com/mihsergeev/Sekvyr/blob/main/docs/security-model.ru.md">модель безопасности</a> и
+      <a href="https://github.com/mihsergeev/Sekvyr/blob/main/docs/threat-model.ru.md">модель угроз</a>.</p>
+  </div>
+</section>
+
+<section id="compare">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Чем отличается</h2>
+      <p>Sekvyr не пытается заменить Vault во всем. Он закрывает случай, который
+      встречается чаще: десятки серверов, пара человек на инфраструктуре и
+      желание видеть все в одном месте.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th></th><th>Sekvyr</th><th>HashiCorp Vault</th><th>Infisical</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Порог входа</td>
+            <td>панель, где все видно сразу</td>
+            <td>политики на HCL, движки секретов, свой словарь</td>
+            <td>веб-панель, ближе всего по идее</td>
+          </tr>
+          <tr>
+            <td>На чем работает</td>
+            <td>один Postgres</td>
+            <td>встроенное хранилище Raft или Consul</td>
+            <td>Postgres и Redis</td>
+          </tr>
+          <tr>
+            <td>Сильная сторона</td>
+            <td>env-файлы, версии, доставка на серверы, журнал</td>
+            <td>динамические секреты, PKI, шифрование как сервис</td>
+            <td>интеграции с CI и облаками</td>
+          </tr>
+          <tr>
+            <td>Лицензия</td>
+            <td>AGPL-3.0, все функции открыты</td>
+            <td>BSL 1.1</td>
+            <td>MIT, часть функций платная</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Установка</h2>
+      <p>Нужен сервер с Linux и свободными портами 80 и 443. Команда ставит
+      Docker, если его нет, поднимает Caddy с сертификатом Let's Encrypt,
+      запускает панель с ночными шифрованными бэкапами и сторожем и печатает
+      адрес и пароль владельца.</p>
+    </div>
+    <div class="cmd"><span class="p">$</span><code>curl -fsSL https://raw.githubusercontent.com/mihsergeev/Sekvyr/main/ops/quickstart-ru.sh | sudo sh</code><button class="copy" type="button" data-copy>копировать</button></div>
+    <p class="lede">Свой домен не обязателен: панель сразу работает на
+    <code>&lt;ip-сервера&gt;.sslip.io</code> с обычным сертификатом. Для
+    постоянной установки передайте домен и адреса, которым открыта админка:</p>
+    <div class="cmd"><span class="p">$</span><code>curl -fsSL https://raw.githubusercontent.com/mihsergeev/Sekvyr/main/ops/quickstart-ru.sh | sudo sh -s -- --domain sekvyr.example.ru --allow-ips "203.0.113.10"</code><button class="copy" type="button" data-copy>копировать</button></div>
+    <div class="steps">
+      <div class="step"><p><b>Войдите и смените пароль</b>, включите второй фактор.
+        Пароль от установщика лежит в <code>.env</code> открытым.</p></div>
+      <div class="step"><p><b>Заведите сейф.</b> Доли корневого ключа показываются
+        один раз и больше никогда: раздайте их разным людям.</p></div>
+      <div class="step"><p><b>Настройте оповещения.</b> Панель с секретами не должна
+        ломаться молча.</p></div>
+      <div class="step"><p><b>Подключите первый сервер.</b> Панель покажет готовую
+        команду установки агента.</p></div>
+    </div>
+    <p class="note">Ручная установка, свой HTTPS-прокси, Kubernetes и бэкапы
+      описаны в <a href="https://github.com/mihsergeev/Sekvyr/blob/main/docs/install.ru.md">документации</a>.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Sekvyr, AGPL-3.0</span>
+    <a href="https://github.com/mihsergeev/Sekvyr">Исходники</a>
+    <a href="https://github.com/mihsergeev/Sekvyr/blob/main/docs/install.ru.md">Документация</a>
+    <a href="https://github.com/mihsergeev/Sekvyr/blob/main/CHANGELOG.md">Что нового</a>
+    <a href="/en/" hreflang="en">English</a>
+    <span class="sp">Читается "Секвир"</span>
+  </div>
+</footer>
+
+<div class="lb" id="lb" role="dialog" aria-modal="true"><img alt=""></div>
+<script src="/lb.js?v=2"></script>
+</body>
+</html>

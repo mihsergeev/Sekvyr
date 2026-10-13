@@ -1,0 +1,3657 @@
+/* Каркас панели: шапка с логотипом, боковое меню, содержимое.
+   Раскладка сделана по мокапам бренд-кита: меню слева отдельной
+   карточкой, содержимое - набором карточек на темном фоне. */
+
+.shell {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem 3rem;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+  /* На узком окне шапка не должна вылезать за край и давать горизонтальную
+     прокрутку - переносим строку. */
+  flex-wrap: wrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* Узкий экран: шапка должна помещаться в одну строку. Знак мельче, строка
+   разделов прокручивается вбок, "Тема" и язык переезжают в меню под
+   шестеренкой. */
+.narrow-only {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .wide-only {
+    display: none;
+  }
+
+  button.narrow-only,
+  div.narrow-only {
+    display: block;
+  }
+
+  .brand-img,
+  .brand-img img {
+    width: 124px !important;
+  }
+
+  /* Разделы уходят на свою строку под знак: втроем со знаком и шестеренкой они
+     занимали три строки вместо двух. order переносит их вниз, оставляя в
+     первой строке знак и шестеренку. */
+  .tabs {
+    order: 3;
+    flex: 1 0 100%;
+    margin-left: 0;
+    padding-left: 0;
+    border-left: none;
+    margin-top: 0.5rem;
+  }
+}
+
+/* Логотип - это ссылка на главную. Кнопка, а не div с onClick: так работает
+   клавиатура и так его находит скринридер. */
+.brand-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin-right: 0.5rem;
+  cursor: pointer;
+  border-radius: 10px;
+  line-height: 0;
+}
+
+.brand-link:hover {
+  background: transparent;
+  opacity: 0.85;
+}
+
+.brand-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+/* Логотип: рендерим обе версии, тема прячет лишнюю (см. Logo.tsx) */
+.brand-img {
+  display: inline-flex;
+  align-items: center;
+}
+
+.brand-img img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+:root[data-theme='light'] .brand-when-dark {
+  display: none;
+}
+
+:root:not([data-theme='light']) .brand-when-light {
+  display: none;
+}
+
+.content {
+  margin-top: 1.5rem;
+  min-width: 0;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* На узком экране меню уезжает наверх строкой: боковая колонка на телефоне
+   съедает половину ширины, а разделов всего несколько. */
+@media (max-width: 720px) {
+  .body {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------- карточки и типографика ---------- */
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+}
+
+/* Клавиатурный фокус виден везде одинаково. Раньше его рисовал браузер - в
+   темной теме тонкая системная рамка на темном фоне почти не читалась, а на
+   строках-карточках её не было вовсе. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Одна шкала заголовков на всю панель. Раньше размер задавал браузер, а поля
+   гасились в разметке инлайновым `margin: 0` - от страницы к странице
+   заголовки получались разного роста и с разными отступами. */
+h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* Заголовок, который забирает свободное место в строке действий. */
+.grow {
+  flex: 1;
+}
+
+.card h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.15rem;
+}
+
+.card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.small {
+  font-size: 0.82rem;
+}
+
+.mono {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  font-size: 0.9em;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 0.5rem 1.25rem;
+  align-items: center;
+}
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 0.45rem;
+  vertical-align: middle;
+}
+
+.dot.ok {
+  background: var(--ok);
+}
+
+.dot.bad {
+  background: var(--danger);
+}
+
+/* ---------- кнопки ---------- */
+
+button {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: none;
+  border-radius: 9px;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+button:hover {
+  background: var(--accent-dim);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  font-weight: 500;
+}
+
+button.ghost:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+button.small-btn {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+/* Разделы в шапке, сразу за знаком. Раньше их держало меню под шестеренкой:
+   тот, кто открыл панель впервые, о половине разделов не догадывался. Черта
+   слева отделяет их от знака - иначе название панели читается как первый
+   раздел. */
+.tabs {
+  display: flex;
+  gap: 0.15rem;
+  min-width: 0;
+  flex-shrink: 1;
+  margin-left: 0.5rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.tab {
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 0.42rem 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* "Вы здесь" - заливкой: подчеркивание держалось за нижнюю границу шапки, а в
+   одной строке со знаком держаться ему не за что. */
+.tab-active,
+.tab-active:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.navlink {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-radius: 9px;
+  padding: 0.55rem 0.85rem;
+  text-align: left;
+  font-weight: 500;
+}
+
+.navlink:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* Активный раздел отмечаем фоном */
+.navlink-active {
+  background: var(--bg-sunken);
+  color: var(--text);
+}
+
+.row-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  /* Строка действий сама бывает элементом другой строки (шапка проекта). Без
+     этого её распирало содержимое с nowrap - переключатель окружений уезжал за
+     край экрана вместе со страницей. */
+  min-width: 0;
+}
+
+/* ---------- формы ---------- */
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+input,
+select {
+  background: var(--field);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Ошибка внутри окна и формы - та же плашка, что на страницах: одна ошибка на
+   всю панель должна выглядеть одинаково, где бы она ни случилась. */
+.form-error {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  box-shadow: inset 3px 0 0 var(--danger);
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+/* ---------- вход ---------- */
+
+.login-wrap {
+  display: flex;
+  justify-content: center;
+  /* Карточка держит свою высоту: растянутый на все окно flex-элемент - плата
+     за то, что фон ниже занимает окно целиком. */
+  align-items: flex-start;
+  padding-top: 9vh;
+  /* Фон рисует сам этот блок, поэтому он должен доставать до низа окна. Без
+     этого он кончался под карточкой, и по экрану шел шов: сверху фирменный
+     синий, снизу фон страницы. dvh, а не vh: на телефоне адресная строка
+     съезжает, и 100vh оставляет полосу. */
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.login-card {
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.login-brand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.35rem;
+}
+
+.login-card h2 {
+  margin: 0;
+  align-self: center;
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* ---------- таблицы ---------- */
+
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.grid th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 0 0.6rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.grid td {
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.grid tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---------- модалка ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Слой выше всего, что липнет к экрану: без него полоса папки (sticky,
+     z-index 2) рисовалась поверх окна и разрезала его пополам. */
+  z-index: 50;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal {
+  width: 380px;
+  max-width: 100%;
+  /* Высокое окно (настройки проекта с десятком окружений) должно листаться
+     внутри себя, а не уезжать заголовком за край экрана. */
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
+/* ---------- раздел секретов ---------- */
+
+/* Окружения - это вкладки внутри проекта: их немного, они короткие, и переход
+   между ними должен быть в один клик, а не через выпадающий список. */
+.env-tabs {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.value-cell {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Показанное значение выделяем цветом ядра: на экране оно живет недолго, и
+   должно быть заметно, что сейчас открыто. */
+.value-shown {
+  color: var(--ok);
+  user-select: all;
+}
+
+.value-input {
+  background: var(--field);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 0.5rem 0.7rem;
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  font-size: 0.9rem;
+  resize: vertical;
+  width: 100%;
+}
+
+.value-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.value-box {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+}
+
+.scroll-box {
+  /* Нижняя граница нужна не меньше верхней: в высоком окне список сжимался до
+     полутора строк, и таблица переставала читаться. */
+  min-height: 160px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.modal-wide {
+  width: min(720px, calc(100vw - 2rem));
+}
+
+/* Окно с командой: шире обычного, но не во весь экран - читают одну строку. */
+.modal-roomy {
+  width: min(560px, calc(100vw - 2rem));
+}
+
+/* Заголовок и кнопки высокого окна держатся на виду: в настройках проекта
+   "Закрыть" лежало за нижним краем, и чтобы выйти, приходилось листать. */
+.modal > h3:first-child {
+  position: sticky;
+  top: -1.25rem;
+  z-index: 1;
+  margin: -0.35rem 0 0;
+  padding: 0.35rem 0;
+  background: var(--bg-card);
+}
+
+.modal > /* Ошибка и предупреждение: плашка с засечкой, а не строка красного текста.
+   Абзац терялся между заголовком и содержимым - особенно если человек в этот
+   момент смотрел в другой конец экрана. */
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.6rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.note-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.note-close {
+  flex-shrink: 0;
+  padding: 0.1rem 0.4rem;
+  line-height: 1.2;
+}
+
+.note-error {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+  box-shadow: inset 3px 0 0 var(--danger);
+  color: var(--text);
+}
+
+.note-warn {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  box-shadow: inset 3px 0 0 var(--warn);
+  color: var(--text);
+}
+
+/* Полосы загрузки: тот же рост и скругление, что у строк списка, - когда
+   содержимое приедет, страница не дернется. */
+.skeleton {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.skeleton-row {
+  height: 40px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-row:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.skeleton-row:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.skeleton-row:nth-child(n + 4) {
+  animation-delay: 0.45s;
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 0.9;
+  }
+}
+
+/* Тем, кому анимация мешает, она не нужна и здесь. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-row {
+    animation: none;
+  }
+}
+
+.dialog-actions {
+  position: sticky;
+  bottom: -1.25rem;
+  padding: 0.6rem 0 0;
+  background: var(--bg-card);
+}
+
+/* История ключа: строка на версию, под ней - что именно поменялось. */
+.history {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.hist-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 8px;
+}
+
+.hist-row:hover {
+  background: var(--hover);
+}
+
+.hist-row-open {
+  background: var(--bg-sunken);
+}
+
+.hist-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  /* На узком экране строка версии переносится, а не уезжает вправо: окно и так
+     не шире экрана телефона. */
+  flex-wrap: wrap;
+}
+
+.hist-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.hist-version {
+  font-weight: 600;
+  min-width: 1.5rem;
+}
+
+.hist-when,
+.hist-who,
+.hist-comment {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hist-comment {
+  flex: 1;
+  min-width: 0;
+}
+
+.hist-diff {
+  padding: 0 0.6rem 0.5rem;
+}
+
+/* Окружение в настройках: имя, от кого наследует, сколько ключей, действие. */
+.env-lines {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.env-line {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-sunken);
+  border-radius: 8px;
+}
+
+.env-line-name {
+  font-weight: 600;
+  min-width: 6rem;
+}
+
+.env-line-parent {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-direction: row;
+}
+
+.env-line-count {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.tag {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.tag-muted {
+  color: var(--text);
+  background: var(--border-strong);
+}
+
+.checkline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.plain-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* ---------- права и согласование ---------- */
+
+/* Истекшее право видно, но приглушено: строка остается на месте, чтобы было
+   понятно, что доступ БЫЛ, а не "куда-то делся". */
+.row-expired td {
+  opacity: 0.55;
+}
+
+.tag-deny {
+  color: #fff;
+  background: var(--danger);
+}
+
+.tag-wait {
+  color: var(--accent-ink);
+  background: var(--warn);
+}
+
+/* Сплошная темно-оранжевая или серая плашка на белом тяжелее самой строки, в
+   которой стоит: в светлой теме метки тонированные, цвет несет текст. */
+:root[data-theme='light'] .tag {
+  color: var(--accent-dim);
+  background: color-mix(in srgb, var(--accent) 12%, #fff);
+}
+
+:root[data-theme='light'] .tag-muted,
+:root[data-theme='light'] .tag-lines {
+  color: var(--text-muted);
+  background: var(--bg-sunken);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+:root[data-theme='light'] .tag-deny {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, #fff);
+}
+
+:root[data-theme='light'] .tag-wait {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, #fff);
+}
+
+.qr {
+  align-self: center;
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px;
+}
+
+/* ---------- меню под шестеренкой ---------- */
+
+.icon-btn {
+  padding: 0.4rem 0.6rem;
+  min-width: 2.2rem;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Прозрачный слой на весь экран: щелчок мимо меню закрывает его */
+.menu-catcher {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+}
+
+.menu-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 40;
+  min-width: 220px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.3rem;
+  box-shadow: var(--shadow-pop);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.menu-pop-right {
+  right: 0;
+}
+
+.menu-gear {
+  font-size: 1.05rem;
+  line-height: 1;
+  display: inline-block;
+}
+
+.menu-pop .menu-item {
+  background: transparent;
+  color: var(--text);
+  border: none;
+  border-radius: 8px;
+  text-align: left;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.menu-pop .menu-item:hover {
+  background: var(--hover);
+}
+
+.menu-pop .menu-item-danger {
+  color: var(--danger);
+}
+
+.menu-pop .menu-item-danger:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0.3rem 0.35rem;
+}
+
+/* Кто вошел и с какой ролью - прямо в меню: роль решает, что человек увидит,
+   и держать её в голове он не обязан. */
+.menu-role-badge {
+  margin: 0.15rem 0.4rem 0.25rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 8px;
+  text-align: center;
+}
+
+/* ---------- баннер состояния ---------- */
+
+/* Запечатанная панель - это состояние, из-за которого на нодах не поднимаются
+   сервисы. Сообщать о нем вполсилы нельзя, поэтому баннер поперек всей ширины. */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--warn);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  font-size: 0.9rem;
+}
+
+/* Доли и корневой ключ: длинные строки, которые человек переписывает руками -
+   переносим по символам, чтобы ничего не уехало за край и не потерялось. */
+.share-line {
+  padding: 0.5rem 0.7rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  word-break: break-all;
+  user-select: all;
+}
+
+
+/* ---------- главная: сводка и карточки проектов ---------- */
+
+.summary {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.summary-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.75rem 1.1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  min-width: 120px;
+}
+
+/* Подпись под числом - не такая же строка текста, как все остальное на
+   странице: капитель мельче и тише, число крупнее. Иначе пять одинаковых
+   карточек читаются как один серый блок. */
+.summary-cell .small {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* На телефоне сводка не должна вытеснять список: карточки уже, числа мельче,
+   в ряд помещается три вместо полутора. */
+@media (max-width: 720px) {
+  .summary {
+    gap: 0.4rem;
+  }
+
+  .summary-cell {
+    min-width: 0;
+    flex: 1 1 5.5rem;
+    padding: 0.5rem 0.6rem;
+  }
+
+  .summary-number {
+    font-size: 1.25rem;
+  }
+
+  .summary-cell .small {
+    font-size: 0.62rem;
+  }
+}
+
+.summary-number {
+  font-size: 1.7rem;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Включенный отбор: ячейка сводки выглядит нажатой, иначе непонятно, почему
+   в списке вдруг четыре ключа вместо сотни. */
+.summary-cell-on {
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, var(--bg-card));
+}
+
+/* Ноль ожидающих - обычное число, не ноль - то, ради чего человек сюда зашел */
+.summary-warn {
+  color: var(--warn);
+}
+
+/* Сервер на связи - зеленым: в сводке это единственное живое состояние, и
+   цветом оно читается быстрее, чем строкой "был минуту назад". */
+.summary-ok {
+  color: var(--ok);
+}
+
+.group-title {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Сетка карточек, а не список: на сотне проектов колонка прокручивается вечно,
+   а сетка показывает два десятка сразу. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 0.75rem;
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: left;
+  color: var(--text);
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.project-card:hover {
+  background: var(--card-hover);
+  border-color: var(--border-strong);
+}
+
+.project-name {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.env-card {
+  cursor: default;
+}
+
+.env-card:hover {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+
+.env-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.env-open:hover {
+  background: transparent;
+  color: var(--accent);
+}
+
+.env-chips {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.chip {
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+}
+
+.chip-more {
+  color: var(--text);
+}
+
+/* ---------- плотная таблица ключей ---------- */
+
+/* Сотня ключей должна помещаться на экран, а не занимать по три строки каждый */
+.grid.dense td {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.cell-name {
+  white-space: nowrap;
+}
+
+.cell-meta {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.cell-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.cell-actions .menu-wrap {
+  vertical-align: middle;
+}
+
+/* ---------- свои диалоги вместо браузерных ---------- */
+
+/* Подсказка под полем: то, что в браузерном окне сказать было негде */
+.field-hint {
+  margin-top: 0.1rem;
+  line-height: 1.35;
+}
+
+/* Кнопки, дописывающие слово в поле: "+ dev", "+ stage". */
+.quick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.1rem;
+}
+
+/* Кнопки диалога прижаты вправо: главное действие последнее, как в системных
+   окнах, к которым рука уже привыкла. */
+.dialog-actions {
+  justify-content: flex-end;
+  margin-top: 0.2rem;
+}
+
+/* Текст окна. Команду и одноразовый токен показывали тем же серым абзацем,
+   что и объяснение: переводы строк схлопывались, а копировать приходилось
+   выделением через половину окна. */
+/* Совпадение в результате поиска: подсветка, а не другой цвет текста -
+   цветной текст в списке читается как состояние, а не как "вот оно". */
+mark.hit {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 0.1em;
+}
+
+.dialog-text {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.dialog-text p {
+  margin: 0;
+}
+
+.dialog-code {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.dialog-code code {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  word-break: break-all;
+  user-select: all;
+}
+
+.dialog-fact {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.dialog-fact code {
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
+  user-select: all;
+  color: var(--text);
+}
+
+/* Поле с глазком: кнопка стоит внутри рамки, а не рядом, иначе она ломает
+   ширину поля и уезжает на свою строку. */
+.field-with-eye {
+  position: relative;
+  display: block;
+}
+
+.field-with-eye input {
+  width: 100%;
+  padding-right: 2.4rem;
+}
+
+button.field-eye {
+  position: absolute;
+  top: 50%;
+  right: 0.25rem;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  padding: 0.3rem;
+  line-height: 0;
+}
+
+/* Подпись под заголовком второго шага входа. */
+.login-note {
+  margin: 0;
+  text-align: center;
+}
+
+.danger-btn {
+  background: var(--danger);
+  color: #fff;
+}
+
+.danger-btn:hover {
+  background: color-mix(in srgb, var(--danger) 85%, black);
+}
+
+/* Опасное действие текстом, а не заливкой: оно лежит в углу настроек и не
+   должно перетягивать внимание с обычных кнопок. */
+/* Красная надпись на кнопке. Селектор с тегом: `button.ghost` задает свой
+   цвет и весом перебивал один класс - "Отклонить" и "Удалить" выглядели
+   такими же спокойными, как соседние кнопки. */
+button.danger-text,
+.danger-text {
+  color: var(--danger);
+}
+
+button.danger-text:hover,
+.danger-text:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/* ---------- поле с подсказками ---------- */
+
+.combo {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.combo input {
+  width: 100%;
+}
+
+.combo-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 41;
+  max-height: 220px;
+  overflow: auto;
+  padding: 0.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.combo-list .menu-item {
+  background: transparent;
+  color: var(--text);
+  border: none;
+  border-radius: 7px;
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.combo-list .menu-item[aria-selected='true'],
+.combo-list .menu-item:hover {
+  background: var(--hover);
+}
+
+/* Поиск по длинному списку: строк много, поэтому окно списка выше обычного, а
+   выбранная стрелками строка подсвечена - иначе непонятно, что отправит Enter.
+
+   Список стоит в потоке, а не поверх содержимого: окно диалога прокручивается
+   внутри себя, и всплывающий список обрезался по его нижнему краю - видно было
+   две с половиной строки из пятидесяти. В потоке окно просто становится выше. */
+.pick-list {
+  position: static;
+  max-height: 260px;
+  margin-top: 0.35rem;
+  box-shadow: none;
+}
+
+.pick-list .pick-item-on,
+.pick-list .pick-item-on:hover {
+  background: var(--hover);
+}
+
+.pick-empty {
+  padding: 0.4rem 0.6rem;
+}
+
+/* Список спрятанных окружений: у проекта их бывает три десятка, и без предела
+   по высоте он уезжает за нижний край экрана. */
+.env-switch-pop {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.env-switch-find {
+  margin-bottom: 0.25rem;
+}
+
+.combo-hint {
+  padding: 0.3rem 0.6rem 0.1rem;
+}
+
+
+/* ---------- заголовок проекта ---------- */
+
+/* Имя проекта крупно и слева: раньше оно было только в хлебных крошках мелким
+   шрифтом, и на экране с ключами было непонятно, куда ты вообще попал. */
+.project-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+/* Имя страницы - проекта или сервера - заметно крупнее строк под ним: это
+   заголовок, а не первая строка списка. Размер один на оба места. */
+.project-head h2,
+.server-title h2 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.project-head-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+/* Правая половина шапки забирает все, что осталось от имени проекта: иначе
+   переключатель окружений жмется к правому краю и прячет под "еще" стенды,
+   для которых место на экране есть. */
+.project-head > .row-actions {
+  flex: 1 1 auto;
+}
+
+/* Подпись ключа: своя строка под именем, во всю ширину - иначе она отнимает
+   место у значения, ради которого в строку и смотрят. */
+.key-note-text {
+  grid-column: 1 / -1;
+  padding: 0 0.1rem 0.1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Возраст давнего значения в строке ключа: рядом с именем, но тише его -
+   это повод спросить, а не состояние ключа. */
+.key-age {
+  white-space: nowrap;
+}
+
+/* Звезда закрепления: в спокойном виде тихая, закрепленная - цветом панели.
+   Это не действие над данными, а закладка, и кричать ей незачем. */
+.pin-btn {
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.pin-on {
+  color: var(--accent);
+}
+
+/* Палитра перехода: окно висит ближе к верху экрана - на него смотрят сверху
+   вниз, а не в центр, и список под полем должен оставаться на месте, пока
+   человек печатает. */
+.palette-backdrop {
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+
+.palette {
+  width: 560px;
+  gap: 0.5rem;
+}
+
+.palette-input {
+  font-size: 1rem;
+}
+
+.palette-list {
+  display: grid;
+  gap: 0.1rem;
+  max-height: 50vh;
+  overflow: auto;
+}
+
+.palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette-row-on,
+.palette-row:hover {
+  background: var(--hover);
+}
+
+.palette-title {
+  font-weight: 500;
+}
+
+/* Раскладка ключа по стендам: список окружений с галочками и итог той же
+   формой - строка на окружение, чтобы "не пустили" не потерялось в "готово". */
+.spread-list {
+  display: grid;
+  gap: 0.15rem;
+  max-height: 320px;
+  overflow: auto;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.spread-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0.1rem;
+}
+
+.spread-all {
+  align-self: flex-start;
+}
+
+/* Последние окружения: строка плашек над списком проектов. Проект и стенд
+   разной яркостью - читается как одна короткая подпись, а не два слова. */
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.recent-chip {
+  display: inline-flex;
+  align-items: baseline;
+  cursor: pointer;
+}
+
+.recent-project {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.recent-env {
+  color: var(--text-muted);
+}
+
+/* Косая между проектом и стендом: без нее "api" и "stage" читаются одним
+   словом, как в адресе их и пишут. */
+.recent-env::before {
+  content: '/';
+  margin: 0 0.3em;
+  opacity: 0.5;
+}
+
+/* Переключатель окружений - крупнее обычного поля: им пользуются постоянно */
+.env-picker {
+  min-width: 190px;
+  font-weight: 600;
+  padding: 0.45rem 0.7rem;
+}
+
+
+/* ---------- значение правится прямо в строке ---------- */
+
+/* Колонка значения забирает всю свободную ширину: в ней живет поле правки, а в
+   узкой колонке длинный ключ пришлось бы листать стрелками. */
+.grid.dense .value-cell {
+  width: 100%;
+  max-width: none;
+  overflow: visible;
+}
+
+/* Звездочки - кнопка, а не картинка: по ним кликают, чтобы открыть значение. */
+.value-mask {
+  background: none;
+  border: 0;
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+  color: var(--text-muted);
+  letter-spacing: 0.18em;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.value-mask:hover {
+  color: var(--text);
+  background: var(--bg-sunken);
+}
+
+.value-edit {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+/* Кнопки держатся верхнего края: у конфига на двадцать строк они иначе
+   уезжают на середину поля, где их не ждут. */
+.value-edit-side {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-top: 0.1rem;
+}
+
+.value-edit .value-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+/* Поле правки в строке: без переноса, чтобы длинная строка конфига оставалась
+   одной строкой, как в файле. */
+.value-inline {
+  resize: vertical;
+  line-height: 1.45;
+  overflow-x: auto;
+}
+
+.value-read {
+  flex: 1;
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+
+/* ---------- разница версий ---------- */
+
+.diff {
+  margin: 0;
+  padding: 0.35rem 0;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow-x: auto;
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.diff-line {
+  display: block;
+  padding: 0 0.6rem;
+  white-space: pre;
+}
+
+.diff-add {
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+}
+
+.diff-del {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.diff-ctx {
+  color: var(--text-muted);
+}
+
+.diff-plus {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.diff-minus {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.diff-row td {
+  padding: 0.4rem 0.5rem 0.8rem;
+}
+
+tr.clickable {
+  cursor: pointer;
+}
+
+tr.clickable:hover td {
+  background: var(--bg-sunken);
+}
+
+.caret {
+  color: var(--text-muted);
+}
+
+.stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.scroll-tall {
+  max-height: min(60vh, 520px);
+}
+
+/* Шапка меню: версия и автор строки, до которых иначе пришлось бы идти в
+   историю. Не кнопка - просто подпись. */
+.menu-head {
+  padding: 0.3rem 0.6rem 0.35rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+
+/* Выбор файла: системная кнопка выглядит чужеродно, но своя обертка вокруг
+   input[type=file] стоит дороже, чем дает. Прижимаем к остальным полям. */
+.file-pick input[type='file'] {
+  padding: 0.35rem 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+
+/* ---------- вход ---------- */
+
+/* Единственное место, где знак показан крупно, - здесь же и брендовый фон.
+   В остальной панели тона нейтральные: рядом с терминалом цветной фон
+   утомляет быстрее, чем кажется. */
+.login-wrap {
+  background:
+    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
+    var(--brand-navy);
+}
+
+:root[data-theme='light'] .login-wrap {
+  background:
+    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 60%),
+    var(--bg);
+}
+
+
+/* Кто забирает окружение: сервер, файл на нем и когда значения доехали.
+   Каждый своей строкой - путей на одном сервере бывает несколько, и в одну
+   строку они склеиваются в кашу. */
+/* Кто забирает окружение и что ждет подтверждения - строками с точкой слева.
+   Раньше это были три вида текста подряд: имя, путь и дата без единой
+   зацепки, - а вопрос к обоим блокам один и тот же: все ли в порядке. */
+.consumers {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 10px;
+  /* Появление подсветки мгновенное, гашение плавное: так видно, куда привел
+     клик, и через секунду страница снова спокойная. Ключевых кадров здесь нет
+     намеренно - класс снимается таймером, и "меньше движения" не ломается. */
+  transition: background 0.5s ease;
+}
+
+.consumers-flash {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  transition: none;
+}
+
+.consumers-title::after {
+  content: ':';
+}
+
+.consumer-row,
+.pending-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.3rem 0.85rem;
+  border-radius: 8px;
+}
+
+.consumer-row:hover,
+.pending-row:hover {
+  background: var(--hover);
+}
+
+.consumer-name {
+  font-weight: 500;
+}
+
+/* Строка-кнопка: ведет на страницу сервера, но выглядит как строка списка. */
+button.consumer-open {
+  width: 100%;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.consumer-open:hover .consumer-name {
+  color: var(--accent);
+}
+
+/* На узком экране строка переносится, и стрелка уезжает на свою строку - там
+   она уже не подсказка, а мусор. */
+@media (max-width: 720px) {
+  .consumer-open .chev {
+    display: none;
+  }
+}
+
+.consumer-path,
+.pending-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-name {
+  font-weight: 500;
+}
+
+/* ---------- список проектов ---------- */
+
+/* Карточка с полосой-заголовком: так показаны и группы проектов, и папки
+   ключей. Сплошной список без полос сливался в одно полотно - не видно, где
+   кончается одна часть и начинается другая. */
+.band-card {
+  padding: 0;
+}
+
+.band-card + .band-card {
+  margin-top: 0.75rem;
+}
+
+.group-band {
+  /* Скругление повторяем вручную: обрезать содержимое карточки нельзя, иначе
+     меню строки, которое выпадает за её край, оказывается срезанным. */
+  border-radius: 13px 13px 0 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border);
+  /* Зеленая засечка слева: полоса группы должна читаться как начало блока, а
+     не как еще одна строка списка. */
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+
+.group-band-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.folder-band {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+
+/* Число вперед, единица следом и тише: "24 ключа" должно читаться как "24". */
+.count-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Окружения плашками, а не строкой через запятую: prod виден сразу, остальные
+   не спорят с ним за внимание. Плашки нарочно мелкие - у проекта их бывает
+   полтора десятка. */
+.env-chip {
+  display: inline-block;
+  margin-right: 0.3rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-family: inherit;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.env-chip:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.env-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.env-chip-prod {
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  color: var(--text);
+}
+
+.env-chip-prod:hover {
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+
+
+
+
+.project-name {
+  font-weight: 600;
+}
+
+
+/* Кнопка со значком: значок и подпись держатся вместе и не разъезжаются при
+   переносе строки. */
+.icon-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.icon {
+  flex: none;
+  vertical-align: -0.15em;
+}
+
+
+/* Строка ключа под курсором: подсветка говорит, что по ней можно кликнуть, до
+   того как человек это проверит. Фокус с клавиатуры виден так же явно. */
+.grid.dense tr.clickable:hover td {
+  background: var(--card-hover);
+}
+
+.grid.dense tr.clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+
+/* Нижние углы карточки повторяет последняя строка: подсветка под курсором
+   иначе выезжает квадратными углами за скругленный край. */
+.band-card table tr:last-child td:first-child {
+  border-bottom-left-radius: 13px;
+}
+
+.band-card table tr:last-child td:last-child {
+  border-bottom-right-radius: 13px;
+}
+
+
+/* ---------- журнал и обслуживание ---------- */
+
+/* Отбор журнала: два ряда плашек - тип события и период. */
+.audit-filters {
+  gap: 0.6rem;
+}
+
+.chip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.audit-row {
+  display: grid;
+  grid-template-columns: 8px 62px minmax(90px, 0.8fr) minmax(120px, 1.1fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 110px;
+  align-items: baseline;
+  gap: 0.7rem;
+  padding: 0.32rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.audit-row:hover {
+  background: var(--hover);
+}
+
+/* Все в одну строку: перенос делал строки разной высоты, и список переставал
+   читаться сверху вниз. Полный текст остается в подсказке. */
+.audit-actor,
+.audit-action,
+.audit-target,
+.audit-detail,
+.audit-ip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Отказ - красным, действие над самой защитой - янтарным. Остальное молчит.
+   Двумя классами: одиночный проигрывал .key-dot, который описан ниже. */
+.key-dot.audit-dot-denied {
+  background: var(--danger);
+  opacity: 1;
+}
+
+.key-dot.audit-dot-sensitive {
+  background: var(--warn);
+  opacity: 1;
+}
+
+.chain-ok {
+  color: var(--ok);
+}
+
+.chain-broken {
+  color: var(--danger);
+}
+
+/* Состояние раздела обслуживания: точка, заголовок, короткий ответ, действия. */
+.ops-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ops-state {
+  margin-left: auto;
+}
+
+/* Факты парами "что - значение": таблица из двух колонок ради трех строк была
+   лишней конструкцией. */
+.ops-facts {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+  gap: 0.25rem 0.9rem;
+  align-items: baseline;
+}
+
+@media (max-width: 720px) {
+  .audit-row {
+    grid-template-columns: 8px 62px minmax(0, 1fr);
+  }
+
+  .audit-target,
+  .audit-detail,
+  .audit-ip {
+    display: none;
+  }
+}
+
+/* ---------- перенос ----------
+ *
+ * Строка отвечает: где лежит, как называется, что с ней будет. Точка слева
+ * повторяет действие цветом - по ней список читается, не читая слов.
+ */
+
+.mig-row {
+  display: grid;
+  grid-template-columns: 8px minmax(60px, 0.7fr) minmax(0, 1.4fr) 90px 80px;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.mig-row:hover {
+  background: var(--hover);
+}
+
+.mig-path,
+.mig-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mig-size {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .mig-row {
+    grid-template-columns: 8px minmax(0, 1fr) 90px;
+  }
+
+  .mig-path,
+  .mig-size {
+    display: none;
+  }
+}
+
+/* ---------- обзор проектов ----------
+ *
+ * Строка проекта отвечает по порядку: как называется, какие окружения, кто это
+ * забирает, сколько ключей. Таблица делала то же самое, но её заголовок группы
+ * уезжал за верх экрана - на сотне проектов это и есть главная беда списка.
+ */
+
+.project-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.1fr) minmax(0, 1.3fr) minmax(0, 0.9fr) auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.85rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+/* Без права видеть серверы колонка исчезает вовсе, а не остается пустой. */
+.project-row-slim {
+  grid-template-columns: minmax(140px, 1.1fr) minmax(0, 1.6fr) auto auto;
+}
+
+/* Найденный ключ показывается такой же строкой, но колонок у него свои три:
+   имя, место и стрелка. Меню и счетчика у ключа нет. */
+.project-row-hit {
+  grid-template-columns: minmax(140px, 1.1fr) minmax(0, 1.6fr) auto;
+}
+
+/* Проект, убранный с глаз: он виден только пока "показать" нажато, и видно,
+   что он здесь на время. */
+.project-row-off {
+  opacity: 0.55;
+}
+
+/* Звезда у проекта: у избранных горит всегда, у остальных появляется под
+   курсором. Двести серых звезд в списке - шум, а не подсказка. */
+.proj-star {
+  padding: 0 0.15rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  opacity: 0;
+}
+
+.proj-star-on {
+  opacity: 1;
+  color: var(--warn);
+}
+
+.project-row:hover .proj-star,
+.proj-star:focus-visible {
+  opacity: 1;
+}
+
+.proj-star:hover {
+  background: transparent;
+  color: var(--warn);
+}
+
+.proj-menu {
+  justify-self: end;
+}
+
+/* Выбор порядка стоит в одной строке с поиском, поэтому он ростом с кнопки
+   рядом, а не с полем ввода. */
+.sort-pick {
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+/* Сколько проектов убрано с глаз. Строка внизу списка, тихая: её читают раз в
+   месяц, а видеть надо всегда. */
+.hidden-line {
+  align-self: start;
+}
+
+.project-row:hover {
+  border-color: var(--border-strong);
+  background: var(--card-hover);
+}
+
+.project-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.proj-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.proj-envs {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.proj-servers {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.proj-server {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proj-count {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .project-row,
+  .project-row-slim,
+  .project-row-hit {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------- учетные записи ----------
+ *
+ * Список сгруппирован по ролям, поэтому саму роль в строке повторять не нужно:
+ * в строке остается то, что отличает людей друг от друга.
+ */
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.45rem 0.85rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.user-off {
+  opacity: 0.55;
+}
+
+.user-name {
+  font-weight: 600;
+}
+
+.user-since {
+  white-space: nowrap;
+}
+
+/* Место под меню там, где меню нет: иначе строки старших ролей короче
+   остальных и правый край списка выглядит рваным. */
+.menu-gap {
+  width: 35px;
+}
+
+/* Что роль дает - рядом с её названием, но тише и в одну строку: заголовок
+   папки липкий, и вторая строка в нем съедала бы верх списка. */
+.role-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .role-hint {
+    display: none;
+  }
+}
+
+/* ---------- доступ ----------
+ *
+ * Право читается в тот момент, когда разбираются, почему у человека нет
+ * доступа. Поэтому строка отвечает по порядку: кому, где, что можно, до когда.
+ * Действия - короткими плашками: полными фразами семь штук занимали три строки.
+ */
+
+/* Разделы - как группы на странице проектов: полоса со счетчиком и строки под
+   ней. Раньше каждое право было отдельной большой карточкой, а заголовки
+   разделов - простым текстом, и страница выглядела набором разнородных блоков. */
+.access-list {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.access-row {
+  display: grid;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.85rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+/* Право человека или группы: кому - где - что можно - до когда - меню. Срок -
+   колонка постоянной ширины: с "auto" строка со сроком сдвигала колонки
+   относительно строк без него, и список шел лесенкой. */
+.access-policy {
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 1.2fr) minmax(0, 1.5fr) 9rem auto;
+}
+
+/* Сервер и группа: имя - окружения или участники - число или кнопка - меню. */
+.access-server,
+.access-group {
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 2.8fr) auto auto;
+}
+
+/* Строка сервера - кнопка: ведет на страницу сервера. Вид кнопки сбрасываем,
+   иначе она красится цветом действия. */
+button.access-link {
+  width: 100%;
+  font: inherit;
+  font-weight: normal;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+
+button.access-link:hover {
+  background: var(--card-hover);
+  border-color: var(--border-strong);
+}
+
+.access-who {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.access-where {
+  min-width: 0;
+  font-size: 0.85rem;
+}
+
+.access-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.access-until {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.access-empty {
+  padding: 0.6rem 0.3rem;
+}
+
+/* Окно выдачи доступа: поля парами, права - двумя колонками галочек. */
+.grant-modal {
+  width: 640px;
+}
+
+.grant-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 1rem;
+}
+
+.grant-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.grant-checks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem 1rem;
+}
+
+@media (max-width: 720px) {
+  .access-row {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .grant-grid,
+  .grant-checks {
+    grid-template-columns: 1fr;
+  }
+}
+
+.policy-actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+/* Запрет - красная засечка: в списке разрешений он должен выделяться, иначе
+   его находят только после третьего прочтения. */
+.policy-deny {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.policy-expired {
+  opacity: 0.55;
+}
+
+/* ---------- серверы ----------
+ *
+ * Пять колонок таблицы не выдержали содержимого: в одной ячейке жили имя
+ * окружения и путь к файлу, в другой - дата, версия агента и число ключей, а
+ * идентификатор переносился посреди слова. Карточка расставляет то же самое по
+ * местам: кто и на связи ли - слева, что забирает - под именем, действия -
+ * справа.
+ */
+
+/* Строка списка серверов - кнопка: она ведет на страницу сервера, где живут
+   приложения, права и редкие действия. В самой строке им места не было: четыре
+   кнопки занимали её треть, а имя окружения с путем к файлу не помещались. */
+.server-row {
+  display: grid;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  text-align: left;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.server-row:hover {
+  background: var(--card-hover);
+  border-color: var(--border-strong);
+}
+
+.server-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 32ch;
+}
+
+.server-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+/* Выдано, но агент этого не забирает: пунктир вместо сплошной рамки. Право
+   есть, файла на сервере нет - обычно это забытая команда "sekvyr add". */
+.chip-waiting {
+  border-style: dashed;
+  opacity: 0.7;
+}
+
+/* Забирается, а права уже нет: файл на сервере есть, обновляться перестал. */
+.chip-orphan {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.chev {
+  color: var(--text-muted);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+/* Страница сервера: имя, состояние и действия одной строкой. */
+.server-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.conns {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.conn {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.85rem 1rem;
+}
+
+.conn-head,
+.conn-body {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+/* Зеленая точка - агент это окружение действительно забирает. */
+.key-dot.conn-dot-live {
+  background: var(--ok);
+  opacity: 1;
+}
+
+/* Имя стенда в карточке подключения - кнопка перехода. Кнопка, а не ссылка
+   вокруг всей карточки: внутри нее уже есть меню, а кнопка в кнопке - не
+   разметка. */
+.conn-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.conn-link:hover,
+.conn-link:hover .chev {
+  background: transparent;
+  color: var(--accent);
+}
+
+/* Приложение без права: файл на сервере остался, а обновляться перестал. */
+.conn-orphan {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+
+/* В светлой теме тень карточке задает правило `:root[data-theme='light']
+   .card` из index.css, который подключается позже. Засечка из одного класса
+   ему проигрывала - повторяем её вместе с тенью и с весом на класс больше. */
+:root[data-theme='light'] .card.conn-orphan {
+  box-shadow: inset 3px 0 0 var(--warn), var(--shadow-card);
+}
+
+:root[data-theme='light'] .card.policy-deny {
+  box-shadow: inset 3px 0 0 var(--danger), var(--shadow-card);
+}
+
+.servers {
+  display: grid;
+  gap: 0.6rem;
+}
+
+
+.server-off {
+  opacity: 0.6;
+}
+
+.server-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+/* Флаг страны: картинка, а не эмодзи. Системные шрифты Windows рисуют флаг-эмодзи как
+   две буквы "FI", и флага там не видно вовсе. */
+.country-flag {
+  height: 0.95em;
+  width: auto;
+  flex-shrink: 0;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 18%, transparent);
+  vertical-align: -0.08em;
+  cursor: default;
+}
+
+/* Нет такого файла (экзотический код) - показываем сам код текстом. */
+.country-flag-txt {
+  height: auto;
+  box-shadow: none;
+  font-size: 0.72em;
+  font-weight: 600;
+  opacity: 0.75;
+  letter-spacing: 0.03em;
+}
+
+/* Логотип системы: цвет у него свой, фирменный, поэтому размер задаем здесь, а
+   краску оставляем иконке. */
+.os-ico {
+  vertical-align: -0.15em;
+  flex-shrink: 0;
+}
+
+/* Адреса: внешний и локальный. Иконка приглушена - читают все-таки адрес. */
+.srv-addr {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75em;
+  flex-wrap: wrap;
+}
+
+.srv-addr-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+
+.srv-addr-ic {
+  width: 0.95em;
+  height: 0.95em;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+/* Строка фактов о сервере на его странице: адреса и система в один ряд. */
+.server-facts {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+
+/* Время и версия агента прижаты к действиям: это справка, а не заголовок. */
+.server-seen {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+
+
+
+
+
+/* Точка состояния сервера: на связи, давно молчит, выключен. */
+.sdot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+
+.sdot-up {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent);
+}
+
+.sdot-stale {
+  background: var(--warn);
+}
+
+.sdot-off {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+}
+
+/* Плашка окружения без действия: та же форма, но не кнопка. */
+.env-chip-static {
+  cursor: default;
+}
+
+.env-chip-static:hover {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--text-muted);
+}
+
+/* ---------- пустые состояния ----------
+ *
+ * Одна серая строчка "Ключей пока нет" ничего не предлагает. Человек пришел
+ * что-то сделать - значит, здесь должно стоять то, что он сделает следующим.
+ */
+
+.empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.empty-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.empty p {
+  margin: 0;
+}
+
+/* Пометка многострочного значения: три черты, как строки в файле. */
+.tag-lines {
+  background: var(--border-strong);
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+/* ---------- переключатель окружений ----------
+ *
+ * Выпадающий список прятал то, что переключают чаще всего. Кнопки в ряд: видно
+ * все окружения сразу, переход в одно нажатие, prod отмечен.
+ */
+
+/* Рамка занимает свободное место в строке - по ней и меряем, сколько кнопок
+   влезет. Сама капсула прижата к правому краю и шириной по содержимому: с двумя
+   окружениями серая полоса на всю строку выглядела бы странно. */
+.env-switch-fit {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  position: relative;
+  /* Ничего не режем: список "еще N" висит здесь же и при overflow: hidden
+     обрезался по высоте полосы - от него оставалась одна строка. Лишние кнопки
+     и так не рисуются, их прячет подсчет в EnvSwitch. */
+  overflow: visible;
+}
+
+.env-switch {
+  display: flex;
+  /* Одной строкой: перенос превратил бы шапку в лестницу из кнопок. Лишние
+     прячутся под "еще" - см. EnvSwitch. */
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border-radius: 10px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+}
+
+/* Коробка линейки: сама линейка шире экрана, и торчащий край добавлял
+   странице горизонтальную прокрутку. Режем её здесь, а не у полосы целиком -
+   там висит список "еще N", которому обрезка ни к чему. */
+.env-switch-ruler-box {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Линейка: та же верстка, но вне потока и невидимая. */
+.env-switch-ruler {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.env-switch-more {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.env-switch-item {
+  padding: 0.28rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.env-switch-item:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.env-switch-prod {
+  color: var(--text);
+}
+
+.env-switch-active {
+  background: var(--bg-card);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.env-switch-active.env-switch-prod {
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+}
+
+/* ---------- всплывающие сообщения ----------
+ *
+ * Для "скопировано" и "сохранено" модальное окно - это лишний клик на ровном
+ * месте. Всплывашка говорит то же самое и уходит сама.
+ */
+
+.toasts {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 60;
+  display: grid;
+  gap: 0.5rem;
+  justify-items: end;
+}
+
+.toast {
+  padding: 0.55rem 0.9rem;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-size: 0.85rem;
+  box-shadow: var(--shadow-pop);
+  animation: toast-in 0.14s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ---------- список ключей ----------
+ *
+ * Строка держится на четырех опорах: точка состояния, имя, значение и свежесть
+ * справа. Раньше их не было ни одной - одинаковый тон, одинаковый вес, половина
+ * ширины пустая, и страница читалась как полотно. Каждый ключ теперь отдельная
+ * карточка на фоне страницы: разделяют не линии, а промежутки.
+ */
+
+.key-folder {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.key-folder + .key-folder {
+  margin-top: 1.5rem;
+}
+
+.key-folder-head {
+  /* Липкая: в списке на сотню ключей папка должна быть видна и на середине
+     прокрутки, иначе непонятно, что сейчас на экране. */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.1rem 0.3rem 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.15rem;
+  /* Та же зеленая засечка, что у групп проектов: папка - начало блока, а не
+     еще одна строчка мелким шрифтом. */
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+
+/* Полоса папки бывает кнопкой (группы проектов сворачиваются). Кнопке нужен
+   сброс: иначе она красится цветом действия и обрезает себя по содержимому. */
+button.key-folder-head {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.key-folder-head:hover {
+  background: var(--bg);
+}
+
+button.key-folder-head:hover .key-folder-name {
+  color: var(--accent);
+}
+
+.key-folder-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Группа проектов крупнее своих строк: это начало блока, а не еще одна строка
+   списка. В остальных местах подпись папки остается мелкой - там под ней
+   лежат не проекты, а ключи и записи журнала. */
+.group-head .key-folder-name {
+  font-size: 1.1rem;
+}
+
+.group-head .key-folder-count {
+  font-size: 0.78rem;
+}
+
+/* Промежутки между группами проектов. После свернутой группы он маленький:
+   свернутые стоят списком, а не столбиком заголовков с пустотой между ними.
+   Между развернутыми - прежний. */
+.project-groups,
+.project-groups > .key-folder {
+  display: grid;
+  /* minmax(0, ...): иначе строка свернутой группы растягивает колонку по длине
+     списка имен, и на телефоне страница уезжает вбок. */
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.project-groups > .key-folder + .key-folder {
+  margin-top: 2.5rem;
+}
+
+.project-groups > .key-folder-shut + .key-folder {
+  margin-top: 0.6rem;
+}
+
+/* Что лежит в свернутой группе: имена проектов и сколько в них ключей. Имена
+   обрезаются по ширине - это напоминание, а не список. */
+.group-peek {
+  flex: 1;
+  min-width: 0;
+  margin-left: 0.5rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.group-keys {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* На телефоне от имен остались бы три буквы: строка держит название группы и
+   число ключей. Метка ожидающих правок с ними в строку не влезает - число
+   ключей тогда переносится, а не вылезает за край. */
+@media (max-width: 720px) {
+  .group-peek {
+    display: none;
+  }
+
+  .group-head {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+  }
+
+  .group-head .tag {
+    white-space: nowrap;
+  }
+}
+
+.key-folder-count {
+  min-width: 1.4rem;
+  padding: 0.02rem 0.4rem;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* Выбор нескольких ключей: чекбокс в строке и липкая полоса действий. */
+/* Замечания к значению: своя строка под ключом, во всю ширину. Янтарное -
+   "стоит посмотреть", красное - "почти наверняка ошибка". Текст не режем: его
+   и читают, а не угадывают по первым словам. */
+.key-notes {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem 0.9rem;
+  flex-wrap: wrap;
+  padding: 0 0.1rem 0.1rem;
+}
+
+/* Замечание и кнопка "так и надо" - одной группой: кнопка относится к
+   конкретному замечанию, а их в строке бывает два. */
+.key-note-line {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+button.key-note-ok {
+  padding: 0 0.35rem;
+  font-size: 0.72rem;
+  border: none;
+  color: var(--text-muted);
+}
+
+.key-note {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--warn);
+}
+
+/* Точка-разделитель между замечаниями: их бывает два, и подряд они читаются
+   как одна длинная фраза. */
+.key-note + .key-note::before {
+  content: '·';
+  margin-right: 0.6rem;
+  color: var(--text-muted);
+}
+
+.key-note-bad {
+  color: var(--danger);
+}
+
+.key-dot.key-dot-note {
+  background: var(--warn);
+  opacity: 1;
+}
+
+/* Строка "нет здесь": имя ключа и где он все-таки есть. */
+.miss-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.3rem 0.85rem;
+  border-radius: 8px;
+}
+
+.miss-row:hover {
+  background: var(--hover);
+}
+
+.miss-name {
+  font-weight: 500;
+}
+
+/* Метка строки: точка состояния, а в режиме выбора - еще и чекбокс. */
+.key-mark {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.key-pick {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.pick-bar {
+  position: sticky;
+  bottom: 0.5rem;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-pop);
+}
+
+.key-row {
+  display: grid;
+  /* Первая колонка - по содержимому: обычно там одна точка состояния, а в
+     режиме выбора рядом с ней встает чекбокс. Колонок от этого не прибавляется,
+     и сетка не разъезжается. */
+  /* Последняя колонка - по кнопкам, а не 32px: кнопка "скопировать" стоит
+     рядом с меню, и в узкой колонке она наезжала на открытое значение. */
+  grid-template-columns: auto minmax(120px, 1fr) minmax(0, 2fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.45rem 0.85rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.key-row.clickable {
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.key-row.clickable:hover {
+  border-color: var(--border-strong);
+  background: var(--card-hover);
+}
+
+.key-row.clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Открытый ключ правят прямо в строке. Короткое значение остается в своей
+   колонке, на месте звездочек, и поле в одну строку не тянется за угол. */
+.key-row-open .value-inline {
+  resize: none;
+}
+
+/* Многострочному или длинному значению нужна вся ширина: имя остается сверху,
+   поле уходит на свою строку. */
+.key-row-wide {
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+  align-items: start;
+  row-gap: 0.5rem;
+}
+
+.key-row-wide .value-inline {
+  resize: vertical;
+}
+
+.key-row-wide .key-value {
+  /* Ряд задаем явно: без него поле встает сразу за именем, а свежесть и меню
+     уезжают под него - строка разваливается ровно в тот момент, когда с ней
+     работают. */
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.key-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+
+.key-name .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Имя ключа - главное в строке, поэтому полный цвет текста. Звездочки
+     значения рядом остаются приглушенными: смотреть там пока не на что. */
+  color: var(--text);
+  font-weight: 500;
+}
+
+.key-value {
+  min-width: 0;
+  font-size: 0.85rem;
+}
+
+/* Точка состояния. Обычный ключ - тихая, унаследованный - полый кружок,
+   правка на подтверждении - янтарная, открытое значение - зеленое: оно сейчас
+   на экране, и это ненадолго. */
+.key-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  /* Заметно, но тише имени: колонка точек читается краем глаза, а спорить с
+     именем ключа за внимание ей незачем. */
+  background: var(--text-muted);
+  opacity: 0.55;
+}
+
+.key-dot-inherited {
+  background: transparent;
+  border: 1px solid var(--text-muted);
+}
+
+.key-dot-wait {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+  opacity: 1;
+}
+
+.key-dot-open {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(24, 227, 110, 0.15);
+  opacity: 1;
+}
+
+.key-actions {
+  /* Последняя колонка задана явно: на узком экране значение переезжает под имя,
+     и без этого кнопки уходили в колонку точки - там они и растягивали её. */
+  grid-column: -2 / -1;
+  grid-row: 1;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+/* Копирование показываем при наведении: кнопка нужна в момент, когда до строки
+   дотянулись, а в спокойном списке она была бы шумом. */
+.key-copy {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.key-row:hover .key-copy,
+.key-copy:focus-visible,
+.key-row-open .key-copy {
+  opacity: 1;
+}
+
+.search-count {
+  white-space: nowrap;
+  align-self: center;
+}
+
+/* На узком экране значение переезжает под имя: две колонки рядом там уже не
+   помещаются. */
+@media (max-width: 720px) {
+  .key-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .key-row .key-value {
+    grid-column: 2 / -1;
+  }
+}
+
+/* ---------- правка всего разом ---------- */
+
+/* Окно во всю ширину экрана: конфиг на сотню символов в строке иначе живет в
+   поле со своей полосой прокрутки внутри окна со своей - и правится вслепую. */
+.modal-full {
+  width: calc(100vw - 3rem);
+  max-width: 1600px;
+}
+
+/* Папка в окне правки - та же карточка с полосой, что и на странице. Внутри
+   окна фон тот же, поэтому карточку выделяем утопленным фоном и рамкой. */
+.bulk-folder {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.bulk-folder + .bulk-folder {
+  margin-top: 0.75rem;
+}
+
+.bulk-folder .group-band {
+  background: color-mix(in srgb, var(--border) 45%, transparent);
+}
+
+.bulk-folder .bulk-grid {
+  padding: 0.6rem 0.9rem;
+}
+
+/* Сетка на всю папку: колонка имен шириной с самое длинное имя, и значение
+   стоит вплотную к своему ключу, а не через полэкрана. */
+.bulk-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 1.1rem;
+}
+
+/* Строка пары наследует колонки папки, но рисуется сама: тонкая черта между
+   парами отделяет одну от другой, а без нее ключи и значения сливались в два
+   одинаковых столбца моноширинного текста. */
+.bulk-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.bulk-row:first-child {
+  border-top: none;
+}
+
+/* Ключ - подпись к полю: приглушенный и плотнее, значение - светлое в поле со
+   своим фоном. Так глаз сразу разделяет, где имя, а где то, что правят. */
+.bulk-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+/* Поле темнее папки на темной теме и белее её на светлой: иначе поле и фон
+   под ним одного цвета, и значение не отделяется от подписи. */
+.bulk-folder {
+  --bulk-field: var(--bg);
+}
+
+:root[data-theme='light'] .bulk-folder {
+  --bulk-field: var(--bg-card);
+}
+
+.bulk-grid .value-input {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  background: var(--bulk-field);
+  color: var(--text);
+  resize: vertical;
+}
+
+/* Многострочное значение выше своей строки - имя держится верхнего края. */
+.bulk-row-multi {
+  align-items: start;
+}
+
+.bulk-row-multi .bulk-name {
+  padding-top: 0.4rem;
+}
+
+/* Измененную строку видно издалека: рамка поля цвета действия, имя светлеет. */
+.bulk-row-changed .bulk-name {
+  color: var(--text);
+}
+
+.bulk-row-changed .value-input {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+
+/* Плитка сводки, по которой кликают: выглядит так же, как остальные, но ведет
+   в раздел. */
+.summary-link {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.summary-link:hover {
+  background: var(--card-hover);
+}
+
+
+/* Давняя отметка сервера: час молчания - уже повод посмотреть, жив ли агент,
+   сутки - почти наверняка забытый сервер с доступом к проду. */
+.stale-warn {
+  color: var(--warn);
+}
+
+.stale-old {
+  color: var(--danger);
+}
+
+/* ---------- свой логотип ----------
+ *
+ * Чужая картинка приходит любой: от узкой полоски до квадрата. Высоту держит
+ * контейнер, картинка вписывается внутрь, ширина ограничена сверху - иначе высота
+ * шапки зависела бы от того, какой файл залили.
+ */
+
+.brand-own {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  line-height: normal;
+}
+
+.brand-custom {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  height: 40px;
+}
+
+.brand-login .brand-custom {
+  height: 88px;
+}
+
+.brand-custom img {
+  display: block;
+  width: auto;
+  max-width: 220px;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.brand-login .brand-custom img {
+  max-width: 260px;
+}
+
+/* Плашка - для картинки со своим фоном: белый прямоугольник JPEG на темной
+   шапке выглядит вырезанным куском, а на карточке - намеренно. */
+.brand-plate {
+  padding: 0.3rem 0.6rem;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+}
+
+/* На светлой теме белая плашка сливалась бы с фоном - обводим её. */
+:root[data-theme='light'] .brand-plate {
+  box-shadow: none;
+  border: 1px solid var(--border);
+}
+
+.brand-title {
+  max-width: 260px;
+  overflow: hidden;
+  font-size: 1.05rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.about-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 460px;
+}
+
+/* "О панели" по образцу Kervax: заголовок с "Закрыть", знак с именем и версией,
+   одна строка о панели и ссылки наружу кнопками. */
+.about-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.about-top h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.about-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.about-name {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.about-lead {
+  margin: 0;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+/* Ссылок в панели почти нет - все кнопками, поэтому эти три оформлены как
+   кнопки интерфейса, а не браузерным синим с фиолетовым :visited. Стрелка
+   говорит, что ссылка уводит из панели. */
+.about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.about-links a,
+.about-links a:visited {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.38rem 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 0.85rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.about-links a::after {
+  content: '↗';
+  font-size: 0.78em;
+  opacity: 0.55;
+}
+
+.about-links a:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-card));
+}
+
+/* Выбор карточками: у каждого варианта название и строка о том, что он значит. */
+.choice-cards {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.choice-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-sunken);
+  cursor: pointer;
+}
+
+.choice-card:hover {
+  border-color: var(--border-strong);
+}
+
+.choice-card-on,
+.choice-card-on:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-sunken));
+}
+
+.choice-card-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.choice-card-hint {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.about-branding {
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+}
+
+.brand-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+
+.brand-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.brand-dark-remove {
+  align-self: flex-start;
+}
+
+/* Превью сразу на обеих темах. Фоны заданы числами, а не переменными: переменные
+   показывают текущую тему, а здесь нужны обе. Те же значения, что --bg в index.css. */
+.brand-previews {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.brand-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.6rem 0.8rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+/* Колонка превью не должна становиться шире окна: широкий логотип иначе
+   выталкивает превью светлой темы за край, а с плашкой еще дальше. */
+.brand-preview .brand-custom {
+  max-width: 100%;
+}
+
+.brand-preview .brand-custom img {
+  max-width: 100%;
+  height: auto;
+}
+
+.brand-preview-dark {
+  background: #0f1117;
+}
+
+.brand-preview-light {
+  background: #eceef2;
+}
+
+.brand-preview-label {
+  font-size: 0.72rem;
+}
+
+.brand-preview-dark .brand-preview-label {
+  color: #8b93a7;
+}
+
+.brand-preview-light .brand-preview-label {
+  color: #485161;
+}
+
+@media (max-width: 720px) {
+  .brand-header .brand-custom {
+    height: 32px;
+  }
+
+  .brand-header .brand-custom img {
+    max-width: 140px;
+  }
+
+  .brand-previews {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- светлая тема ----------
+ *
+ * Только то, чего нельзя сказать токенами из index.css.
+ */
+
+/* Белая полоса шапки во всю ширину окна, хотя сама шапка живет в колонке
+   страницы, и линия под ней. Рисуется вынесенной рамкой-картинкой: она не
+   обрезает меню под шестеренкой (clip-path обрезал бы) и не дает
+   горизонтальной прокрутки (100vw дал бы). */
+:root[data-theme='light'] .header {
+  border-bottom-color: transparent;
+  border-image: linear-gradient(to top, var(--header-line) 1px, var(--header-bg) 1px) fill 0 / 0 /
+    1.25rem 100vmax 0;
+}
+
+:root[data-theme='light'] .header .tab {
+  color: var(--text-muted);
+}
+
+:root[data-theme='light'] .header .tab-active,
+:root[data-theme='light'] .header .tab-active:hover {
+  color: var(--accent-dim);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 11%, #fff);
+}
+
+/* Строки и плитки - белые листы с легкой тенью: на сером фоне без нее они
+   выглядят вырезанными дырами. */
+:root[data-theme='light'] .project-row,
+:root[data-theme='light'] .key-row,
+:root[data-theme='light'] .access-row,
+:root[data-theme='light'] .user-row,
+:root[data-theme='light'] .summary-cell {
+  box-shadow: var(--shadow-row);
+}
+
+:root[data-theme='light'] .summary-cell .small {
+  font-weight: 600;
+}
+
+:root[data-theme='light'] .key-folder-count {
+  background: var(--badge-bg);
+  color: var(--badge-ink);
+}
+
+/* Окружения залиты: тонкий контур на белом читался хуже самого имени, а
+   бледная серая плашка с серым текстом почти пропадала рядом с зеленым prod. */
+:root[data-theme='light'] .env-chip {
+  background: var(--chip-bg);
+  border-color: var(--chip-line);
+  color: var(--chip-ink);
+  font-weight: 600;
+}
+
+:root[data-theme='light'] .env-chip-prod {
+  background: var(--prod-bg);
+  border-color: var(--prod-line);
+  color: var(--prod-ink);
+  font-weight: 600;
+}
+
+:root[data-theme='light'] .env-chip:hover {
+  background: var(--bg-card);
+  border-color: var(--accent);
+  color: var(--accent-dim);
+}
+
+:root[data-theme='light'] .env-chip-static:hover {
+  background: var(--chip-bg);
+  border-color: var(--chip-line);
+  color: var(--chip-ink);
+}
+
+/* Второстепенные кнопки - белые, как листы, на которых стоят: прозрачные на
+   сером фоне выглядели неактивными. */
+:root[data-theme='light'] button.ghost {
+  background: var(--bg-card);
+}
+
+:root[data-theme='light'] button.ghost:hover {
+  color: var(--text);
+  background: var(--bg-sunken);
+}
+
+:root[data-theme='light'] button.field-eye,
+:root[data-theme='light'] button.key-note-ok {
+  background: transparent;
+}
+
+:root[data-theme='light'] button.danger-text:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/* Переключатель окружений: открытое окружение залито - темным, а prod
+   зеленым, чтобы было видно, где ты сейчас. Белая плашка на серой подложке
+   почти не отличалась от соседей, а серый текст на сером читался хуже всего
+   на странице. */
+:root[data-theme='light'] .env-switch {
+  background: #e3e7ed;
+  border-color: #d3d9e1;
+}
+
+:root[data-theme='light'] .env-switch-item {
+  color: #2c3542;
+  font-weight: 600;
+}
+
+:root[data-theme='light'] .env-switch-item:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+:root[data-theme='light'] .env-switch-active,
+:root[data-theme='light'] .env-switch-active:hover {
+  color: #ffffff;
+  background: #27303c;
+  border-color: #27303c;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+}
+
+:root[data-theme='light'] .env-switch-prod.env-switch-active {
+  background: var(--ok);
+  border-color: var(--ok);
+}

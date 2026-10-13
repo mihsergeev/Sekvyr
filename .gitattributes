@@ -1,0 +1,12 @@
+# В репозитории - LF: код едет в Linux-контейнеры
+* text=auto eol=lf
+
+# Двоичные ассеты не трогаем
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.webp binary
+*.ttf binary
+*.zip binary
+*.gz binary
