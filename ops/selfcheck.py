@@ -235,6 +235,18 @@ def check_agent_signature() -> None:
     except Exception:
         fail("агент", "подпись версии агента не сходится с agent/pubkey.txt")
         return
+    # Вторая подпись покрывает и дату: без нее новые агенты обновятся, но дату
+    # подписи сочтут неизвестной.
+    if not data.get("signature_v2"):
+        fail("агент", "в manifest.json нет второй подписи (с датой) - python ops/agent_release.py --sign")
+        return
+    lines = ["sekvyr-agent 2", f"version {data['version']}", f"signed_at {data.get('signed_at', '')}"]
+    lines += [f"{arch} {digests[arch]}" for arch in sorted(digests)]
+    try:
+        key.verify(base64.b64decode(data["signature_v2"]), ("\n".join(lines) + "\n").encode())
+    except Exception:
+        fail("агент", "вторая подпись версии агента (с датой) не сходится с agent/pubkey.txt")
+        return
 
     declared = read(os.path.join("agent", "VERSION")).strip()
     if data["version"] != declared:
@@ -823,6 +835,28 @@ def check_base_images() -> None:
                 fail("образы", f"{path}: базовый образ не закреплен digest'ом: {image}")
 
 
+# ------------------------------------------------- 17. хеши Python-пакетов
+def check_python_hashes() -> None:
+    """У каждой версии в constraints.txt есть хеши, и Dockerfile их требует.
+
+    Образ ставит пакеты с --require-hashes, и версия без хеша оборвала бы
+    сборку. Хуже, если флаг из Dockerfile пропадет: хеши останутся лежать в
+    файле, а проверяться перестанут, и никто этого не заметит.
+    """
+    text = read(os.path.join("backend", "constraints.txt")).replace("\\\n", " ")
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        name = line.split()[0]
+        if not re.fullmatch(r"[A-Za-z0-9][\w.-]*==[\w.+!-]+", name):
+            fail("зависимости", f"constraints.txt: версия не закреплена через ==: {name}")
+        elif not re.search(r"--hash=sha256:[0-9a-f]{64}", line):
+            fail("зависимости", f"constraints.txt: у {name} нет хешей, запустите python ops/pin_hashes.py")
+    if "--require-hashes" not in read(os.path.join("backend", "Dockerfile")):
+        fail("зависимости", "backend/Dockerfile: pip install без --require-hashes, хеши не проверяются")
+
+
 # ------------------------------------------------- невидимые символы
 # Знаки нулевой ширины и смены направления строки (U+200B..U+200F,
 # U+202A..U+202E, U+2060..U+2069, U+FEFF). В исходнике они делают так, что
@@ -871,6 +905,7 @@ def main() -> int:
         check_server_texts,
         check_workflows,
         check_base_images,
+        check_python_hashes,
         check_invisible_chars,
     ):
         try:

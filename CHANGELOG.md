@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-10-24
+
+Dependency updates and two hardening changes. Upgrade with
+`sudo ops/update.sh`.
+
+### Security
+
+- The panel image installs Python packages with `--require-hashes`: every
+  version in `backend/constraints.txt` carries the hashes of its files on PyPI,
+  and a file that is not listed there is not installed, even under the same
+  version number. Dependabot updates versions and hashes together;
+  `python ops/pin_hashes.py` does it by hand.
+- The agent release description is signed a second time, together with the
+  signing date. Agent 1.0.2 checks this signature and prints the date in
+  `sekvyr update --check`. Older agents check the first signature and update
+  as before.
+- undici 8.12.3 in the frontend build tools (four advisories; it is not part of
+  the served interface).
+
+### Changed
+
+- FastAPI 0.158, Starlette 1.9, pydantic 2.14.1, SQLAlchemy 2.1.6 and smaller
+  updates in the backend; React 19.3, Vite 8.3 and the rest of the frontend
+  tools.
+- Running the installer again with `--lang` writes the language to the agent
+  config as well, so `sudo sekvyr add` speaks it too. `sudo sekvyr lang ru` or
+  `en` changes it by hand.
+
 ## [1.0.1] - 2026-10-24
 
 A security and fixes release. Upgrade with `sudo ops/update.sh`; read the
@@ -156,5 +184,6 @@ First public release.
   the panel from source by itself. The agent image for Kubernetes is built for
   amd64 and arm64.
 
+[1.0.2]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.0.2
 [1.0.1]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.0.1
 [1.0.0]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.0.0

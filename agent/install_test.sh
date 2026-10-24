@@ -129,6 +129,21 @@ reset_node
 run "fresh without a token" 2
 grep -q "^curl " "$LOG" && fail "fresh without a token: something was downloaded"
 
+# 7. Повторный запуск с --lang на подключенной ноде: язык уходит и в конфиг,
+# иначе sudo sekvyr add говорил бы на прежнем.
+reset_node
+echo '{"url":"https://panel.example"}' > "$WORK/etc/agent.json"
+fake_agent "$WORK/bin/sekvyr" "old-agent"
+run "connected with --lang" 0 --lang ru
+grep -q "^old-agent lang --config $WORK/etc/agent.json ru\$" "$LOG" || fail "connected with --lang: the language was not written to the config"
+
+# 8. Без --lang язык конфига не трогается: его мог задать человек.
+reset_node
+echo '{"url":"https://panel.example"}' > "$WORK/etc/agent.json"
+fake_agent "$WORK/bin/sekvyr" "old-agent"
+run "connected without --lang" 0
+grep -q "^old-agent lang" "$LOG" && fail "connected without --lang: the config language was changed"
+
 if [ "$FAILED" = 0 ]; then
     echo "install.sh: all cases passed"
 fi

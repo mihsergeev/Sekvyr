@@ -75,7 +75,9 @@ so the service log and `sekvyr add` use it too. `SEKVYR_LANG` set on the server
 does not override it: the installer takes `--lang` from the command, and `sudo`
 drops `SEKVYR_LANG`, so `sudo sekvyr add` does not see it. To change the
 language of the service, run the installer again with `--lang en` or
-`--lang ru`.
+`--lang ru`: since 1.0.2 it writes the language to the config as well. Only the
+commands run by hand: `sudo sekvyr lang en` (without an argument it shows the
+current one).
 
 **Behind a proxy.** If the server reaches the outside only through a proxy, run
 the installer with `HTTPS_PROXY` (and `NO_PROXY`) in its environment: `sudo -E`

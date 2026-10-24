@@ -34,13 +34,19 @@ WORKDIR /srv
 
 # В site-packages ставятся только зависимости, а не сам пакет: иначе код панели
 # лежал бы в образе дважды, в /srv/app и в site-packages, и какая копия
-# работает, зависело бы от каталога запуска. Версии - из constraints.txt: образ,
-# собранный на сервере, совпадает с проверенным. pip после установки не нужен, а
-# в образе он только добавляет находок сканерам и способов что-то доставить в
-# работающий контейнер.
+# работает, зависело бы от каталога запуска. Версии и хеши - из constraints.txt:
+# образ, собранный на сервере, совпадает с проверенным, а файл, подмененный
+# по дороге или на индексе, не встанет. constraints.txt - полный список, и
+# ставится он целиком: pip этого образа требования без == (fastapi>=0.115 из
+# pyproject) в режиме хешей не принимает, даже если версия закреплена рядом.
+# Что список покрывает pyproject, проверяет второй шаг, уже без сети. pip после
+# установки не нужен, а в образе он только добавляет находок сканерам и
+# способов что-то доставить в работающий контейнер.
 COPY backend/pyproject.toml backend/constraints.txt ./
 RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']))" > /tmp/requirements.txt && \
-    pip install --no-cache-dir --root-user-action=ignore -c constraints.txt -r /tmp/requirements.txt && \
+    pip install --no-cache-dir --root-user-action=ignore --require-hashes -r constraints.txt && \
+    pip install --no-cache-dir --root-user-action=ignore --no-index --dry-run -q -r /tmp/requirements.txt && \
+    pip check && \
     pip uninstall -y --root-user-action=ignore pip && \
     rm -rf /tmp/requirements.txt /root/.cache
 

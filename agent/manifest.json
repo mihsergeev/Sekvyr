@@ -1,15 +1,16 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "files": {
     "amd64": {
-      "sha256": "7d647947ec441f2fdb118408a136231bac9bbc13f69a3b8c36967b9b9ff3b739",
-      "size": 7385212
+      "sha256": "c2a6f3297f363992dda1be6ea7ef5d3c0753d2e8588bf81ac298ebde4181d11e",
+      "size": 7389308
     },
     "arm64": {
-      "sha256": "ccbcbc37046610febbfca45b2762b98debdca5c7e8148b455cccd89eacd60eb6",
+      "sha256": "9fb27386f786542d76d1a34a706bffdd5306615920a8c39862275b694c988fd9",
       "size": 6815868
     }
   },
-  "signature": "bHGcgx7MEXrXnvOq7T8a82RgSRYvusb1srELy2VNo0RYDXsuwYRpFyonkiSQRajPLfM7/b8R3ZLoqrBuA0LACQ==",
-  "signed_at": "2026-10-24T14:24:18.734188+00:00"
+  "signature": "prP91O7gI6nNwpcDfGajFJUVuK0J4ceBU+25UhUZlmHD25jrAseOnUQ9yjewFTIhJ51eupraRrwXUOZJhPNtCA==",
+  "signed_at": "2026-10-24T18:02:36.490513+00:00",
+  "signature_v2": "rUy2EKhKkxAyMc/xMlADn/f7jtV5dgrE5gBv16Ak7fQt2ET65RFbukwsRaF3KLoUaylJ+Uj/MZxWeBxxBLIOBQ=="
 }

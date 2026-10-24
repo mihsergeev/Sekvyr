@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SEKVYR_", env_file=".env")
 
     app_name: str = "Sekvyr"
-    version: str = "1.0.1"
+    version: str = "1.0.2"
     debug: bool = False
     # Внешний адрес панели (https://sekvyr.example.com). Нужен для команды
     # подключения сервера, которую панель показывает в интерфейсе, и для ссылок

@@ -81,7 +81,7 @@ spec:
         # The first render happens before the application starts: a container
         # should not come up without its values and crash in a loop.
         - name: sekvyr-init
-          image: ghcr.io/mihsergeev/sekvyr-agent:1.0.1
+          image: ghcr.io/mihsergeev/sekvyr-agent:1.0.2
           args: ["render", "-o", "/secrets/.env", "--mode", "0440", "--no-cache"]
           envFrom:
             - configMapRef: { name: sekvyr-agent }
@@ -120,7 +120,7 @@ spec:
         #   --on-change "pkill -HUP -x app"
         # to the arguments below. Otherwise restart the pods.
         - name: sekvyr-agent
-          image: ghcr.io/mihsergeev/sekvyr-agent:1.0.1
+          image: ghcr.io/mihsergeev/sekvyr-agent:1.0.2
           args:
             - agent
             - -o

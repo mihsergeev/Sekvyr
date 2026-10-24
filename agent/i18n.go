@@ -11,6 +11,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -62,6 +64,52 @@ func peekConfigLang() {
 	if json.Unmarshal(raw, &cfg) == nil {
 		useConfigLang(cfg.Lang)
 	}
+}
+
+// cmdLang - язык агента в его конфиге: без аргумента показывает, с ru или en
+// записывает. Установщик зовет его при повторном запуске с --lang: служба
+// получает язык из своего юнита, а `sudo sekvyr add` читает его из конфига, и
+// без этого нода говорила бы на двух языках сразу.
+func cmdLang(args []string) error {
+	fs := flag.NewFlagSet("lang", flag.ExitOnError)
+	config := fs.String("config", defaultConfig, tr("конфиг агента", "agent config"))
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 1 {
+		return errors.New(tr("нужен один язык: ru или en", "one language is needed: ru or en"))
+	}
+	// Без файла loadConfig собрал бы конфиг из окружения пода, и запись
+	// создала бы конфиг там, где его не было.
+	if _, err := os.Stat(*config); err != nil {
+		return fmt.Errorf(tr("конфиг %s: %w (сначала выполните enroll)", "config %s: %w (run enroll first)"), *config, err)
+	}
+	cfg, err := loadConfig(*config)
+	if err != nil {
+		return err
+	}
+	if fs.NArg() == 0 {
+		if cfg.Lang == "" {
+			fmt.Println(tr("не задан: язык по окружению", "not set: the language follows the environment"))
+		} else {
+			fmt.Println(cfg.Lang)
+		}
+		return nil
+	}
+	lang := strings.ToLower(strings.TrimSpace(fs.Arg(0)))
+	if lang != "ru" && lang != "en" {
+		return fmt.Errorf(tr("язык %q не поддерживается: ru или en", "language %q is not supported: ru or en"), fs.Arg(0))
+	}
+	if cfg.Lang == lang {
+		return nil
+	}
+	cfg.Lang = lang
+	if err := saveConfig(*config, cfg); err != nil {
+		return err
+	}
+	useConfigLang(lang)
+	fmt.Printf(tr("sekvyr: язык агента в %s: %s\n", "sekvyr: agent language in %s: %s\n"), *config, lang)
+	return nil
 }
 
 // tr - строка на языке вывода.

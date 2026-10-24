@@ -136,6 +136,8 @@ func main() {
 		err = cmdList(os.Args[2:])
 	case "rm", "remove":
 		err = cmdRemove(os.Args[2:])
+	case "lang":
+		err = cmdLang(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("sekvyr", Version)
 	case "help", "--help", "-h":
@@ -163,6 +165,7 @@ func usage() {
   sekvyr ls                               which applications are served
   sekvyr rm project/environment           remove an application
   sekvyr config --project P --env E -o F  a separate config (a rare case)
+  sekvyr lang [ru|en]                     agent output language in its config
   sekvyr version                          agent version
 
 Default config: `+defaultConfig+`
@@ -182,6 +185,7 @@ Output language: SEKVYR_LANG=ru or en.
   sekvyr ls                               какие приложения обслуживаются
   sekvyr rm проект/окружение              убрать приложение
   sekvyr config --project P --env E -o F  отдельный конфиг (редкий случай)
+  sekvyr lang [ru|en]                     язык вывода агента в его конфиге
   sekvyr version                          версия агента
 
 Конфиг по умолчанию: `+defaultConfig+`
@@ -1504,13 +1508,19 @@ func parseMode(text string) (os.FileMode, error) {
 // manifest - что панель рассказывает о доступной версии. Подпись покрывает
 // версию и хеши: подменить бинарь или подсунуть старую версию под видом новой
 // нельзя, не имея закрытого ключа.
+//
+// Вторая подпись (с 1.0.2) покрывает еще и дату подписи. Первая остается для
+// агентов 1.0.1 и старше, которые знают только ее. Без второй дата - просто
+// текст от панели, и агент ее не показывает.
 type manifest struct {
 	Version string `json:"version"`
 	Files   map[string]struct {
 		SHA256 string `json:"sha256"`
 		Size   int64  `json:"size"`
 	} `json:"files"`
-	Signature string `json:"signature"`
+	Signature   string `json:"signature"`
+	SignedAt    string `json:"signed_at"`
+	SignatureV2 string `json:"signature_v2"`
 }
 
 func signedText(m *manifest) []byte {
@@ -1526,6 +1536,65 @@ func signedText(m *manifest) []byte {
 		fmt.Fprintf(&b, "%s %s\n", arch, m.Files[arch].SHA256)
 	}
 	return []byte(b.String())
+}
+
+// signedTextV2 - текст второй подписи: другой заголовок, чтобы подпись
+// одного вида нельзя было выдать за подпись другого.
+func signedTextV2(m *manifest) []byte {
+	arches := make([]string, 0, len(m.Files))
+	for arch := range m.Files {
+		arches = append(arches, arch)
+	}
+	sort.Strings(arches)
+	var b strings.Builder
+	b.WriteString("sekvyr-agent 2\n")
+	fmt.Fprintf(&b, "version %s\n", m.Version)
+	fmt.Fprintf(&b, "signed_at %s\n", m.SignedAt)
+	for _, arch := range arches {
+		fmt.Fprintf(&b, "%s %s\n", arch, m.Files[arch].SHA256)
+	}
+	return []byte(b.String())
+}
+
+// verifyManifest проверяет подпись описания ключом, вшитым в бинарь. Есть
+// вторая подпись - решает она, и дата подписи тогда настоящая. Нет - первая,
+// а дата стирается: ее мог написать кто угодно.
+func verifyManifest(m *manifest) error {
+	if PublicKey == "" {
+		return errors.New(tr("агент собран без публичного ключа — обновление невозможно", "the agent was built without a public key, updates are impossible"))
+	}
+	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(PublicKey))
+	if err != nil || len(key) != ed25519.PublicKeySize {
+		return errors.New(tr("публичный ключ в бинаре испорчен", "the public key in the binary is damaged"))
+	}
+	raw, text := m.Signature, signedText(m)
+	if m.SignatureV2 != "" {
+		raw, text = m.SignatureV2, signedTextV2(m)
+	}
+	sig, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return errors.New(tr("подпись описания не разобралась", "the release signature could not be parsed"))
+	}
+	if !ed25519.Verify(ed25519.PublicKey(key), text, sig) {
+		// Именно здесь и стоит вся защита: панель могла бы раздать что угодно,
+		// но без закрытого ключа подпись не сходится, и нода ничего не поставит.
+		return errors.New(tr("подпись версии не сходится — обновление отклонено", "the release signature does not match, the update is rejected"))
+	}
+	if m.SignatureV2 == "" {
+		m.SignedAt = ""
+	}
+	return nil
+}
+
+// signedDay - дата подписи для вывода, если она подписана, иначе пусто.
+func signedDay(m *manifest) string {
+	if m.SignedAt == "" {
+		return ""
+	}
+	if at, err := time.Parse(time.RFC3339Nano, m.SignedAt); err == nil {
+		return at.UTC().Format("2006-01-02")
+	}
+	return ""
 }
 
 // parseVersion разбирает "0.26.0-rc1" на числа основной части и хвост
@@ -1649,21 +1718,8 @@ func fetchManifest(cfg *Config) (*manifest, error) {
 	if err := get(cfg.URL+"/api/v1/machine/agent/manifest", "", &m); err != nil {
 		return nil, err
 	}
-	if PublicKey == "" {
-		return nil, errors.New(tr("агент собран без публичного ключа — обновление невозможно", "the agent was built without a public key, updates are impossible"))
-	}
-	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(PublicKey))
-	if err != nil || len(key) != ed25519.PublicKeySize {
-		return nil, errors.New(tr("публичный ключ в бинаре испорчен", "the public key in the binary is damaged"))
-	}
-	sig, err := base64.StdEncoding.DecodeString(m.Signature)
-	if err != nil {
-		return nil, errors.New(tr("подпись описания не разобралась", "the release signature could not be parsed"))
-	}
-	if !ed25519.Verify(ed25519.PublicKey(key), signedText(&m), sig) {
-		// Именно здесь и стоит вся защита: панель могла бы раздать что угодно,
-		// но без закрытого ключа подпись не сходится, и нода ничего не поставит.
-		return nil, errors.New(tr("подпись версии не сходится — обновление отклонено", "the release signature does not match, the update is rejected"))
+	if err := verifyManifest(&m); err != nil {
+		return nil, err
 	}
 	return &m, nil
 }
@@ -1698,7 +1754,11 @@ func cmdUpdate(args []string) error {
 			m.Version, Version,
 		)
 	}
-	fmt.Printf(tr("доступна версия %s (сейчас %s)\n", "version %s is available (current %s)\n"), m.Version, Version)
+	if day := signedDay(m); day != "" {
+		fmt.Printf(tr("доступна версия %s, подписана %s (сейчас %s)\n", "version %s is available, signed on %s (current %s)\n"), m.Version, day, Version)
+	} else {
+		fmt.Printf(tr("доступна версия %s (сейчас %s)\n", "version %s is available (current %s)\n"), m.Version, Version)
+	}
 	if *check {
 		return nil
 	}

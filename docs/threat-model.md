@@ -219,6 +219,14 @@ release is genuine and passes the check. A downgrade stays a human decision:
 (without `--restart` the running service stays on its version until it
 restarts).
 
+What a compromised panel can still do is keep serving the last release it has
+and never offer a newer one: the fleet then stays on that version. The release
+description carries a signed date (since 1.0.2), and
+`sudo sekvyr update --check` prints it next to the version, so a node can be
+compared with the releases page by hand. The agent does not refuse an old
+description on its own: that would need a fresh signature every few weeks, and
+the signing key is meant to stay offline.
+
 **What remains.** Compromise of the repository itself or of the build machine.
 The project has no defence of its own there beyond reproducible steps and the
 signing key being offline.

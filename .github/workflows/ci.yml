@@ -20,8 +20,14 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        # Те же версии, что в образе (constraints.txt).
-        run: pip install -c constraints.txt .[dev]
+        # Зависимости панели - те же версии и хеши, что в образе (constraints.txt,
+        # целиком, как в Dockerfile). Инструменты тестов в образ не попадают, их
+        # хешей там нет, поэтому они ставятся вторым шагом.
+        run: |
+          pip install --require-hashes -r constraints.txt
+          python -c "import tomllib; p = tomllib.load(open('pyproject.toml', 'rb'))['project']; print('\n'.join(p['optional-dependencies']['dev']))" > /tmp/dev.txt
+          pip install -r /tmp/dev.txt
+          pip check
       - name: Tests
         run: pytest -q
       - name: Dependency audit (pip-audit)
@@ -96,7 +102,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install -c backend/constraints.txt ./backend
+        # Зависимости по хешам, сам пакет отдельно и без зависимостей: alembic
+        # импортирует app, а хешей у пакета из каталога нет.
+        run: |
+          pip install --require-hashes -r backend/constraints.txt
+          pip install --no-deps ./backend
       - name: Migrate and start the panel
         working-directory: backend
         run: |
@@ -277,7 +287,8 @@ jobs:
           SEKVYR_ROOT_KEY_FILE=/secret/root.key
           SEKVYR_BIND=127.0.0.1:8080
           EOF
-          pip install -c backend/constraints.txt httpx
+          # Нужен только httpx, но в режиме хешей pip берет список целиком.
+          pip install --require-hashes -r backend/constraints.txt
       # ./data и ./secret заранее не создаются: их заводит docker от root, и
       # entrypoint должен сам отдать их панели, оставив себе только нужные права.
       - name: Up

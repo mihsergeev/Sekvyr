@@ -69,6 +69,7 @@ REENROLL=""
 INTERVAL_SET=""
 CACHE_SET=""
 SKIP_ADD=""
+LANG_SET=""
 SECOND_OUT=""
 BIN_DIR=""
 CONFIG="/etc/sekvyr/agent.json"
@@ -104,7 +105,7 @@ while [ $# -gt 0 ]; do
         --uninstall) UNINSTALL=1; shift ;;
         --reenroll) REENROLL=1; shift ;;
         --lang)
-            case "$2" in ru|en) OUT_LANG="$2" ;; esac
+            case "$2" in ru|en) OUT_LANG="$2"; LANG_SET=1 ;; esac
             shift 2 ;;
         *) msg "неизвестный аргумент: $1" "unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -327,6 +328,16 @@ elif [ ! -f "$CONFIG" ] && [ -f "$FROM_CONFIG" ]; then
 else
     msg "sekvyr: сервер уже подключён, обновлён только бинарь" \
         "sekvyr: this server is already connected, only the binary was updated"
+fi
+
+# Язык из команды пишем и в конфиг, а не только в юнит: `sudo sekvyr add` и
+# прочие команды руками читают его оттуда. При enroll он уже записан, повтор
+# ничего не меняет.
+if [ -n "$LANG_SET" ] && [ -f "$CONFIG" ]; then
+    if ! "$BIN_DIR/sekvyr" lang --config "$CONFIG" "$OUT_LANG" >/dev/null 2>&1; then
+        msg "sekvyr: язык $OUT_LANG в $CONFIG не записан, задать его потом: sudo sekvyr lang $OUT_LANG" \
+            "sekvyr: the language $OUT_LANG was not written to $CONFIG, set it later with: sudo sekvyr lang $OUT_LANG" >&2
+    fi
 fi
 
 if [ -n "$PROJECT" ] && [ -n "$ENVNAME" ] && [ -z "$OUT" ] && [ -z "$SKIP_ADD" ]; then

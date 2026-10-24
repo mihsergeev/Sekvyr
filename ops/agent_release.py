@@ -95,6 +95,18 @@ def signed_text(ver: str, digests: dict[str, str]) -> bytes:
     return ("\n".join(lines) + "\n").encode()
 
 
+def signed_text_v2(ver: str, digests: dict[str, str], signed_at: str) -> bytes:
+    """Текст второй подписи: то же и дата подписи.
+
+    Первую подпись проверяют агенты 1.0.1 и старше, вторую - новые, и дате они
+    верят только с ней. Заголовок другой, чтобы подпись одного вида нельзя было
+    выдать за другую.
+    """
+    lines = ["sekvyr-agent 2", f"version {ver}", f"signed_at {signed_at}"]
+    lines += [f"{arch} {digests[arch]}" for arch in sorted(digests)]
+    return ("\n".join(lines) + "\n").encode()
+
+
 def keygen() -> int:
     private = Ed25519PrivateKey.generate()
     raw_private = private.private_bytes(
@@ -207,14 +219,17 @@ def sign(given: dict[str, dict[str, object]] | None = None) -> int:
     ver = version()
     files = given or build(ver)
     digests = {arch: str(files[arch]["sha256"]) for arch in files}
+    signed_at = datetime.now(timezone.utc).isoformat()
     signature = base64.b64encode(private.sign(signed_text(ver, digests))).decode()
+    signature_v2 = base64.b64encode(private.sign(signed_text_v2(ver, digests, signed_at))).decode()
     MANIFEST.write_text(
         json.dumps(
             {
                 "version": ver,
                 "files": files,
                 "signature": signature,
-                "signed_at": datetime.now(timezone.utc).isoformat(),
+                "signed_at": signed_at,
+                "signature_v2": signature_v2,
             },
             ensure_ascii=False,
             indent=2,
@@ -242,6 +257,17 @@ def verify() -> int:
     )
     digests = {arch: meta["sha256"] for arch, meta in data["files"].items()}
     public.verify(base64.b64decode(data["signature"]), signed_text(data["version"], digests))
+    if not data.get("signature_v2"):
+        raise SystemExit(
+            t(
+                "в описании нет второй подписи (с датой): подпишите заново, --sign",
+                "the description has no second signature (with the date): sign again with --sign",
+            )
+        )
+    public.verify(
+        base64.b64decode(data["signature_v2"]),
+        signed_text_v2(data["version"], digests, data["signed_at"]),
+    )
     print(t(f"подпись версии {data['version']} сходится", f"the signature of version {data['version']} checks out"))
     return 0
 
