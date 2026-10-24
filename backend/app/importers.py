@@ -19,6 +19,9 @@
     (urlguard.check_source_url). Право на такой запрос есть только у того, кто
     и так распоряжается секретами окружения, а тело чужого ответа в ошибку не
     попадает: только то, что сам источник сказал об ошибке в своих полях.
+  * **Ответ источника проверяется.** Он читается не больше MAX_BYTES и не
+    больше MAX_ITEMS ключей, а ответ не того формата (прокси с заглушкой,
+    другая версия, чужой сервис по этому адресу) - понятная ошибка, а не 500.
 """
 
 from __future__ import annotations
@@ -29,6 +32,11 @@ from dataclasses import dataclass, field
 import httpx
 
 TIMEOUT = 20
+# Предел одного ответа источника и числа ключей. Проверяются по ходу чтения:
+# адрес задает человек, и сервер, отдающий бесконечный поток или миллион
+# ключей, иначе съел бы память панели раньше, чем сработала бы проверка.
+MAX_BYTES = 20 * 1024 * 1024
+MAX_ITEMS = 5000
 
 
 class SourceError(Exception):
@@ -42,6 +50,10 @@ class Item:
     path: str
     name: str
     value: str
+    # Почему ключ не переносится, если не переносится: источник не отдал
+    # значение. Предпросмотр показывает такой ключ пропускаемым, а перенос его
+    # не пишет: вместо значения в прод уехала бы заглушка.
+    skip: str = ""
 
 
 @dataclass
@@ -55,15 +67,11 @@ def _client(verify_tls: bool = True) -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=TIMEOUT, verify=verify_tls, follow_redirects=False)
 
 
-def _detail(response: httpx.Response) -> str:
+def _detail_of(data) -> str:
     """Что источник сказал об ошибке, и только в своих полях: errors у Vault,
     message у Infisical. Тело целиком в ответ не идет: адрес задает человек,
     и пересказ чужой страницы превращал бы перенос в способ читать внутренние
     сервисы."""
-    try:
-        data = response.json()
-    except ValueError:
-        return ""
     if not isinstance(data, dict):
         return ""
     errors = data.get("errors")
@@ -75,10 +83,53 @@ def _detail(response: httpx.Response) -> str:
 
 
 def _fail(exc: Exception, what: str) -> SourceError:
-    if isinstance(exc, httpx.HTTPStatusError):
-        body = _detail(exc.response)
-        return SourceError(f"{what}: HTTP {exc.response.status_code}" + (f" — {body}" if body else ""))
     return SourceError(f"{what}: {type(exc).__name__}")
+
+
+def _odd(what: str) -> SourceError:
+    """Источник ответил, но не тем, что описано в его API."""
+    return SourceError(f"{what}: ответ не в том формате, что описан в API источника")
+
+
+def _status(what: str, code: int, data) -> SourceError:
+    detail = _detail_of(data)
+    return SourceError(f"{what}: HTTP {code}" + (f" — {detail}" if detail else ""))
+
+
+async def _get_json(http: httpx.AsyncClient, method: str, url: str, what: str, **kwargs):
+    """(код ответа, разобранный JSON или None).
+
+    Тело читается кусками и не дальше MAX_BYTES. Успешный ответ не JSON или
+    не UTF-8 - понятная ошибка. 404 отдается вызывающему: где-то он значит
+    "нет такого секрета", где-то - "старая версия API".
+    """
+    too_big = f"{what}: ответ больше {MAX_BYTES // 2**20} МБ, сузьте путь"
+    try:
+        async with http.stream(method, url, **kwargs) as response:
+            declared = response.headers.get("content-length", "")
+            if declared.isdigit() and int(declared) > MAX_BYTES:
+                raise SourceError(too_big)
+            body = bytearray()
+            async for chunk in response.aiter_bytes():
+                body += chunk
+                if len(body) > MAX_BYTES:
+                    raise SourceError(too_big)
+            code = response.status_code
+    except SourceError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc, what) from exc
+    try:
+        data = json.loads(bytes(body)) if body else None
+    except ValueError:
+        data = None
+    if code == 404:
+        return code, data
+    if not 200 <= code < 300:
+        raise _status(what, code, data)
+    if data is None:
+        raise _odd(what)
+    return code, data
 
 
 # --- Infisical -------------------------------------------------------------
@@ -87,17 +138,19 @@ def _fail(exc: Exception, what: str) -> SourceError:
 async def infisical_login(url: str, client_id: str, client_secret: str) -> str:
     """Машинная личность Infisical (Universal Auth) в обмен на токен."""
     base = url.rstrip("/")
-    try:
-        async with _client() as http:
-            response = await http.post(
-                f"{base}/api/v1/auth/universal-auth/login",
-                json={"clientId": client_id, "clientSecret": client_secret},
-            )
-            response.raise_for_status()
-            token = response.json().get("accessToken", "")
-    except Exception as exc:  # noqa: BLE001
-        raise _fail(exc, "вход в Infisical не удался") from exc
-    if not token:
+    what = "вход в Infisical не удался"
+    async with _client() as http:
+        code, data = await _get_json(
+            http,
+            "POST",
+            f"{base}/api/v1/auth/universal-auth/login",
+            what,
+            json={"clientId": client_id, "clientSecret": client_secret},
+        )
+    if code == 404:
+        raise _status(what, code, data)
+    token = data.get("accessToken") if isinstance(data, dict) else None
+    if not isinstance(token, str) or not token:
         raise SourceError("Infisical не вернул токен")
     return token
 
@@ -113,44 +166,113 @@ async def infisical_fetch(
 ) -> Fetched:
     """Секреты одного окружения Infisical.
 
-    Читаем "сырые" значения (`/secrets/raw`): панель кладет их в свое
-    хранилище зашифрованными сама, и получать шифротекст чужого формата ей
-    незачем.
+    Читаем открытые значения: панель кладет их в свое хранилище
+    зашифрованными сама, и получать шифротекст чужого формата ей незачем.
+    Ссылки на другие ключи (${KEY}) раскрываются: переносится то, что видит
+    приложение, а сама панель таких ссылок не понимает.
+
+    Нынешний API - /api/v4/secrets. Self-hosted Infisical до его появления
+    отвечает на него 404, тогда берем /api/v3/secrets/raw: ответ у них один.
     """
     base = url.rstrip("/")
-    params = {
-        "workspaceId": workspace_id,
-        "environment": environment,
-        "secretPath": secret_path or "/",
-        "include_imports": "true",
-        "recursive": "true" if recursive else "false",
-    }
-    try:
-        async with _client() as http:
-            response = await http.get(
+    root = secret_path or "/"
+    what = "Infisical не отдал секреты"
+    headers = {"Authorization": f"Bearer {token}"}
+    flag = "true" if recursive else "false"
+    async with _client() as http:
+        code, data = await _get_json(
+            http,
+            "GET",
+            f"{base}/api/v4/secrets",
+            what,
+            headers=headers,
+            params={
+                "projectId": workspace_id,
+                "environment": environment,
+                "secretPath": root,
+                "includeImports": "true",
+                "recursive": flag,
+                "expandSecretReferences": "true",
+                "viewSecretValue": "true",
+            },
+        )
+        if code == 404:
+            code, data = await _get_json(
+                http,
+                "GET",
                 f"{base}/api/v3/secrets/raw",
-                params=params,
-                headers={"Authorization": f"Bearer {token}"},
+                what,
+                headers=headers,
+                params={
+                    "workspaceId": workspace_id,
+                    "environment": environment,
+                    "secretPath": root,
+                    "include_imports": "true",
+                    "recursive": flag,
+                    "expandSecretReferences": "true",
+                },
             )
-            response.raise_for_status()
-            data = response.json()
-    except Exception as exc:  # noqa: BLE001
-        raise _fail(exc, "Infisical не отдал секреты") from exc
+            if code == 404:
+                raise _status(what, code, data)
+
+    if not isinstance(data, dict):
+        raise _odd(what)
+    own = data.get("secrets", [])
+    imports = data.get("imports") or []
+    if not isinstance(own, list) or not isinstance(imports, list):
+        raise _odd(what)
 
     items: list[Item] = []
-    for row in data.get("secrets", []):
-        name = row.get("secretKey") or ""
-        if not name:
-            continue
+    taken: set[tuple[str, str]] = set()
+
+    def add(row, folder: str) -> None:
+        if not isinstance(row, dict):
+            raise _odd(what)
+        name = row.get("secretKey")
+        if not isinstance(name, str) or not name or (folder, name) in taken:
+            return
+        value = row.get("secretValue")
+        if value is None:
+            value = ""
+        elif not isinstance(value, str):
+            raise _odd(what)
+        if len(items) >= MAX_ITEMS:
+            raise SourceError(f"на той стороне больше {MAX_ITEMS} ключей, сузьте путь")
+        taken.add((folder, name))
+        if row.get("secretValueHidden") is True:
+            # Без права на значение Infisical отдает заглушку. Перенести ее
+            # значит положить в прод не тот пароль, поэтому ключ пропускается.
+            note = "Infisical не отдал значение: у машинной личности нет права его читать"
+            items.append(Item(path=folder, name=name, value="", skip=note))
+            return
+        items.append(Item(path=folder, name=name, value=value))
+
+    for row in own:
         # Путь у Infisical свой ("/" или "/folder"), и он ложится на папки
         # панели один в один - это и есть вся "миграция структуры".
-        folder = row.get("secretPath") or secret_path or "/"
-        items.append(Item(path=folder, name=name, value=row.get("secretValue", "")))
+        folder = row.get("secretPath") if isinstance(row, dict) else None
+        add(row, folder if isinstance(folder, str) and folder else root)
+
+    # Импорты Infisical отдает отдельно, а сливает их клиент: ключ самого
+    # окружения важнее импортированного, из импортов побеждает последний (так
+    # делает их CLI). Импорт живет в папке, которую читали, туда же ложатся и
+    # его ключи.
+    brought = 0
+    for block in reversed(imports):
+        rows = block.get("secrets", []) if isinstance(block, dict) else None
+        if not isinstance(rows, list):
+            raise _odd(what)
+        before = len(items)
+        for row in rows:
+            add(row, root)
+        brought += len(items) - before
+
     note = ""
-    if data.get("imports"):
+    if brought:
         note = (
-            "у окружения есть импорты из других мест Infisical — они перенесены "
-            "как обычные ключи, ссылками они больше не будут"
+            f"ключей из импортов Infisical: {brought}. Они переносятся как обычные ключи "
+            "и ссылками больше не будут, а ключ самого окружения важнее "
+            "импортированного с тем же именем"
         )
     return Fetched(items=items, note=note)
 
@@ -158,23 +280,35 @@ async def infisical_fetch(
 async def infisical_projects(url: str, token: str) -> list[dict]:
     """Проекты, которые видит эта личность: чтобы не искать идентификатор руками."""
     base = url.rstrip("/")
-    try:
-        async with _client() as http:
-            response = await http.get(
-                f"{base}/api/v1/workspace", headers={"Authorization": f"Bearer {token}"}
-            )
-            response.raise_for_status()
-            data = response.json()
-    except Exception as exc:  # noqa: BLE001
-        raise _fail(exc, "Infisical не отдал список проектов") from exc
+    what = "Infisical не отдал список проектов"
+    async with _client() as http:
+        code, data = await _get_json(
+            http,
+            "GET",
+            f"{base}/api/v1/workspace",
+            what,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    if code == 404:
+        raise _status(what, code, data)
+    rows = data.get("workspaces", []) if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        raise _odd(what)
     out: list[dict] = []
-    for row in data.get("workspaces", []):
+    for row in rows:
+        envs = row.get("environments", []) if isinstance(row, dict) else None
+        if not isinstance(envs, list):
+            raise _odd(what)
+        ident = row.get("id") or row.get("_id") or ""
+        name = row.get("name", "")
         out.append(
             {
-                "id": row.get("id") or row.get("_id") or "",
-                "name": row.get("name", ""),
+                "id": ident if isinstance(ident, str) else "",
+                "name": name if isinstance(name, str) else "",
                 "environments": [
-                    e.get("slug", "") for e in row.get("environments", []) if e.get("slug")
+                    e["slug"]
+                    for e in envs
+                    if isinstance(e, dict) and isinstance(e.get("slug"), str) and e["slug"]
                 ],
             }
         )
@@ -207,6 +341,8 @@ async def vault_fetch(url: str, token: str, *, mount: str, path: str = "") -> Fe
         rel = secret[len(root):].strip("/") if root else secret
         folder = "/" + rel if rel else "/"
         for name, value in payload.items():
+            if len(items) >= MAX_ITEMS:
+                raise SourceError(f"на той стороне больше {MAX_ITEMS} ключей, сузьте путь")
             if value is None:
                 text = ""
             elif isinstance(value, str):
@@ -223,14 +359,21 @@ async def vault_fetch(url: str, token: str, *, mount: str, path: str = "") -> Fe
             """Поля секрета или None, если секрета нет: путь бывает только
             папкой, а удаленный секрет еще числится в списке, но данных не
             отдает. Ни то, ни другое не повод ронять весь перенос."""
-            try:
-                got = await http.get(f"{base}/v1/{mount}/data/{secret}", headers=headers)
-                if got.status_code == 404:
-                    return None
-                got.raise_for_status()
-                return got.json().get("data", {}).get("data") or {}
-            except Exception as exc:  # noqa: BLE001
-                raise _fail(exc, f"Vault не отдал секрет {secret}") from exc
+            what = f"Vault не отдал секрет {secret}"
+            code, got = await _get_json(
+                http, "GET", f"{base}/v1/{mount}/data/{secret}", what, headers=headers
+            )
+            if code == 404:
+                return None
+            if not isinstance(got, dict):
+                raise _odd(what)
+            outer = got.get("data")
+            fields = outer.get("data") if isinstance(outer, dict) else outer
+            if fields is None:
+                return {}
+            if not isinstance(fields, dict):
+                raise _odd(what)
+            return fields
 
         async def walk(current: str) -> None:
             nonlocal seen
@@ -240,16 +383,14 @@ async def vault_fetch(url: str, token: str, *, mount: str, path: str = "") -> Fe
                 # угодно, а панель не должна уходить в него навсегда.
                 raise SourceError("в поддереве больше 500 узлов — сузьте путь")
             listing = f"{base}/v1/{mount}/metadata/{current}".rstrip("/")
-            try:
-                response = await http.request("LIST", listing, headers=headers)
-                if response.status_code == 404:
-                    return
-                response.raise_for_status()
-                keys = response.json().get("data", {}).get("keys", [])
-            except SourceError:
-                raise
-            except Exception as exc:  # noqa: BLE001
-                raise _fail(exc, "Vault не отдал список") from exc
+            what = "Vault не отдал список"
+            code, got = await _get_json(http, "LIST", listing, what, headers=headers)
+            if code == 404:
+                return
+            outer = got.get("data") if isinstance(got, dict) else None
+            keys = outer.get("keys", []) if isinstance(outer, dict) else None
+            if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+                raise _odd(what)
 
             for key in keys:
                 child = f"{current.rstrip('/')}/{key}".lstrip("/") if current else key

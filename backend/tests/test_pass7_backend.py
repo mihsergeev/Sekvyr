@@ -219,10 +219,16 @@ async def test_machine_follows_a_project_moved_to_another_group(
     _made, head = await _machine(client, owner_headers, envs["prod"])
     moved = await client.patch(f"/api/projects/{pid}", headers=owner_headers, json={"group_name": "Acme"})
     assert moved.status_code == 200, moved.text
+    # Агент подключался, когда проект был без группы, и помнит адрес без нее.
+    res = await client.get(
+        "/api/v1/machine/secrets", headers=head, params={"project": "shop", "env": "prod", "group": ""}
+    )
+    assert res.status_code == 200, res.text
+    # А группы, где проекта никогда не было, он адресом не считает.
     res = await client.get(
         "/api/v1/machine/secrets", headers=head, params={"project": "shop", "env": "prod", "group": "old"}
     )
-    assert res.status_code == 200, res.text
+    assert res.status_code == 403, res.text
 
 
 async def test_machine_denials_do_not_flood_the_log(client: httpx.AsyncClient, owner_headers, unsealed):

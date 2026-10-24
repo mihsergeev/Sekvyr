@@ -3,7 +3,9 @@ import {
   createUser,
   listUsers,
   resetUserPassword,
+  resetUserTotp,
   updateUser,
+  userDependents,
   MIN_PASSWORD_LEN,
   passwordProblem,
   type PanelUser,
@@ -131,6 +133,29 @@ export function UsersPage() {
     }
   }
 
+  /** Что встанет без этой учетки: строки для окна подтверждения. Ошибка
+      подсчета не мешает самому действию, просто предупреждать нечем. */
+  async function fallout(u: PanelUser, machinesToo: boolean): Promise<string[]> {
+    try {
+      const deps = await userDependents(u.id)
+      const lines: string[] = []
+      if (machinesToo && (deps.machines > 0 || deps.clusters > 0)) {
+        lines.push(
+          t('Перестанут получать значения: серверов {m}, кластеров {c}. Вернуть их можно, забрав на себя на странице сервера.', {
+            m: deps.machines,
+            c: deps.clusters,
+          }),
+        )
+      }
+      if (deps.proposals > 0) {
+        lines.push(t('Правки, ожидающие подтверждения, будут сняты: {n}.', { n: deps.proposals }))
+      }
+      return lines
+    } catch {
+      return []
+    }
+  }
+
   async function changeRole(u: PanelUser) {
     const answer = await ask({
       title: `${t('Роль')}: ${u.username}`,
@@ -151,6 +176,21 @@ export function UsersPage() {
       ],
     })
     if (!answer || answer.role === u.role) return
+    // Ниже ответственного учетка перестает держать доступ своих серверов, а
+    // ее ожидающие правки снимаются при любой смене роли.
+    const lines = await fallout(
+      u,
+      LEVELS[u.role] >= LEVELS.maintainer && LEVELS[answer.role as Role] < LEVELS.maintainer,
+    )
+    if (lines.length > 0) {
+      const yes = await confirm({
+        title: t('Сменить роль?'),
+        text: [u.username, ...lines].join('\n'),
+        submit: t('Сменить'),
+        danger: true,
+      })
+      if (!yes) return
+    }
     try {
       await updateUser(u.id, { role: answer.role as Role })
       await reload()
@@ -186,9 +226,10 @@ export function UsersPage() {
 
   async function toggle(u: PanelUser) {
     if (!u.disabled) {
+      const lines = await fallout(u, LEVELS[u.role] >= LEVELS.maintainer)
       const yes = await confirm({
         title: t('Отключить учётную запись?'),
-        text: `${u.username} — ${t('вход закроется сразу, а имя останется в журнале')}`,
+        text: [`${u.username} — ${t('вход закроется сразу, а имя останется в журнале')}`, ...lines].join('\n'),
         submit: t('Отключить'),
         danger: true,
       })
@@ -220,6 +261,23 @@ export function UsersPage() {
     if (!answer) return
     try {
       await resetUserPassword(u.id, answer.password)
+      await reload()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  /** Человек потерял телефон: снять второй фактор может только владелец. */
+  async function resetTotp(u: PanelUser) {
+    const yes = await confirm({
+      title: t('Снять второй фактор?'),
+      text: `${u.username}: ${t('войдет одним паролем и включит второй фактор заново. Прежние сессии закроются, а событие попадет в журнал и в оповещения.')}`,
+      submit: t('Снять второй фактор'),
+      danger: true,
+    })
+    if (!yes) return
+    try {
+      await resetUserTotp(u.id)
       await reload()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -328,6 +386,17 @@ export function UsersPage() {
                               >
                                 {t('Сбросить пароль')}
                               </button>
+                              {auth.isOwner && u.totp_enabled && (
+                                <button
+                                  className="menu-item"
+                                  onClick={() => {
+                                    setMenu(null)
+                                    void resetTotp(u)
+                                  }}
+                                >
+                                  {t('Снять второй фактор')}
+                                </button>
+                              )}
                               <button
                                 className="menu-item"
                                 onClick={() => {

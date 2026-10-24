@@ -168,7 +168,8 @@ What is protected and what is not: [security model](docs/security-model.md) |
 The command at the top takes the released images. With `--build` it builds them
 from source instead (a few minutes and about 2 GB of RAM), and it does so by
 itself on servers other than amd64; `--dir` changes the install directory,
-`/opt/sekvyr` by default.
+`/opt/sekvyr` by default. Running the command again updates the panel, with
+the same `--dir` if one was given.
 
 By hand, behind your own HTTPS proxy:
 

@@ -40,6 +40,7 @@ ALLOW_IPS=""
 TZONE="UTC"
 TZ_ARG=""
 DIR=/opt/sekvyr
+DIR_SET=0
 CRON=1
 BUILD=0
 REPO=https://github.com/mihsergeev/Sekvyr.git
@@ -69,7 +70,7 @@ while [ $# -gt 0 ]; do
         --domain) DOMAIN="$2"; shift 2 ;;
         --allow-ips) ALLOW_IPS="$2"; shift 2 ;;
         --timezone) TZONE="$2"; TZ_ARG="$2"; shift 2 ;;
-        --dir) DIR="$2"; shift 2 ;;
+        --dir) DIR="$2"; DIR_SET=1; shift 2 ;;
         --build) BUILD=1; shift ;;
         --no-cron) CRON=0; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -109,6 +110,47 @@ else
     curl -fsSL https://get.docker.com | sh >/dev/null || die "could not install Docker"
 fi
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
+
+# -- 2b. A panel installed elsewhere ------------------------------------------
+# The default directory is /opt/sekvyr, but a panel may live anywhere (--dir
+# on the first run). Run again without --dir, this script would see an empty
+# /opt/sekvyr and install a second panel. docker compose names a project after
+# its directory, so a second "sekvyr" would take over the running containers
+# with an empty database, and the backup schedule would move to the new one.
+# The data stays on disk, but the panel that answers is empty. So the existing
+# installation is looked for before anything is touched: by the compose labels
+# of its backend container and by the backup schedule.
+compose_name() {
+    basename "$1" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_-' | sed 's/^[^a-z0-9]*//'
+}
+installs_elsewhere() {
+    {
+        docker ps -a --filter label=com.docker.compose.service=backend \
+            --format '{{.Label "com.docker.compose.project"}}|{{.Label "com.docker.compose.project.working_dir"}}' \
+            2>/dev/null || true
+        if [ -f /etc/cron.d/sekvyr-backup ]; then
+            sed -n 's|^.* root \(/[^ ]*\)/ops/backup\.sh.*$|-\|\1|p' /etc/cron.d/sekvyr-backup
+        fi
+    } | while IFS='|' read -r _proj _wd; do
+        _wd="$(printf '%s' "$_wd" | sed 's:/*$::')"
+        [ -n "$_wd" ] && [ "$_wd" != "$DIR" ] && [ -f "$_wd/.env" ] \
+            && [ -f "$_wd/ops/panel-watchdog.sh" ] && printf '%s|%s\n' "$_proj" "$_wd"
+    done | sort -u
+}
+if [ ! -f "$DIR/.env" ]; then
+    ELSEWHERE="$(installs_elsewhere)"
+    if [ -n "$ELSEWHERE" ]; then
+        OTHER_DIR="$(printf '%s\n' "$ELSEWHERE" | head -n 1 | cut -d'|' -f2)"
+        if [ "$DIR_SET" = "0" ]; then
+            die "a Sekvyr panel is already installed in $OTHER_DIR. To update it, run this command with --dir $OTHER_DIR. A second panel next to it needs --dir with a directory of its own"
+        fi
+        NEW_NAME="$(compose_name "$DIR")"
+        if printf '%s\n' "$ELSEWHERE" | cut -d'|' -f1 | grep -qxF "$NEW_NAME"; then
+            die "the panel in $OTHER_DIR runs as the docker compose project $NEW_NAME, and $DIR gives the same name: starting here would replace its containers. Pick a directory with another name"
+        fi
+        say "Another panel is installed in $OTHER_DIR: installing a second one in $DIR"
+    fi
+fi
 
 # -- 3. Domain ---------------------------------------------------------------
 # What was asked for on the command line: on a repeat run .env wins, and the
@@ -441,11 +483,18 @@ done
 # copy to go stale.
 BACKUP_NEW=$BACKUP_PRE
 [ -s "$DIR/secret/backup.pass" ] || BACKUP_NEW=1
+# Another panel may own the usual schedule files (a second panel installed
+# with --dir): its backups must not stop because this one took the names.
+CRON_NAME=sekvyr
+OLD_CRON_DIR="$(sed -n 's|^.* root \(/[^ ]*\)/ops/backup\.sh.*$|\1|p' /etc/cron.d/sekvyr-backup 2>/dev/null | head -n 1)"
+if [ -n "$OLD_CRON_DIR" ] && [ "$OLD_CRON_DIR" != "$DIR" ] && [ -f "$OLD_CRON_DIR/.env" ]; then
+    CRON_NAME="sekvyr-$(compose_name "$DIR")"
+fi
 if [ "$CRON" = "1" ] && [ -d /etc/cron.d ]; then
     say "Installing nightly backups and the watchdog"
-    printf '17 3 * * * root %s/ops/backup.sh\n' "$DIR" > /etc/cron.d/sekvyr-backup
-    printf '*/5 * * * * root %s/ops/panel-watchdog.sh\n' "$DIR" > /etc/cron.d/sekvyr-watchdog
-    chmod 644 /etc/cron.d/sekvyr-backup /etc/cron.d/sekvyr-watchdog
+    printf '17 3 * * * root %s/ops/backup.sh\n' "$DIR" > "/etc/cron.d/$CRON_NAME-backup"
+    printf '*/5 * * * * root %s/ops/panel-watchdog.sh\n' "$DIR" > "/etc/cron.d/$CRON_NAME-watchdog"
+    chmod 644 "/etc/cron.d/$CRON_NAME-backup" "/etc/cron.d/$CRON_NAME-watchdog"
     "$DIR/ops/backup.sh" >/dev/null 2>&1 </dev/null || true
 fi
 if [ "$CRON" = "1" ] && [ ! -d /etc/cron.d ]; then
@@ -468,7 +517,11 @@ else
     printf '  Address: https://%s   Check: docker compose logs --tail=50\n' "$DOMAIN"
 fi
 printf '  Login:     \033[1m%s\033[0m\n' "admin"
+# The first steps are for a new panel. A rerun is an update, and advice to
+# create the root key for a panel that has been running for months only confuses.
+SHOW_NEXT=0
 if [ "$FRESH" = "1" ] || [ -f secret/owner-unshown ]; then
+    SHOW_NEXT=1
     [ -n "$ADMIN_PW" ] || ADMIN_PW=$(grep '^SEKVYR_ADMIN_PASSWORD=' .env | cut -d= -f2-)
     printf '  Password:  \033[1m%s\033[0m\n' "$ADMIN_PW"
     rm -f secret/owner-unshown
@@ -500,6 +553,12 @@ if [ "$V6_GATEWAY" = "1" ] && ip -6 addr show scope global 2>/dev/null | grep -q
     printf '  Or publish caddy on IPv4 only.\033[0m\n'
 fi
 printf '\033[32m════════════════════════════════════════════════════════\033[0m\n\n'
+if [ "$SHOW_NEXT" = "0" ]; then
+    printf 'The panel is updated: data, keys and settings are as they were.\n'
+    printf 'If the vault opens with shares or a key of your own, open it in "Vault":\n'
+    printf 'after a restart the panel waits sealed.\n\n'
+    return 0
+fi
 printf 'Next, in this order:\n'
 printf '  1. Log in and change the password; enable two-factor authentication.\n'
 printf '  2. Open "Vault" and create the root key. Until then the panel is sealed\n'

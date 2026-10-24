@@ -101,6 +101,10 @@ class SecretIn(BaseModel):
     path: str = Field(default="/", max_length=200)
     value: str = Field(max_length=200_000)
     comment: str = Field(default="", max_length=500)
+    # Версия своего ключа, которую человек видел, открывая правку (0 - ключа
+    # здесь не было). Разошлась - 409, а не тихая запись поверх чужой правки.
+    # Без поля пишется как раньше.
+    expected_version: int | None = Field(default=None, ge=0, le=2_147_483_647)
 
 
 class RotateOut(BaseModel):
@@ -321,6 +325,7 @@ async def put_secret(
             author=user.username,
             comment=body.comment,
             pending=pending,
+            expected_version=body.expected_version,
         )
     except secrets_store.SealedValueRequired as exc:
         # В проекте с шифрованием в браузере значение должно приходить
@@ -2080,11 +2085,30 @@ def _can_review(reviewer, author_name: str, author_role_level: int) -> None:
         )
 
 
-async def _author_level(session: SessionDep, username: str) -> int:
+async def _author_level(session: SessionDep, version) -> int:
+    """Уровень автора на момент предложения. У правок, предложенных до 1.0.1,
+    его нет, и для них берется текущая роль автора, как раньше."""
+    if version.author_level is not None:
+        return version.author_level
     from app.models import User
 
-    author = await session.scalar(select(User).where(User.username == username))
+    author = await session.scalar(select(User).where(User.username == version.author))
     return roles.level(author.role) if author else 0
+
+
+BELOW_THRESHOLD_REVIEW = "Подтвердить правку может только роль не ниже порога проекта"
+
+
+async def _require_threshold(session: SessionDep, reviewer, env: Environment) -> None:
+    """Подтверждает роль не ниже порога проекта, а не просто выше автора.
+
+    Порог владельца иначе обходился сбросом пароля: ответственный задавал
+    пароль разработчику, предлагал правку от его имени и подтверждал ее сам,
+    потому что он выше разработчика. Владелец при этом не участвовал вовсе."""
+    project = await session.get(Project, env.project_id)
+    threshold = project.approval_min_level if project else 0
+    if threshold and roles.level(reviewer.role) < threshold:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, BELOW_THRESHOLD_REVIEW)
 
 
 @router.get("/pending", response_model=list[PendingOut])
@@ -2120,10 +2144,11 @@ async def approve_secret(
     user: CurrentUser,
     session: SessionDep,
 ) -> SecretOut:
-    await _guard(session, user, env_id, access.APPROVE, body.path)
+    env = await _guard(session, user, env_id, access.APPROVE, body.path)
     secret = await _secret_or_404(session, env_id, body.path, body.name)
     version = await _pending_or_404(session, secret, body.version)
-    _can_review(user, version.author, await _author_level(session, version.author))
+    _can_review(user, version.author, await _author_level(session, version))
+    await _require_threshold(session, user, env)
     try:
         await secrets_store.approve_version(
             session, secret, version, reviewer=user.username, note=body.note
@@ -2145,6 +2170,11 @@ async def approve_secret(
         detail=f"версия {version.version}, автор {version.author}",
         ip=peer_ip(request),
     )
+    # Значение в проде меняется именно сейчас, а не когда правку предложили:
+    # о предложении канал уже знает, о вступлении в силу должен узнать тоже.
+    await _tell_about_prod(
+        session, env, user, [version.name_at], f"подтвердил правку от {version.author}"
+    )
     await session.commit()
     return SecretOut(
         name=version.name_at,
@@ -2165,7 +2195,7 @@ async def reject_secret(
     await _guard(session, user, env_id, access.APPROVE, body.path)
     secret = await _secret_or_404(session, env_id, body.path, body.name)
     version = await _pending_or_404(session, secret, body.version)
-    _can_review(user, version.author, await _author_level(session, version.author))
+    _can_review(user, version.author, await _author_level(session, version))
     await secrets_store.lock_env(session, env_id)
     try:
         await secrets_store.reject_version(

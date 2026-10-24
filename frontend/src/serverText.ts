@@ -128,8 +128,10 @@ const EXACT: Record<string, string> = {
   'Vault не отдал список': 'Vault did not return the list',
   'вход в Infisical не удался': 'the Infisical login failed',
   'Infisical не вернул токен': 'Infisical did not return a token',
-  'у окружения есть импорты из других мест Infisical — они перенесены как обычные ключи, ссылками они больше не будут':
-    'the environment imports values from elsewhere in Infisical: they were moved as ordinary keys and are no longer references',
+  'Infisical не отдал значение: у машинной личности нет права его читать':
+    'Infisical did not return the value: the machine identity may not read it',
+  'недопустимое имя': 'invalid name',
+  'недопустимая папка': 'invalid folder',
 
   // оповещения
   'Каналы оповещений не настроены': 'No alert channels are set up',
@@ -336,6 +338,20 @@ const EXACT: Record<string, string> = {
   'было в закрытой папке': 'was in a closed folder',
   'в закрытой папке': 'in a closed folder',
   'переименован из закрытой папки': 'renamed from a closed folder',
+  'Подтвердить правку может только роль не ниже порога проекта':
+    "Only a role at or above the project's threshold can approve a change",
+  'Эту учетную запись отключила роль выше вашей: включить ее может только роль не ниже':
+    'This account was disabled by a role above yours: only that role or higher can turn it back on',
+  'автора отключили': 'the author was disabled',
+  'автору сменили роль': "the author's role was changed",
+  'сброшен владельцем': 'reset by the owner',
+  // правка поверх чужой
+  'Ключ изменили, пока вы его правили: ваша правка не записана':
+    'The key was changed while you were editing it: your edit was not saved',
+  'Ключ удалили, пока вы его правили: ваша правка не записана':
+    'The key was deleted while you were editing it: your edit was not saved',
+  'Ключ с таким именем уже есть: ваша правка не записана':
+    'A key with this name already exists: your edit was not saved',
 }
 
 /** Строки с подстановками. Заготовка ровно как в коде сервера, {} - место
@@ -367,6 +383,16 @@ const TEMPLATES: [string, string][] = [
   ['у окружения {} нет активного ключа', 'environment {0} has no active key'],
   ['у окружения {} нет ключа поколения {}', 'environment {0} has no key of generation {1}'],
   ['Vault не отдал секрет {}', 'Vault did not return the secret {0}'],
+  [
+    '{}: ответ не в том формате, что описан в API источника',
+    '{0}: the answer is not in the format described by the source API',
+  ],
+  ['{}: ответ больше {} МБ, сузьте путь', '{0}: the answer is larger than {1} MB, narrow the path'],
+  ['на той стороне больше {} ключей, сузьте путь', 'the source has more than {0} keys, narrow the path'],
+  [
+    'ключей из импортов Infisical: {}. Они переносятся как обычные ключи и ссылками больше не будут, а ключ самого окружения важнее импортированного с тем же именем',
+    'keys from Infisical imports: {0}. They are moved as ordinary keys and are no longer references, and a key of the environment itself wins over an imported one with the same name',
+  ],
   ['ключи кластера не разобрались: {}', 'the cluster keys could not be parsed: {0}'],
   ['заголовок токена не разобрался: {}', 'the token header could not be parsed: {0}'],
   ['токен не прошёл проверку: {}', 'the token failed verification: {0}'],
@@ -438,6 +464,13 @@ const TEMPLATES: [string, string][] = [
   ['срок: {} → {}', 'expires: {0} -> {1}'],
   // выдача права: "allow list,read все проекты/"
   ['{} {} все проекты{}', '{0} {1} all projects{2}'],
+  [
+    'Право "{}" здесь действует только со вторым фактором: включите его в меню своей учетной записи',
+    'The "{0}" right works here only with two-factor authentication: turn it on in your account menu',
+  ],
+  // сервер или кластер забрали на себя; длинная заготовка раньше короткой
+  ['забрал на себя у {}, личностей {}', 'took over from {0}, identities {1}'],
+  ['забрал на себя у {}', 'took over from {0}'],
 ]
 
 function escape(text: string): string {

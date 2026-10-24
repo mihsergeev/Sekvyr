@@ -24,6 +24,7 @@ import { useDialogs } from './Dialogs'
 import { plural, useI18n } from './i18n'
 import { createProjectKey, keyFor, rememberKey, unlockProjectKey, wrapForMachine } from './e2e'
 import { useEscape } from './useEscape'
+import { useLeave } from './useLeave'
 
 /* Настройки проекта - одно место для всего, что задают один раз.
  *
@@ -47,7 +48,6 @@ export function ProjectSettingsModal({
   onDeleted: () => void
 }) {
   const { t } = useI18n()
-  useEscape(onClose)
   const auth = useAuth()
   const { ask, confirm } = useDialogs()
   const [title, setTitle] = useState(project.title)
@@ -64,6 +64,15 @@ export function ProjectSettingsModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
+  // Escape и "Отмена" с измененными настройками спрашивают, как окна правки.
+  const dirty =
+    title !== project.title ||
+    group !== project.group_name ||
+    approval !== project.approval_min_level ||
+    required !== project.required_keys ||
+    stale !== project.stale_after_days
+  const leave = useLeave(dirty && !busy, onClose)
+  useEscape(leave)
 
   useEffect(() => {
     listProjects()
@@ -314,10 +323,24 @@ export function ProjectSettingsModal({
             {t('Подтверждение изменений')}
             <select value={approval} onChange={(e) => setApproval(Number(e.target.value))}>
               <option value={0}>{t('не требуется')}</option>
-              {/* Подтверждения ждет роль НИЖЕ порога. Наблюдатель только
-                  читает, поэтому содержательный порог один - 30: правки
-                  разработчиков. */}
+              {/* Подтверждения ждет роль НИЖЕ порога: 30 - правки
+                  разработчиков, 40 - еще и ответственных, сразу пишет только
+                  владелец. Раньше 40 выбрать было нельзя, а выставленный через
+                  API порог select показывал первым пунктом, "не требуется". */}
               <option value={30}>{t('правки разработчиков')}</option>
+              <option value={40}>{t('правки разработчиков и ответственных')}</option>
+              {/* 10 и 20 сервер принимает, но наблюдатели не пишут, так что
+                  ждать подтверждения некому. Показываем, только если такой
+                  порог уже стоит. */}
+              {approval === 20 && (
+                <option value={20}>{t('правки наблюдателей: они не пишут, на деле никто')}</option>
+              )}
+              {approval === 10 && (
+                <option value={10}>{t('ниже наблюдателя: таких ролей нет, на деле никто')}</option>
+              )}
+              {![0, 10, 20, 30, 40].includes(approval) && (
+                <option value={approval}>{t('уровень {level}', { level: approval })}</option>
+              )}
             </select>
             <span className="muted small field-hint">
               {t('правка от роли ниже порога не вступит в силу, пока её не подтвердит кто-то выше')}
@@ -502,7 +525,7 @@ export function ProjectSettingsModal({
         <div className="row-actions dialog-actions">
           {auth.isOwner ? (
             <>
-              <button className="ghost" onClick={onClose}>
+              <button className="ghost" onClick={leave}>
                 {t('Отмена')}
               </button>
               <button onClick={save} disabled={busy}>

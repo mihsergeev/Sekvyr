@@ -15,8 +15,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: Install
@@ -27,7 +27,7 @@ jobs:
       - name: Dependency audit (pip-audit)
         continue-on-error: true # информативно, не блокирует
         run: |
-          pip install pip-audit
+          pip install pip-audit==2.10.1
           pip-audit
 
   # Списки, написанные руками (уровни ролей на двух сторонах, подписи действий
@@ -36,8 +36,8 @@ jobs:
   selfcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: Consistency selfcheck
@@ -91,8 +91,8 @@ jobs:
       SEKVYR_ADMIN_PASSWORD: ci-password-2026-long
       SEKVYR_JWT_SECRET: ci-secret-0123456789abcdef0123456789abcdef
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: Install
@@ -122,11 +122,11 @@ jobs:
   agent:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.1"
-      - uses: actions/setup-python@v7
+          go-version: "1.27.3"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: gofmt
@@ -138,6 +138,11 @@ jobs:
       - name: go test
         working-directory: agent
         run: go test ./...
+      # Установщик выполняется от root, и у него три пути: чистая нода,
+      # подключенная нода (бинарь меняет стоящий агент) и --reenroll. Ошибка в
+      # одном из них видна только на чужом сервере.
+      - name: install.sh
+        run: sh agent/install_test.sh
       - name: Build as the panel image does and compare with the signature
         run: |
           docker build --target agent -f backend/Dockerfile -t sekvyr-agent-build .
@@ -153,8 +158,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
       - name: Install
@@ -175,15 +180,64 @@ jobs:
   image-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      # Контекст - КОРЕНЬ репозитория: Dockerfile бэкенда копирует backend/ из него.
-      - name: Build backend image
-        run: docker build -f backend/Dockerfile -t sekvyr-backend .
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Контекст бэкенда - КОРЕНЬ репозитория: его Dockerfile копирует backend/
+      # и agent/ из него.
+      - name: Build images
+        run: |
+          docker build -f backend/Dockerfile -t sekvyr-backend .
+          docker build -t sekvyr-frontend frontend
+          docker build -t sekvyr-agent agent
+      # Код панели принадлежит root, лежит в образе одной копией и процессу
+      # панели только на чтение; pip и его кэша в образе нет. Метки у всех
+      # трех образов свои, а не унаследованные от базового.
+      - name: Image contents and labels
+        run: |
+          docker run --rm --entrypoint sh sekvyr-backend -c '
+            set -eu
+            test "$(stat -c %u /srv /srv/app /srv/app/main.py /srv/alembic | sort -u)" = 0
+            ! gosu sekvyr test -w /srv/app || exit 1
+            ! gosu sekvyr test -w /srv/app/main.py || exit 1
+            test "$(cd / && python -c "import app; print(app.__file__)")" = /srv/app/__init__.py
+            ! ls -d /usr/local/lib/python3.12/site-packages/app /usr/local/lib/python3.12/site-packages/sekvyr_backend* 2>/dev/null || exit 1
+            test ! -e /root/.cache
+            ! python -m pip --version 2>/dev/null || exit 1
+          ' || { echo "backend image: code ownership, a second copy of app or pip"; exit 1; }
+          for image in sekvyr-backend sekvyr-frontend sekvyr-agent; do
+            labels=$(docker image inspect -f '{{json .Config.Labels}}' "$image")
+            echo "$image: $labels"
+            for key in title description source version licenses; do
+              echo "$labels" | jq -e --arg k "org.opencontainers.image.$key" '.[$k] // "" | length > 0' >/dev/null \
+                || { echo "$image: no org.opencontainers.image.$key"; exit 1; }
+            done
+            if echo "$labels" | grep -qi nginx; then
+              echo "$image: labels of the base image"; exit 1
+            fi
+          done
+      # Отчет по уязвимостям в образах, не блокирует: находка в базовом образе
+      # не повод держать правку, которая к нему отношения не имеет. Падает на
+      # находках еженедельный audit.yml, по опубликованным образам.
       - name: Trivy scan (backend image)
-        continue-on-error: true # отчет по уязвимостям в образе, не блокирует
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: sekvyr-backend
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+      - name: Trivy scan (frontend image)
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sekvyr-frontend
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+      - name: Trivy scan (agent image)
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sekvyr-agent
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "0"
@@ -192,7 +246,6 @@ jobs:
       # страница так однажды жила без CSP и без запрета фрейма.
       - name: Security headers on the panel pages
         run: |
-          docker build -t sekvyr-frontend frontend
           docker run -d --name fe -p 127.0.0.1:8080:8080 sekvyr-frontend
           sleep 2
           for path in / /p/acme/api/prod /assets/missing.js; do
@@ -201,3 +254,99 @@ jobs:
               echo "$headers" | grep -qi "^$h:" || { echo "$path: no $h"; exit 1; }
             done
           done
+
+  # compose.yml целиком, как на сервере, только без caddy: права контейнеров,
+  # сети, проверки здоровья, ключ в /secret и бэкап через ops/backup.sh. Ошибку
+  # в этом иначе увидел бы человек на своей VPS посреди обновления.
+  compose-smoke:
+    runs-on: ubuntu-latest
+    env:
+      SEKVYR_ADMIN_PASSWORD: ci-password-2026-long
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Test .env
+        run: |
+          cat > .env <<EOF
+          SEKVYR_ADMIN_USER=admin
+          SEKVYR_ADMIN_PASSWORD=$SEKVYR_ADMIN_PASSWORD
+          SEKVYR_JWT_SECRET=ci-secret-0123456789abcdef0123456789abcdef
+          SEKVYR_DB_PASSWORD=ci-db-password
+          SEKVYR_ROOT_KEY_FILE=/secret/root.key
+          SEKVYR_BIND=127.0.0.1:8080
+          EOF
+          pip install -c backend/constraints.txt httpx
+      # ./data и ./secret заранее не создаются: их заводит docker от root, и
+      # entrypoint должен сам отдать их панели, оставив себе только нужные права.
+      - name: Up
+        run: docker compose up -d --build --wait --wait-timeout 300
+      - name: Rights, read-only and networks
+        run: |
+          set -eu
+          be=$(docker compose ps -q backend)
+          fe=$(docker compose ps -q frontend)
+          db=$(docker compose ps -q db)
+          uid() { docker compose exec -T "$1" awk '/^Uid:/ {print $2}' /proc/1/status; }
+          caps() { docker compose exec -T "$1" awk '/^'"$2"':/ {print $2}' /proc/1/status; }
+          # Панель работает от uid 10001 без прав; у контейнера остались
+          # CHOWN, DAC_OVERRIDE, FOWNER, SETGID и SETUID (0xcb), у nginx - ничего.
+          test "$(uid backend)" = 10001
+          test "$(caps backend CapEff)" = 0000000000000000
+          test "$(caps backend CapBnd)" = 00000000000000cb
+          test "$(uid frontend)" = 101
+          test "$(caps frontend CapBnd)" = 0000000000000000
+          for c in "$be" "$fe"; do
+            test "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$c")" = true
+          done
+          ! docker compose exec -T backend touch /srv/app/x 2>/dev/null || exit 1
+          docker compose exec -T backend touch /tmp/x
+          # База только в сети без выхода наружу, фронтенд в нее не входит, а
+          # бэкенд наружу ходит (оповещения, копия журнала).
+          for net in $(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$db"); do
+            test "$(docker network inspect -f '{{.Internal}}' "$net")" = true
+            ! docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$fe" | grep -qw "$net" || exit 1
+          done
+          routes=$(docker compose exec -T db ip route)
+          ! printf '%s\n' "$routes" | grep -q '^default' || exit 1
+          docker compose exec -T backend python -c "import urllib.request; urllib.request.urlopen('https://github.com', timeout=15)"
+          docker compose exec -T frontend wget -q -O /dev/null http://127.0.0.1:8080/api/health
+      - name: Vault, the key in /secret and a restart
+        run: |
+          set -eu
+          python ops/ci_bootstrap.py --url http://127.0.0.1:8080 --password "$SEKVYR_ADMIN_PASSWORD"
+          python - <<'EOF'
+          import os, httpx
+          c = httpx.Client(base_url="http://127.0.0.1:8080", timeout=30)
+          token = c.post("/api/auth/login", json={"username": "admin", "password": os.environ["SEKVYR_ADMIN_PASSWORD"]}).json()["access_token"]
+          c.post("/api/vault/remember-key", headers={"Authorization": f"Bearer {token}"}).raise_for_status()
+          EOF
+          test "$(sudo stat -c '%u %a' secret secret/root.key)" = "10001 700
+          10001 600"
+          docker compose restart backend
+          docker compose up -d --wait --wait-timeout 120
+          curl -sf http://127.0.0.1:8080/api/health | python -c "import json, sys; assert json.load(sys.stdin)['sealed'] is False"
+      - name: Live rights audit
+        run: python ops/audit_live.py --url http://127.0.0.1:8080 --owner admin --password "$SEKVYR_ADMIN_PASSWORD"
+      # Бэкап шифрует разовый контейнер от root, и пароль 0600 с владельцем
+      # 10001 он читает благодаря DAC_OVERRIDE. Распечатка - как в ops/restore.sh.
+      - name: Backup and unseal
+        run: |
+          set -eu
+          sudo SEKVYR_APP="$PWD" sh ops/backup.sh > /dev/null
+          sudo grep -q '"ok": true' data/backup.json
+          file=$(ls backups/*.sql.sealed | tail -n 1)
+          { sudo cat secret/backup.pass; echo; sudo cat "$file"; } \
+            | docker compose run --rm --no-deps -T --entrypoint python backend -c "
+          import sys
+          from app import sealedfile
+          password = sys.stdin.buffer.readline().decode().strip()
+          sealedfile.unseal(sys.stdin.buffer, sys.stdout.buffer, password=password)
+          " | grep -q "CREATE TABLE"
+      - name: Logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Down
+        if: always()
+        run: docker compose down

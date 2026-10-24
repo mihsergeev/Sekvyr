@@ -158,16 +158,27 @@ export function MigratePage() {
   }, [source, url, clientId, clientSecret, workspace, sourceEnv, secretPath, token, mount, path, envId, targetPath])
 
   const actionClass = (action: string) =>
-    action === 'обновить' ? 'stale-warn' : action === 'совпадает' ? 'muted' : ''
+    action === 'обновить'
+      ? 'stale-warn'
+      : action === 'совпадает'
+        ? 'muted'
+        : action === 'пропустить'
+          ? 'key-note-bad'
+          : ''
 
   // Точка вместо слова в колонке: создать - зеленая, обновить - янтарная,
-  // совпадает - тихая серая.
+  // совпадает - тихая серая, пропустить - красная, записать (папка, где не
+  // видно ключей, и есть ли такой, неизвестно) - пустой кружок.
   const actionDot = (action: string) =>
     action === 'обновить'
       ? 'key-dot audit-dot-sensitive'
       : action === 'совпадает'
         ? 'key-dot'
-        : 'key-dot conn-dot-live'
+        : action === 'пропустить'
+          ? 'key-dot audit-dot-denied'
+          : action === 'записать'
+            ? 'key-dot key-dot-inherited'
+            : 'key-dot conn-dot-live'
 
   const rows = (preview?.rows ?? []).filter(
     (row) => !onlyChanges || row.action !== 'совпадает',
@@ -210,12 +221,17 @@ export function MigratePage() {
           <>
             <label>
               {t('Идентификатор машинной личности')}
-              <input value={clientId} onChange={(e) => setClientId(e.target.value)} />
+              <input
+                value={clientId}
+                autoComplete="off"
+                onChange={(e) => setClientId(e.target.value)}
+              />
             </label>
             <label>
               {t('Секрет машинной личности')}
               <input
                 type="password"
+                autoComplete="new-password"
                 value={clientSecret}
                 onChange={(e) => setClientSecret(e.target.value)}
               />
@@ -261,7 +277,12 @@ export function MigratePage() {
           <>
             <label>
               {t('Токен Vault')}
-              <input type="password" value={token} onChange={(e) => setToken(e.target.value)} />
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+              />
             </label>
             <label>
               {t('Раздел KV')}
@@ -318,11 +339,13 @@ export function MigratePage() {
             <span className="muted small role-hint">
               {t('создать')} {preview.create} · {t('обновить')} {preview.update} ·{' '}
               {t('совпадает')} {preview.same}
+              {preview.write > 0 && ` · ${t('записать')} ${preview.write}`}
+              {preview.skip > 0 && ` · ${t('пропустить')} ${preview.skip}`}
             </span>
           </div>
 
           {preview.note && <div className="banner">{serverText(preview.note)}</div>}
-          {preview.update > 0 && !overwrite && (
+          {(preview.update > 0 || preview.write > 0) && !overwrite && (
             <p className="muted small">
               {t('Существующие значения останутся как есть: включите перезапись, если нужно иначе.')}
             </p>
@@ -358,10 +381,24 @@ export function MigratePage() {
                 <span className="mono small mig-name" title={row.name}>
                   {row.name}
                 </span>
-                <span className={`small ${actionClass(row.action)}`}>{t(row.action)}</span>
-                <span className="muted small mig-size">
-                  {row.size} {t('симв.')}
+                <span
+                  className={`small ${actionClass(row.action)}`}
+                  title={
+                    row.action === 'записать'
+                      ? t('Ключей этой папки вам не видно, поэтому есть ли там такой, панель не говорит')
+                      : undefined
+                  }
+                >
+                  {t(row.action)}
                 </span>
+                <span className="muted small mig-size">
+                  {row.action === 'пропустить' ? '' : `${row.size} ${t('симв.')}`}
+                </span>
+                {row.reason && (
+                  <div className="key-notes">
+                    <span className="key-note">{serverText(row.reason)}</span>
+                  </div>
+                )}
               </div>
             ))
           )}

@@ -561,7 +561,7 @@ def check_agent_build_image() -> None:
             f"{name} - {image}" for name, image in found.items()
         ))
     for name, image in found.items():
-        if not re.fullmatch(r"golang:\d+\.\d+\.\d+-alpine[\d.]*", image):
+        if not re.fullmatch(r"golang:\d+\.\d+\.\d+-alpine[\d.]*(@sha256:[0-9a-f]{64})?", image):
             fail("агент", f"{name}: версия Go не закреплена до патча: {image}")
     # go vet и тесты в CI идут тем же Go, которым собирается бинарь.
     ci = re.search(r'go-version:\s*"([\d.]+)"', read(".github/workflows/ci.yml"))
@@ -776,6 +776,53 @@ def check_server_texts() -> None:
         fail("перевод", f"и еще {len(missing) - 10} текстов сервера без перевода")
 
 
+# ------------------------------------------------- 15. действия CI
+_USES = re.compile(r"^\s*(?:-\s+)?uses:\s*(\S+)(.*)$", re.M)
+
+
+def check_workflows() -> None:
+    """Чужие действия в workflow закреплены коммитом, а не тегом.
+
+    Тег у чужого действия передвигается, и следующий прогон выполнил бы уже
+    другой код с токеном этого репозитория, при выпуске еще и с правом писать в
+    GHCR. Коммит не передвинуть. Версия рядом, в комментарии, нужна человеку и
+    Dependabot: он обновляет коммит и комментарий вместе.
+
+    И права токена: без permissions на уровне workflow задание получает права
+    по умолчанию, а они у репозитория бывают на запись во все.
+    """
+    folder = os.path.join(".github", "workflows")
+    for name in sorted(os.listdir(folder)):
+        if not name.endswith((".yml", ".yaml")):
+            continue
+        src = read(os.path.join(folder, name))
+        for ref, tail in _USES.findall(src):
+            if ref.startswith("./"):
+                continue
+            if not re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", ref) or not re.match(
+                r"\s+#\s*v\d", tail
+            ):
+                fail("CI", f"{name}: {ref} не закреплен коммитом с версией в комментарии")
+        if not re.search(r"^permissions:", src, re.M):
+            fail("CI", f"{name}: нет permissions на уровне workflow")
+
+
+# ------------------------------------------------- 16. базовые образы
+def check_base_images() -> None:
+    """Базовые образы закреплены digest'ом рядом с тегом.
+
+    Тег у образа переезжает на новую сборку без всякого следа в репозитории,
+    и тот же коммит через неделю давал бы другой образ. Агента это ломает
+    прямо: его бинарь подписан по хешу, и другой golang под тем же тегом
+    дал бы 500 вместо агента. Обновляет digest'ы Dependabot, отдельным PR,
+    который проходит CI.
+    """
+    for path in ("backend/Dockerfile", "frontend/Dockerfile", "agent/Dockerfile"):
+        for image in re.findall(r"^FROM\s+(?:--platform=\S+\s+)?(\S+)", read(path), re.M):
+            if not re.fullmatch(r"[\w./-]+:[\w.-]+@sha256:[0-9a-f]{64}", image):
+                fail("образы", f"{path}: базовый образ не закреплен digest'ом: {image}")
+
+
 # ------------------------------------------------- невидимые символы
 # Знаки нулевой ширины и смены направления строки (U+200B..U+200F,
 # U+202A..U+202E, U+2060..U+2069, U+FEFF). В исходнике они делают так, что
@@ -822,6 +869,8 @@ def main() -> int:
         check_ops_scripts,
         check_translations,
         check_server_texts,
+        check_workflows,
+        check_base_images,
         check_invisible_chars,
     ):
         try:

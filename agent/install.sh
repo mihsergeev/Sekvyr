@@ -15,9 +15,15 @@
 # Пути выводятся из имени проекта: файл /run/sekvyr/shop.env, а после изменения
 # выполняется docker compose -f /app/shop/compose.yml up -d.
 #
-# Каталог агента задается флагом --dir. Нода, где агент уже стоит в прежнем
-# каталоге /lib65/sekvyr, там и остается: переезд ради нового умолчания сломал
-# бы ей юнит и самообновление.
+# Каталог агента задается флагом --dir. Ранние версии ставили агента в
+# /lib65/sekvyr; нода, где он уже там, там и остается: переезд ради нового
+# умолчания сломал бы ей юнит и самообновление.
+#
+# На уже подключенной ноде бинарь меняет сам стоящий агент (sekvyr update): он
+# ставит только версию с подписью выпуска и не откатывается назад. Сам этот
+# скрипт приходит с панели и выполняется от root, поэтому на подключенной
+# ноде обновлять агента лучше командой sudo sekvyr update, а этот скрипт
+# запускать, когда нужен новый юнит, предварительно прочитав его.
 #
 # Снять агента с сервера (служба, бинарь, конфиг с секретом машины, ключ ноды,
 # копия значений и файлы в /run/sekvyr):
@@ -205,41 +211,65 @@ case "$ARCH" in
     *) msg "неподдерживаемая архитектура: $ARCH" "unsupported architecture: $ARCH" >&2; exit 2 ;;
 esac
 
-msg "sekvyr: качаю агента ($ARCH)" "sekvyr: downloading the agent ($ARCH)"
-mkdir -p "$BIN_DIR"
-TMP="$BIN_DIR/sekvyr.new"
-curl -fsSL "$PANEL/api/v1/machine/agent?arch=$ARCH" -o "$TMP"
-
-# Сверяем с подписанным описанием. Первую установку все равно приходится
-# доверить панели и её TLS - подписи здесь проверять нечем, ключа на чистой ноде
-# еще нет. Зато дальше обновляется сам агент, и вот там подпись проверяется
-# по ключу, вшитому в бинарь: панель уже не сможет подсунуть что угодно.
-WANT="$(curl -fsSL "$PANEL/api/v1/machine/agent/manifest" | grep -o "\"$ARCH\"[^}]*" | grep -oE '[0-9a-f]{64}' | head -1)"
-# Хеша для этой архитектуры в описании нет - бинарь не с чем сверить, и
-# молча ставить его нельзя (описание подписывали только для одной
-# архитектуры, или панель отдала не то).
-if [ -z "$WANT" ]; then
-    rm -f "$TMP"
-    msg "sekvyr: в описании версии нет хеша для $ARCH - установка отменена" \
-        "sekvyr: the release description has no hash for $ARCH, installation cancelled" >&2
-    exit 1
+# Нода уже подключена и агент на месте: бинарь ставит он сам. Скачанное
+# здесь сверялось бы с описанием от той же панели, без подписи, и захваченная
+# панель подменила бы агента на всех нодах, где запустили эту команду ради
+# нового юнита. Стоящий агент проверяет подпись ключом, вшитым в него, и не
+# откатывается на старую версию. При --reenroll нода может переезжать на
+# другую панель, поэтому там прежний путь.
+TRUSTED_CONFIG=""
+if [ -z "$REENROLL" ]; then
+    if [ -f "$CONFIG" ]; then
+        TRUSTED_CONFIG="$CONFIG"
+    elif [ -f "$FROM_CONFIG" ]; then
+        TRUSTED_CONFIG="$FROM_CONFIG"
+    fi
 fi
-if ! command -v sha256sum >/dev/null 2>&1; then
-    msg "sekvyr: нет sha256sum, хеш агента не сверен" "sekvyr: no sha256sum, the agent hash was not checked" >&2
-fi
-if command -v sha256sum >/dev/null 2>&1; then
-    GOT="$(sha256sum "$TMP" | cut -d' ' -f1)"
-    if [ "$GOT" != "$WANT" ]; then
-        rm -f "$TMP"
-        msg "sekvyr: хеш скачанного агента не совпал с описанием — установка отменена" \
-            "sekvyr: the downloaded agent does not match the release hash, installation cancelled" >&2
+if [ -n "$TRUSTED_CONFIG" ] && [ -x "$BIN_DIR/sekvyr" ]; then
+    msg "sekvyr: агент уже стоит - обновляю его им самим, по подписи выпуска" \
+        "sekvyr: the agent is already installed, updating it with itself by the release signature"
+    if ! "$BIN_DIR/sekvyr" update --config "$TRUSTED_CONFIG"; then
+        msg "sekvyr: стоящий агент не принял версию с панели (подпись, откат на старую версию или связь) - установка остановлена, прежние агент и юнит не тронуты. Если сменился адрес панели, поправьте url в $TRUSTED_CONFIG и запустите снова" \
+            "sekvyr: the installed agent rejected the version from the panel (signature, a downgrade or the connection), installation stopped, the previous agent and unit are untouched. If the panel address changed, fix url in $TRUSTED_CONFIG and run again" >&2
         exit 1
     fi
-    msg "sekvyr: хеш сошёлся с описанием" "sekvyr: the hash matches the release"
-fi
+else
+    msg "sekvyr: качаю агента ($ARCH)" "sekvyr: downloading the agent ($ARCH)"
+    mkdir -p "$BIN_DIR"
+    TMP="$BIN_DIR/sekvyr.new"
+    curl -fsSL "$PANEL/api/v1/machine/agent?arch=$ARCH" -o "$TMP"
 
-chmod 0755 "$TMP"
-mv "$TMP" "$BIN_DIR/sekvyr"
+    # Сверяем с описанием версии. Первую установку все равно приходится
+    # доверить панели и её TLS - подписи здесь проверять нечем, ключа на чистой
+    # ноде еще нет. Дальше бинарь меняет только сам агент, и там подпись
+    # проверяется по ключу, вшитому в него: панель уже не подсунет что угодно.
+    WANT="$(curl -fsSL "$PANEL/api/v1/machine/agent/manifest" | grep -o "\"$ARCH\"[^}]*" | grep -oE '[0-9a-f]{64}' | head -1)"
+    # Хеша для этой архитектуры в описании нет - бинарь не с чем сверить, и
+    # молча ставить его нельзя (описание подписывали только для одной
+    # архитектуры, или панель отдала не то).
+    if [ -z "$WANT" ]; then
+        rm -f "$TMP"
+        msg "sekvyr: в описании версии нет хеша для $ARCH - установка отменена" \
+            "sekvyr: the release description has no hash for $ARCH, installation cancelled" >&2
+        exit 1
+    fi
+    if ! command -v sha256sum >/dev/null 2>&1; then
+        msg "sekvyr: нет sha256sum, хеш агента не сверен" "sekvyr: no sha256sum, the agent hash was not checked" >&2
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then
+        GOT="$(sha256sum "$TMP" | cut -d' ' -f1)"
+        if [ "$GOT" != "$WANT" ]; then
+            rm -f "$TMP"
+            msg "sekvyr: хеш скачанного агента не совпал с описанием - установка отменена" \
+                "sekvyr: the downloaded agent does not match the release hash, installation cancelled" >&2
+            exit 1
+        fi
+        msg "sekvyr: хеш сошелся с описанием" "sekvyr: the hash matches the release"
+    fi
+
+    chmod 0755 "$TMP"
+    mv "$TMP" "$BIN_DIR/sekvyr"
+fi
 ln -sf "$BIN_DIR/sekvyr" /usr/local/bin/sekvyr 2>/dev/null || true
 # На RHEL, Rocky и Alma secure_path sudo не содержит /usr/local/bin, и
 # "sudo sekvyr add" из панели давал "command not found". Чужой /usr/bin/sekvyr

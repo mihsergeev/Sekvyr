@@ -161,15 +161,38 @@ async def allowed(
     )
 
 
+def blocked_by_2fa(
+    policies: list[Policy], user: User, action: str, scope: Scope, now: datetime
+) -> bool:
+    """Право здесь есть, но только со вторым фактором, а он выключен.
+
+    Отказ тогда должен говорить, что включить, а не "права нет": человек со
+    своим правом искал бы, кто его отнял, и шел бы к владельцу с вопросом,
+    на который ответ у него в меню учетной записи. Со вторым фактором решение
+    было бы "можно" (decide для той же учетки с фактором)."""
+    if user.totp_enabled:
+        return False
+    return decide(policies, Potential(role=user.role), action, scope, now)
+
+
 async def require(
     session: AsyncSession, user: User, action: str, scope: Scope
 ) -> None:
     """Бросает 403, если действие не разрешено."""
     if await allowed(session, user, action, scope):
         return
+    title = TITLES.get(action, action)
+    if blocked_by_2fa(
+        await policies_for(session, user), user, action, scope, datetime.now(timezone.utc)
+    ):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f'Право "{title}" здесь действует только со вторым фактором: '
+            "включите его в меню своей учетной записи",
+        )
     raise HTTPException(
         status.HTTP_403_FORBIDDEN,
-        f"Нет права «{TITLES.get(action, action)}» в этом месте",
+        f"Нет права «{title}» в этом месте",
     )
 
 

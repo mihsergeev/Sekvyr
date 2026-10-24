@@ -43,6 +43,11 @@ Changing the domain or the list means editing `SEKVYR_DOMAIN`,
 `SEKVYR_PANEL_URL` and `SEKVYR_ALLOW_IPS` in `.env` and running
 `docker compose up -d`.
 
+A panel installed with `--dir` is updated with the same `--dir`. Without it
+the script finds the panel in its directory and stops before changing
+anything: a second copy in `/opt/sekvyr` could take over its containers
+under the same compose project name.
+
 ## What you end up with
 
 | Part | Where | Why |
@@ -135,10 +140,11 @@ networks:
 YML
 docker compose up -d
 
-# the panel, on a release: the images exist for releases only
+# the panel, on the latest release (pre-releases skipped):
+# the images exist for releases only
 git clone https://github.com/mihsergeev/Sekvyr.git /opt/sekvyr
 cd /opt/sekvyr
-git checkout v1.0.0
+git checkout "$(git tag -l 'v*' --sort=-v:refname | grep -Ex 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
 cp .env.example .env
 chmod 600 .env
 $EDITOR .env
@@ -157,7 +163,7 @@ What to set in `.env`:
 | `SEKVYR_ALLOW_IPS` | addresses allowed into the admin UI |
 | `SEKVYR_TRUSTED_PROXY_HOPS` | `2`: caddy and the frontend nginx |
 | `COMPOSE_FILE` | `compose.yml:compose.ghcr.yml:compose.caddy.yml` |
-| `SEKVYR_IMAGE_TAG` | `1.0.0`, the release you checked out |
+| `SEKVYR_IMAGE_TAG` | the release you checked out, without the `v` (`git describe --tags` shows it) |
 
 A value with a `$` in it goes in single quotes: docker compose substitutes
 `$NAME` in `.env`, and part of an unquoted password would silently disappear.
@@ -172,7 +178,7 @@ own overlay into the list.
 
 A build from source checked out on a tag, as above, is not on a branch, so
 `ops/update.sh` without an argument refuses: name the release,
-`ops/update.sh v1.0.1`.
+`sudo ops/update.sh v1.2.0`.
 
 The panel refuses to start with a weak token-signing secret or the default owner
 password. That is not pedantry: with a weak secret anyone could sign themselves
@@ -207,8 +213,9 @@ updates them too. Settings and a restore: [backup.md](backup.md).
 ## Upgrading
 
 ```sh
-ops/update.sh            # to the latest release, or the latest main when building
-ops/update.sh v1.2.0     # to a tag
+cd /opt/sekvyr                # or the directory given to quickstart with --dir
+sudo ops/update.sh            # to the latest release, or the latest main when building
+sudo ops/update.sh v1.2.0     # to a tag
 ```
 
 A backup is taken first, then the code is updated and the migrations run. If the
@@ -217,7 +224,10 @@ backup fails, the upgrade does not start: migrations are irreversible, and
 
 With the released images the panel moves from release to release: the code next
 to it and the images must be of one version, and `ops/update.sh` keeps
-`SEKVYR_IMAGE_TAG` in step with the checked-out tag.
+`SEKVYR_IMAGE_TAG` in step with the checked-out tag. The images of the new
+release are pulled before the backup. If they cannot be pulled (no access to
+ghcr.io, or the release was tagged minutes ago and CI is still building it),
+the script stops and nothing changes.
 
 The postgres and caddy images are not updated by `ops/update.sh`: their tags are
 fixed in compose, and a new database image is a separate decision. Fresh
@@ -233,6 +243,11 @@ it comes from this compose) and `docker compose up -d`, after a backup.
 | `ops/panel-watchdog.sh` | an out-of-container watchdog: silence, a sealed vault, a broken channel |
 | `ops/breakglass.py` | emergency access to values without the panel |
 | `ops/update.sh` | upgrade with a backup before the migrations |
+
+The scripts run as root, like the schedules that start them: `.env` has mode
+0600 and, like the whole panel directory, usually belongs to root. A script
+started by a user without access to them stops before doing anything and asks
+for `sudo`.
 
 The scripts and their alerts speak the language of `SEKVYR_LANG` in `.env`
 (quickstart sets it to the language of the script that installed the panel),
@@ -275,8 +290,12 @@ reinstall them with the one-line command from the panel.
 docker compose logs --tail=80 backend      # what the panel says
 docker compose exec -T backend python -c \
   "import urllib.request;print(urllib.request.urlopen('http://localhost:8000/api/health').read().decode())"
-cat data/heartbeat                          # the pulse: time, lock state, alert channel
+sudo grep -E '^(ts|sealed|alerts_ok)=' data/heartbeat   # the pulse: time, lock state, alert channel
 ```
+
+The heartbeat file also holds the bot token and the webhook address, so the
+command above shows only the state lines: keep the whole file out of chats and
+tickets.
 
 Common cases:
 

@@ -33,13 +33,42 @@ export function setToken(token: string | null) {
   }
 }
 
+/* Токен общий на все вкладки (localStorage), а событие о его смене браузер
+ * шлет только ДРУГИМ вкладкам. Раньше его никто не слушал: выход в одной
+ * вкладке оставлял во второй открытые значения, а после входа другим
+ * человеком старая вкладка действовала уже от его имени, показывая права
+ * прежнего. key === null - хранилище очистили целиком. */
+export function watchToken(onChange: (token: string | null) => void): () => void {
+  const listener = (event: StorageEvent) => {
+    if (event.key !== TOKEN_KEY && event.key !== null) return
+    onChange(getToken())
+  }
+  window.addEventListener('storage', listener)
+  return () => window.removeEventListener('storage', listener)
+}
+
 export class ApiError extends Error {
   status: number
+  /** Тело ответа как есть: у некоторых отказов кроме текста есть поля для
+   *  интерфейса (действующая версия при конфликте правок). 0 в status - до
+   *  панели не достучались. */
+  body: unknown
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, body: unknown = null) {
     super(message)
     this.status = status
+    this.body = body
   }
+}
+
+/** Ключ изменили, пока его правили: сервер не записал правку и сообщил
+ *  действующую версию (0 - своего ключа здесь больше нет). null - отказ
+ *  другой. */
+export function versionConflict(error: unknown): { current: number } | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null
+  const body = error.body as { conflict?: unknown; current_version?: unknown } | null
+  if (body?.conflict !== 'version' || typeof body.current_version !== 'number') return null
+  return { current: body.current_version }
 }
 
 // Ошибку показываем словами. FastAPI отдает `detail` строкой там, где ошибку
@@ -54,6 +83,11 @@ function errorText(body: unknown, status: number): string {
     const first = detail[0] as { msg?: string; loc?: unknown[] }
     const field = Array.isArray(first.loc) ? first.loc[first.loc.length - 1] : ''
     if (first.msg) return field ? `${field}: ${first.msg}` : first.msg
+  }
+  // Пустой 502-504 отдает прокси, за которым панели нет: перезапуск или
+  // падение. "Ошибка HTTP 502" человеку ничего не говорит.
+  if (status >= 502 && status <= 504) {
+    return tr('Панель не отвечает (HTTP {code}): повторите чуть позже', { code: status })
   }
   return tr('Ошибка HTTP {code}', { code: status })
 }
@@ -73,6 +107,20 @@ function sessionGone(status: number, sent: string | null) {
   window.dispatchEvent(new Event(SESSION_GONE))
 }
 
+/* Запрос, на который панель не ответила вовсе: сеть, перезапуск, прокси без
+ * панели за ним. Раньше человек видел браузерное "Failed to fetch"
+ * по-английски, и текст зависел от браузера. status 0 у ошибки - как раз этот
+ * случай: по нему отличают "панели нет" от "сессия кончилась". */
+async function reach(path: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(path, init)
+  } catch (e) {
+    // Отмену запроса не переименовываем: ее ждет тот, кто отменял.
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
+    throw new ApiError(tr('Нет связи с панелью: проверьте сеть и повторите'), 0)
+  }
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -81,13 +129,13 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const res = await fetch(path, { ...options, headers })
+  const res = await reach(path, { ...options, headers })
   if (res.status === 204) return undefined as T
 
   const body = await res.json().catch(() => null)
   if (!res.ok) {
     sessionGone(res.status, token)
-    throw new ApiError(errorText(body, res.status), res.status)
+    throw new ApiError(errorText(body, res.status), res.status, body)
   }
   return body as T
 }
@@ -190,11 +238,31 @@ export const createUser = (username: string, password: string, role: Role) =>
     body: JSON.stringify({ username, password, role }),
   })
 
+/** Учетка после правки и то, что правка задела за ее пределами. */
+export type UserChange = PanelUser & {
+  /** Серверы и кластеры, которые перестали получать значения хотя бы из
+   *  одного окружения: их доступ держался на этой учетке. */
+  machines_stopped: number
+  clusters_stopped: number
+  /** Снятые ожидающие правки: их ждали от прежней роли автора. */
+  proposals_withdrawn: number
+}
+
 export const updateUser = (
   id: number,
   body: { role?: Role; disabled?: boolean; allow_ips?: string },
 ) =>
-  api<PanelUser>(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+  api<UserChange>(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+
+/** Что встанет, если учетку отключить или понизить ниже ответственного. */
+export type UserDependents = { machines: number; clusters: number; proposals: number }
+
+export const userDependents = (id: number) =>
+  api<UserDependents>(`/api/users/${id}/dependents`)
+
+/** Снять второй фактор с чужой учетки (только владелец). */
+export const resetUserTotp = (id: number) =>
+  api<PanelUser>(`/api/users/${id}/2fa/reset`, { method: 'POST' })
 
 export const resetUserPassword = (id: number, new_password: string) =>
   api<void>(`/api/users/${id}/password`, {
@@ -581,7 +649,16 @@ export const readSecret = (envId: number, name: string, path: string) =>
 
 export const putSecret = (
   envId: number,
-  body: { name: string; path: string; value: string; comment?: string },
+  body: {
+    name: string
+    path: string
+    value: string
+    comment?: string
+    /** Версия своего ключа здесь, от которой начата правка (0 - своего не
+     *  было). Сервер сверяет ее и не пишет поверх чужой правки: 409 и
+     *  versionConflict. Без поля пишет как есть. */
+    expected_version?: number
+  },
 ) =>
   api<SecretRow>(`/api/environments/${envId}/secrets`, {
     method: 'PUT',
@@ -854,6 +931,9 @@ export type Machine = {
   /** Что сервер забирает на самом деле: об этом отчитывается сам агент.
    *  `environments` - выданные права, это разные вещи. */
   apps: MachineApp[]
+  /** Часть выданного не действует: тот, кто завел сервер, его кластер или
+   *  выдал доступ, отключен, понижен или сам этого больше не читает. */
+  stalled: boolean
 }
 
 /** Секрет приходит только здесь: в базе от него остается один хеш. */
@@ -885,6 +965,14 @@ export const updateMachine = (
 
 export const rotateMachineSecret = (id: number) =>
   api<MachineWithSecret>(`/api/machines/${id}/secret`, { method: 'POST' })
+
+/** Забрать сервер на себя: его доступ дальше держится на том, кто забрал. */
+export const adoptMachine = (id: number) =>
+  api<Machine>(`/api/machines/${id}/adopt`, { method: 'POST' })
+
+/** Забрать на себя кластер вместе с личностями его подов. */
+export const adoptCluster = (id: number) =>
+  api<Cluster>(`/api/machines/clusters/${id}/adopt`, { method: 'POST' })
 
 export const deleteMachine = (id: number, confirm: string) =>
   api<void>(`/api/machines/${id}?confirm=${encodeURIComponent(confirm)}`, { method: 'DELETE' })
@@ -994,7 +1082,7 @@ export async function buildEmergencyArchive(body: {
   note?: string
 }): Promise<Blob> {
   const token = getToken()
-  const res = await fetch('/api/ops/emergency', {
+  const res = await reach('/api/ops/emergency', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1037,13 +1125,15 @@ export type MigrateSource = {
   path?: string
 }
 
-export type MigrateRow = { path: string; name: string; action: string; size: number }
+export type MigrateRow = { path: string; name: string; action: string; reason: string; size: number }
 
 export type MigratePreview = {
   total: number
   create: number
   update: number
   same: number
+  write: number
+  skip: number
   note: string
   rows: MigrateRow[]
 }

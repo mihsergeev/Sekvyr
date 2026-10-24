@@ -26,7 +26,7 @@ router = APIRouter(prefix="/migrate", tags=["migrate"])
 
 INFISICAL = "infisical"
 VAULT = "vault"
-MAX_ITEMS = 5000
+MAX_ITEMS = importers.MAX_ITEMS
 
 
 class SourceIn(BaseModel):
@@ -61,8 +61,11 @@ class ApplyIn(PreviewIn):
 class RowOut(BaseModel):
     path: str
     name: str
-    # "создать", "обновить" или "совпадает" - что случится при переносе.
+    # Что случится при переносе: "создать", "обновить", "совпадает",
+    # "записать" (в папке, где человеку не видно ключей, и потому не сказано,
+    # есть ли такой) или "пропустить" (тогда в reason - почему).
     action: str
+    reason: str = ""
     # Длина значения вместо самого значения: предпросмотр не должен
     # превращаться в способ посмотреть чужие секреты мимо прав на чтение.
     size: int
@@ -73,6 +76,8 @@ class PreviewOut(BaseModel):
     create: int
     update: int
     same: int
+    write: int = 0
+    skip: int = 0
     note: str = ""
     rows: list[RowOut] = []
 
@@ -132,6 +137,48 @@ async def _readable(session, user, env: Environment, folder: str) -> bool:
         access.READ,
         access.Scope(project_id=env.project_id, environment_id=env.id, path=folder),
     )
+
+
+async def _listable(session, user, env: Environment, folder: str) -> bool:
+    """Можно ли человеку знать, есть ли в папке такой ключ.
+
+    Запись в папку бывает без права видеть ее ключи. Тогда "создать" и
+    "обновить" в предпросмотре отвечали бы молча и без журнала на вопрос,
+    есть ли там ключ с подсунутым именем.
+    """
+    return await access.allowed(
+        session,
+        user,
+        access.LIST,
+        access.Scope(project_id=env.project_id, environment_id=env.id, path=folder),
+    )
+
+
+async def _require_folders(session, user, env: Environment, folders: set[str]) -> None:
+    """Право записи на каждую папку, куда ляжет перенос.
+
+    Источник раскладывает ключи по папкам сам, и запрет на папку иначе
+    обходился бы переносом. Предпросмотр требует того же: про папку, куда
+    человек писать не может, ему незачем знать ничего.
+    """
+    for folder in sorted(folders):
+        await access.require(
+            session,
+            user,
+            access.WRITE,
+            access.Scope(project_id=env.project_id, environment_id=env.id, path=folder),
+        )
+
+
+def _problem(folder: str, name: str) -> str:
+    """Почему ключ не переносится, или пусто. Та же проверка, что у записи:
+    предпросмотр не должен обещать "создать" там, где перенос пропустит."""
+    try:
+        secrets_store.check_name(name)
+        secrets_store.check_path(folder)
+    except secrets_store.BadName as exc:
+        return "недопустимая папка" if str(exc).startswith("папка") else "недопустимое имя"
+    return ""
 
 
 def _folder(target_path: str, item_path: str) -> str:
@@ -223,11 +270,26 @@ async def preview(
             f"на той стороне {len(fetched.items)} ключей — это больше предела "
             f"({MAX_ITEMS}); сузьте путь",
         )
+    await _require_folders(
+        session, user, env, {_folder(body.target_path, item.path) for item in fetched.items}
+    )
 
     rows: list[RowOut] = []
-    create = update = same = 0
+    create = update = same = write = skip = 0
     for item in fetched.items:
         folder = _folder(body.target_path, item.path)
+        reason = item.skip or _problem(folder, item.name)
+        if reason:
+            rows.append(
+                RowOut(path=folder, name=item.name, action="пропустить", reason=reason, size=0)
+            )
+            skip += 1
+            continue
+        if not await _listable(session, user, env, folder):
+            action = "записать"
+            write += 1
+            rows.append(RowOut(path=folder, name=item.name, action=action, size=len(item.value)))
+            continue
         current = await _effective_value(session, box, body.environment_id, folder, item.name)
         if current is _ABSENT:
             action = "создать"
@@ -245,6 +307,8 @@ async def preview(
         create=create,
         update=update,
         same=same,
+        write=write,
+        skip=skip,
         note=fetched.note,
         rows=sorted(rows, key=lambda r: (r.path, r.name)),
     )
@@ -264,15 +328,9 @@ async def apply(
     fetched = await _fetch(body)
     if len(fetched.items) > MAX_ITEMS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "слишком много ключей — сузьте путь")
-    # Источник раскладывает ключи по папкам сам - право записи нужно на каждую,
-    # как у импорта: иначе запрет на папку обходился бы переносом.
-    for folder in sorted({_folder(body.target_path, item.path) for item in fetched.items}):
-        await access.require(
-            session,
-            user,
-            access.WRITE,
-            access.Scope(project_id=env.project_id, environment_id=env.id, path=folder),
-        )
+    await _require_folders(
+        session, user, env, {_folder(body.target_path, item.path) for item in fetched.items}
+    )
 
     created = updated = 0
     skipped: list[str] = []
@@ -281,6 +339,11 @@ async def apply(
     await secrets_store.lock_env(session, body.environment_id)
     for item in fetched.items:
         folder = _folder(body.target_path, item.path)
+        if item.skip:
+            # Источник не отдал значение: переносить нечего, а заглушка вместо
+            # пароля в проде хуже отсутствующего ключа.
+            skipped.append(f"{item.name} (нет значения)")
+            continue
         current = await _effective_value(session, box, body.environment_id, folder, item.name)
         alive = current is not _ABSENT
         if alive and await _readable(session, user, env, folder) and current == item.value:

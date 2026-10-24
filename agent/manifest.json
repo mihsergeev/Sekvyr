@@ -1,15 +1,15 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "files": {
     "amd64": {
-      "sha256": "46ed0ca76e43a9a6e12c907974d264caf4bcfe927e644010e5f9bb0539c36d20",
-      "size": 0
+      "sha256": "7d647947ec441f2fdb118408a136231bac9bbc13f69a3b8c36967b9b9ff3b739",
+      "size": 7385212
     },
     "arm64": {
-      "sha256": "ffa228dee0613bf701dcb229c254211b5e91f15f67a0fc53230859f2b94d52ea",
-      "size": 0
+      "sha256": "ccbcbc37046610febbfca45b2762b98debdca5c7e8148b455cccd89eacd60eb6",
+      "size": 6815868
     }
   },
-  "signature": "y7b8UzpcYXi6Zuef9HSv/v96nUiEdGa0f6J6lXxZzrqvK0rvoxDe4EQQPwzA0L88mncCNgkKx7bw0nTF+A3jBA==",
-  "signed_at": "2026-10-13T10:48:51.367776+00:00"
+  "signature": "bHGcgx7MEXrXnvOq7T8a82RgSRYvusb1srELy2VNo0RYDXsuwYRpFyonkiSQRajPLfM7/b8R3ZLoqrBuA0LACQ==",
+  "signed_at": "2026-10-24T14:24:18.734188+00:00"
 }

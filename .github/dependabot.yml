@@ -1,0 +1,61 @@
+# Раз в неделю: зависимости панели и агента, базовые образы и действия CI.
+# Каждое обновление приходит PR и проходит тот же CI, что и любая правка.
+#
+# Базовые образы закреплены digest'ом (ops/selfcheck.py это проверяет), и
+# Dependabot обновляет тег и digest вместе. Новый golang меняет бинарь агента:
+# такой PR не пройдет сверку с подписью, пока GO_IMAGE в ops/agent_release.py
+# не поправят и агента не подпишут заново. Это и нужно - подпись ставит человек.
+#
+# Переход Python, Node или Go на следующую версию (3.13, 26, 1.28) - решение
+# человека, а не еженедельного PR: такие обновления здесь не предлагаются,
+# патчи и новые digest'ы тех же версий - да.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    groups:
+      backend:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: /agent
+    schedule:
+      interval: weekly
+
+  # Одной группой на три каталога: golang стоит и в backend/Dockerfile, и в
+  # agent/Dockerfile, и меняться он должен в обоих сразу.
+  - package-ecosystem: docker
+    directories:
+      - /backend
+      - /frontend
+      - /agent
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+      - dependency-name: golang
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

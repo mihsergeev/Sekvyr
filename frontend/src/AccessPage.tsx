@@ -252,9 +252,27 @@ export function AccessPage({
     }
   }
 
-  async function remove(id: number) {
+  // Отзыв и снятие запрета спрашивают: пункт меню стоит под рукой, а промах
+  // мимо него молча менял, кто видит прод. Снятие запрета опаснее, чем
+  // выглядит: оно не убирает доступ, а открывает его.
+  async function remove(policy: PolicyRow) {
+    const where = `${policy.project_slug || t('все проекты')}${
+      policy.environment_name ? `/${policy.environment_name}` : ''
+    }${policy.path_prefix !== '/' ? ` ${policy.path_prefix}` : ''}`
+    const deny = policy.effect === 'deny'
+    const yes = await confirm({
+      title: deny
+        ? t('Снять запрет для {name}?', { name: policy.subject_name })
+        : t('Отозвать право у {name}?', { name: policy.subject_name }),
+      text: deny
+        ? t('{where}: доступ откроется в той мере, в какой его дают остальные права. Запрет больше не будет их перекрывать.', { where })
+        : t('{where}: доступ пропадет сразу, вернуть его можно только выдав право заново.', { where }),
+      submit: deny ? t('Снять запрет') : t('Отозвать'),
+      danger: true,
+    })
+    if (!yes) return
     try {
-      await deletePolicy(id)
+      await deletePolicy(policy.id)
       await reload()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -334,6 +352,15 @@ export function AccessPage({
   async function leaveGroup(group: GroupRow, username: string) {
     const user = users.find((u) => u.username === username)
     if (!user) return
+    // Крестик у имени - мелкая цель в ряду других имен: без вопроса промах
+    // снимал с человека все права группы.
+    const yes = await confirm({
+      title: t('Убрать {user} из группы {group}?', { user: username, group: group.name }),
+      text: t('Права, выданные группе, перестанут действовать на {user} сразу.', { user: username }),
+      submit: t('Убрать'),
+      danger: true,
+    })
+    if (!yes) return
     try {
       await removeGroupMember(group.id, user.id)
       await reload()
@@ -437,10 +464,10 @@ export function AccessPage({
                               className="menu-item menu-item-danger"
                               onClick={() => {
                                 setMenu(null)
-                                void remove(p.id)
+                                void remove(p)
                               }}
                             >
-                              {t('Отозвать')}
+                              {p.effect === 'deny' ? t('Снять запрет') : t('Отозвать')}
                             </button>
                             {/* Уходит человек - прав у него обычно не одно, и
                                 снимают их все. */}

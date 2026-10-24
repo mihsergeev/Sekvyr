@@ -46,6 +46,10 @@ class User(Base):
     # Учетку не удаляют, а отключают, когда человек ушел: удаление увело бы за
     # собой его след в журнале, а журнал должен оставаться читаемым.
     disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Уровень роли того, кто отключил. Включить обратно может только роль не
+    # ниже: иначе ответственный возвращал уволенного владельцем. Пусто у учеток,
+    # отключенных до 1.0.1, - они считаются отключенными владельцем.
+    disabled_by_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Откуда пускать: адреса и подсети через пробел, как у машин. Пусто -
     # откуда угодно; это состояние по умолчанию, и менять его должен человек,
     # который знает, из какой сети приходит эта учетная запись.
@@ -134,6 +138,10 @@ class Project(Base):
     # бывает и у globex, и у initech, и заставлять писать "globex-frontend"
     # значит держать группу в имени дважды.
     group_slug: Mapped[str] = mapped_column(String(64), default="")
+    # Слаги групп, из которых проект переехал, через пробел, последние
+    # MOVED_FROM_KEEP. Агент помнит прежний адрес, и машинный контур находит
+    # проект по нему - но только переехавший, а не любой одноименный.
+    moved_from: Mapped[str] = mapped_column(String(400), default="", server_default="")
     e2e: Mapped[bool] = mapped_column(Boolean, default=False)
     # Правки от ролей НИЖЕ этого уровня требуют подтверждения. 0 = никогда.
     approval_min_level: Mapped[int] = mapped_column(Integer, default=0)
@@ -286,6 +294,10 @@ class SecretVersion(Base):
     )
     review_note: Mapped[str] = mapped_column(String(500), default="")
     author: Mapped[str] = mapped_column(String(64), default="")
+    # Уровень роли автора на момент предложения. Подтверждает роль выше ЭТОГО
+    # уровня: понижение автора после предложения не открывает его правку
+    # равным ему по прежней роли. Пусто у правок до версии 1.0.1.
+    author_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
     comment: Mapped[str] = mapped_column(String(500), default="")
     # Было ли значение многострочным. Пишется при сохранении: списку иначе
     # пришлось бы расшифровывать все подряд ради одной пометки. В проекте с

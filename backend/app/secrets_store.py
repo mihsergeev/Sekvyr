@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from sqlalchemy import desc, func, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import crypto, e2e, envkeys
+from app import crypto, e2e, envkeys, roles
 from app.models import (
     Environment,
     EnvKey,
@@ -33,6 +33,7 @@ from app.models import (
     Project,
     Secret,
     SecretVersion,
+    User,
 )
 from app.sealbox import SealBox, b64, unb64
 
@@ -62,6 +63,25 @@ class SecretNotFound(Exception):
 
 class SecretChanged(ValueError):
     """Ключ переименовали или перенесли, пока запрос ждал блокировку."""
+
+
+KEY_CHANGED = "Ключ изменили, пока вы его правили: ваша правка не записана"
+KEY_GONE = "Ключ удалили, пока вы его правили: ваша правка не записана"
+KEY_APPEARED = "Ключ с таким именем уже есть: ваша правка не записана"
+
+
+class VersionConflict(Exception):
+    """Значение сменилось после того, как человек открыл его на правку.
+
+    Без этой проверки сохранение молча перезаписывало чужую правку: двое
+    открыли ключ, первый сохранил, второй сохранил поверх, и первого в
+    действующем значении больше нет. current - действующая версия сейчас,
+    0 - своего ключа здесь нет (не заводили или удалили).
+    """
+
+    def __init__(self, message: str, current: int) -> None:
+        super().__init__(message)
+        self.current = current
 
 
 class SnapshotGone(Exception):
@@ -452,6 +472,12 @@ async def _add_version(
             previous.status = STATUS_SUPERSEDED
         await _retire_pending(session, secret, author)
 
+    # Уровень автора - на момент предложения: подтверждает роль выше него, и
+    # понижение автора потом не должно открывать правку его прежним равным.
+    author_level = None
+    if pending:
+        role = await session.scalar(select(User.role).where(User.username == author))
+        author_level = roles.level(role or "")
     version = SecretVersion(
         secret_id=secret.id,
         version=version_no,
@@ -464,6 +490,7 @@ async def _add_version(
         env_key_generation=generation,
         status=STATUS_PENDING if pending else STATUS_CURRENT,
         author=author,
+        author_level=author_level,
         comment=comment,
         multiline="\n" in (value or ""),
     )
@@ -616,12 +643,18 @@ async def set_value(
     comment: str = "",
     pending: bool = False,
     legacy_name: bool = False,
+    expected_version: int | None = None,
 ) -> SecretVersion:
     """Создает секрет или добавляет ему новую версию. Коммит - на вызывающем.
 
     В проекте с шифрованием в браузере значение обязано приходить запечатанным.
     Проверка здесь, а не в маршруте: класть в такой проект открытый текст нельзя
     ни импортом, ни переносом, ни откуда-либо еще.
+
+    expected_version - действующая версия своего ключа в этом окружении, от
+    которой человек начинал правку (0 - своего ключа не было). Сверяется под
+    блокировкой окружения, иначе две одновременные записи обе прошли бы
+    проверку. None - не сверять: импорт, перенос и старые клиенты.
     """
     check_name(name, legacy=legacy_name)
     path = normalize_path(path)
@@ -635,6 +668,14 @@ async def set_value(
         except e2e.FormatError as exc:
             raise SealedValueRequired(str(exc)) from exc
     secret = await get_secret(session, env_id, path, name)
+    if expected_version is not None:
+        current = 0 if secret is None or secret.deleted else secret.current_version
+        if current != expected_version:
+            if not current:
+                raise VersionConflict(KEY_GONE, 0)
+            if not expected_version:
+                raise VersionConflict(KEY_APPEARED, current)
+            raise VersionConflict(KEY_CHANGED, current)
     if secret is None:
         secret = Secret(environment_id=env_id, path=path, name=name, current_version=0)
         session.add(secret)
@@ -1489,6 +1530,36 @@ async def reject_version(
     version.reviewed_by = reviewer
     version.reviewed_at = datetime.now(timezone.utc)
     version.review_note = note
+
+
+async def withdraw_pending_of(
+    session: AsyncSession, author: str, *, reviewer: str, note: str
+) -> list[tuple[Secret, SecretVersion]]:
+    """Снять все ожидающие правки автора: его отключили или сменили ему роль.
+
+    Правка ждет того, кто выше автора, а у отключенного или пониженного автора
+    это уже не тот, кого ждали, когда он предлагал. Снятые правки отклоняются,
+    а не стираются: в истории видно, что предлагали и почему не приняли.
+    Окружения блокируются по порядку номеров, как при любой записи, чтобы два
+    таких снятия не ждали друг друга.
+    """
+    rows = await session.execute(
+        select(Secret, SecretVersion)
+        .join(SecretVersion, SecretVersion.secret_id == Secret.id)
+        .where(SecretVersion.author == author, SecretVersion.status == STATUS_PENDING)
+        .order_by(Secret.environment_id, SecretVersion.id)
+    )
+    found = [(secret, version) for secret, version in rows]
+    for env_id in sorted({secret.environment_id for secret, _ in found}):
+        await lock_env(session, env_id)
+    withdrawn: list[tuple[Secret, SecretVersion]] = []
+    for secret, version in found:
+        try:
+            await reject_version(session, version, reviewer=reviewer, note=note)
+        except NotPending:
+            continue
+        withdrawn.append((secret, version))
+    return withdrawn
 
 
 # --- наследование окружений ------------------------------------------------

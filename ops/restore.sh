@@ -13,7 +13,8 @@
 # и перед заливкой снимает дамп того, что было: передумать после `psql` уже
 # нельзя, а "я думал, там пусто" случается чаще, чем хотелось бы. Этот дамп
 # возвращается этим же скриптом, а заливка идет одной транзакцией: если она
-# сорвется, база останется такой, какой была.
+# сорвется, база останется такой, какой была. Страховочный дамп запечатан
+# паролем бэкапов, хранятся пять последних.
 set -eu
 
 # Язык вывода: SEKVYR_LANG из окружения или из .env панели, иначе русская
@@ -69,6 +70,15 @@ case "$FILE" in /*) ;; *) FILE="$(pwd)/$FILE" ;; esac
 [ -f "$APP/compose.yml" ] || { msg "не найдена установка панели: $APP" "panel installation not found: $APP" >&2; exit 1; }
 cd "$APP"
 pick_lang
+
+# .env закрыт правами 0600, а страховочный дамп пишется в каталог панели. Без
+# доступа к ним скрипт брал имя базы по умолчанию, спрашивал подтверждение и
+# падал уже после него, на страховочном дампе.
+if { [ -e .env ] && [ ! -r .env ]; } || ! { mkdir -p backups 2>/dev/null && [ -w backups ]; }; then
+    msg "✗ у $(id -un) нет доступа к $APP/.env или $APP/backups: запустите скрипт от root (sudo $APP/ops/restore.sh $FILE)" \
+        "✗ $(id -un) has no access to $APP/.env or $APP/backups: run the script as root (sudo $APP/ops/restore.sh $FILE)" >&2
+    exit 1
+fi
 
 if docker compose ps >/dev/null 2>&1; then DC="docker compose"
 elif sudo -n docker compose ps >/dev/null 2>&1; then DC="sudo docker compose"
@@ -134,13 +144,53 @@ else
 fi
 
 # --- страховка -------------------------------------------------------------
+# Страховочный дамп запечатывается паролем бэкапов, как ночные: в нем те же
+# хеши паролей и ключи машин, а открытый .sql лежал в backups/, пока его не
+# удалят руками. Распечатывает его этот же скрипт. Если пароля бэкапов нет
+# (ops/backup.sh еще не запускался), дамп остается открытым, с правами 0600,
+# и скрипт говорит об этом.
 SAFETY="$APP/backups/before-restore-$(date -u +%Y%m%d-%H%M%S).sql"
+SEAL=0
+[ -s "$APP/secret/backup.pass" ] && { SEAL=1; SAFETY="$SAFETY.sealed"; }
 mkdir -p "$APP/backups"
 msg "→ снимаю дамп текущей базы: $SAFETY" "→ taking a dump of the current database: $SAFETY"
 # --clean --if-exists, как у ops/backup.sh: без них страховочный дамп не
 # ложится поверх живой базы, и вернуть его этим же скриптом было нельзя.
-( umask 077; $DC exec -T db pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists > "$SAFETY" ) \
-    || { msg "не удалось снять страховочный дамп — восстановление отменено" "could not take the safety dump, the restore is cancelled" >&2; exit 1; }
+# Код pg_dump сохраняется отдельно, как в ops/backup.sh: у конвейера код
+# последней команды, и оборванный дамп запечатался бы как удачный. Пишется
+# дамп в .part: оборванный не должен лежать под именем, которое предлагают
+# вернуть.
+set +e
+(
+    umask 077
+    if [ "$SEAL" = "1" ]; then
+        {
+            $DC exec -T db pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists
+            echo $? > "$WORK/pg_dump.rc"
+        } | $DC run --rm --no-deps -T --entrypoint python backend -m app.cli seal \
+            --password-file /secret/backup.pass --note "before-restore $(hostname)" > "$SAFETY.part"
+    else
+        $DC exec -T db pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists > "$SAFETY.part"
+        echo $? > "$WORK/pg_dump.rc"
+    fi
+)
+SAFETY_RC=$?
+set -e
+if [ "$SAFETY_RC" != "0" ] || [ "$(cat "$WORK/pg_dump.rc" 2>/dev/null)" != "0" ]; then
+    rm -f "$SAFETY.part"
+    msg "не удалось снять страховочный дамп — восстановление отменено" "could not take the safety dump, the restore is cancelled" >&2
+    exit 1
+fi
+mv "$SAFETY.part" "$SAFETY"
+[ "$SEAL" = "1" ] || msg "  пароля бэкапов (secret/backup.pass) нет, поэтому дамп не запечатан: удалите его, когда он станет не нужен" \
+    "  there is no backup password (secret/backup.pass), so the dump is not sealed: delete it once it is no longer needed"
+# Страховочные дампы копятся с каждым восстановлением. Держим пять последних,
+# считая только что снятый; его и файл, из которого идет восстановление, не
+# трогаем никогда (часы могли уйти назад, см. ротацию в ops/backup.sh).
+ls -1t "$APP/backups"/before-restore-*.sql "$APP/backups"/before-restore-*.sql.sealed 2>/dev/null \
+    | grep -vxF -e "$SAFETY" -e "$FILE" | tail -n +5 | while read -r old; do
+    rm -f "$old"
+done
 
 # --- заливка ---------------------------------------------------------------
 # Бэкенд на время заливки останавливаем: миграции и живые запросы к базе,

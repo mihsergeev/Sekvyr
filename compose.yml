@@ -24,7 +24,7 @@ services:
       # монтируем корень кластера, а не сам каталог данных.
       - ./data/postgres:/var/lib/postgresql
     networks:
-      - internal
+      - db
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${SEKVYR_DB_USER:-sekvyr} -d ${SEKVYR_DB_NAME:-sekvyr}"]
       interval: 5s
@@ -39,6 +39,31 @@ services:
     logging: *logging
     security_opt:
       - no-new-privileges:true
+    # От прав root остается только то, что нужно entrypoint'у: выровнять
+    # владельца ./data и ./secret (CHOWN, FOWNER, DAC_OVERRIDE) и сбросить
+    # привилегии через gosu (SETUID, SETGID). Сама панель работает от uid 10001
+    # без всяких прав. Разовые команды ops/*.sh (run и exec) идут от root и
+    # читают пароль бэкапа 0600 с владельцем 10001: им нужен DAC_OVERRIDE.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    # Код в образе только на чтение: писать панель может в тома и в /tmp.
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Тот же запрос, что делают quickstart и update.sh. Запертый сейф - тоже
+    # 200: перезапуск его не отпирает.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
     environment:
       SEKVYR_DB_URL: postgresql+asyncpg://${SEKVYR_DB_USER:-sekvyr}:${SEKVYR_DB_PASSWORD}@db:5432/${SEKVYR_DB_NAME:-sekvyr}
       SEKVYR_JWT_SECRET: ${SEKVYR_JWT_SECRET}
@@ -87,8 +112,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # internal - к фронтенду и наружу (оповещения, копия журнала), db - к базе.
     networks:
       - internal
+      - db
 
   frontend:
     build: ./frontend
@@ -96,6 +123,19 @@ services:
     logging: *logging
     security_opt:
       - no-new-privileges:true
+    # nginx этого образа работает от uid 101 на порту 8080: права root ему не
+    # нужны вовсе. pid и временные файлы он держит в /tmp.
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     depends_on:
       - backend
     # Панель публикуется на хосте по SEKVYR_BIND (по умолчанию только localhost).
@@ -107,3 +147,7 @@ services:
 
 networks:
   internal:
+  # Сеть базы без выхода наружу: Postgres никуда ходить не нужно, а фронтенд
+  # в этой сети не состоит и до базы не дотянется, даже если его захватят.
+  db:
+    internal: true

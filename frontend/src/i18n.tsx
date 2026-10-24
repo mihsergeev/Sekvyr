@@ -44,7 +44,6 @@ const EN: Record<string, string> = {
   Добавить: 'Add',
   Роль: 'Role',
   Состояние: 'State',
-  Заведена: 'Created',
   Активна: 'Active',
   Отключена: 'Disabled',
   Отключить: 'Disable',
@@ -66,11 +65,6 @@ const EN: Record<string, string> = {
     'The chain is broken: first mismatch at entry {id}, {count} mismatches in total',
   'Цепочка журнала цела': 'The log chain is intact',
   'Записей пока нет': 'No entries yet',
-  'Вы вошли как': 'Signed in as',
-  'Хранилище готово': 'Storage is ready',
-  'Секреты, версии, права и подтверждение изменений работают. Дальше — машинный контур: серверы будут забирать значения сами.':
-    'Secrets, versions, rights and change approval all work. Next comes the machine surface: servers pulling values on their own.',
-  'Пароль изменён': 'Password changed',
   'Пароль не короче {n} символов': 'Password of at least {n} characters',
   'латинские буквы, цифры, точка, дефис и подчеркивание':
     'Latin letters, digits, dot, hyphen and underscore',
@@ -78,22 +72,39 @@ const EN: Record<string, string> = {
   'не длиннее 72 байт: это 72 латинские буквы или 36 русских':
     'at most 72 bytes: that is 72 Latin letters',
   'Ошибка HTTP {code}': 'HTTP error {code}',
+  'Нет связи с панелью': 'No connection to the panel',
+  'Нет связи с панелью: проверьте сеть и повторите':
+    'No connection to the panel: check the network and try again',
+  'Панель не отвечает (HTTP {code}): повторите чуть позже':
+    'The panel is not answering (HTTP {code}): try again a little later',
+  'Сессия при этом не закончилась: когда панель ответит, работа продолжится с того же места.':
+    'Your session has not ended: once the panel answers, you continue where you left off.',
+  Повторить: 'Try again',
   Тема: 'Theme',
-  'Автоматическое отпирание': 'Automatic unlocking',
   'Запомнить ключ на сервере': 'Remember the key on the server',
   'Забыть ключ': 'Forget the key',
-  'сначала отоприте панель': 'unlock the panel first',
-  'Ключ сохранён на сервере, панель поднимается сама. Пока он там лежит, root на хосте означает доступ ко всем значениям.':
-    'The key is stored on the server and the panel unlocks itself. While it is there, root on the host means access to every value.',
-  'Панель может запомнить ключ файлом и подниматься сама после перезапуска. Удобно на время настройки; для боевой панели это ослабление — ключ окажется рядом с ней.':
-    'The panel can remember the key in a file and unlock itself after a restart. Handy while setting things up; for a production panel it is a weakening — the key ends up next to it.',
-  Ещё: 'More',
   'Строка разворачивается: видно, что именно поменялось.':
     'Rows expand to show exactly what changed.',
   'Значения читать нельзя, видно только события.':
     'You cannot read values here, only the events.',
   'Значение не менялось': 'The value did not change',
   'Значение пустое': 'The value is empty',
+  'Ключ изменили, пока вы его правили: ваша правка не записана':
+    'The key was changed while you were editing it: your edit was not saved',
+  'Текущее значение не загрузилось. Введенное заменит его целиком.':
+    'The current value did not load. What you enter will replace it completely.',
+  'Текущее значение не показывается: читать его вам нельзя. Введенное заменит его целиком.':
+    'The current value is not shown: you are not allowed to read it. What you enter will replace it completely.',
+  'Сохранить все равно значит завести ключ заново.':
+    'Saving anyway creates the key again.',
+  'Действующая версия теперь {version}. Перезаписать значит поставить ваше значение поверх нее, она останется в истории.':
+    'The current version is now {version}. Overwriting puts your value on top of it, and it stays in the history.',
+  'Показать разницу': 'Show the difference',
+  'Скрыть разницу': 'Hide the difference',
+  'Взять новое значение': 'Take the new value',
+  'Чем ваше значение отличается от действующего:': 'How your value differs from the current one:',
+  'Сохранить все равно': 'Save anyway',
+  Перезаписать: 'Overwrite',
   'Загружаем…': 'Loading…',
   Серверы: 'Servers',
   'Пароль проекта': 'Project password',
@@ -135,7 +146,6 @@ const EN: Record<string, string> = {
   Источник: 'Source',
   Папка: 'Folder',
   Ключ: 'Key',
-  'Что будет': 'What happens',
   Длина: 'Length',
   Посмотреть: 'Preview',
   Перенести: 'Migrate',
@@ -151,22 +161,20 @@ const EN: Record<string, string> = {
   создать: 'create',
   обновить: 'update',
   совпадает: 'identical',
-  'Всего {total}: создать {create}, обновить {update}, совпадает {same}':
-    'Total {total}: create {create}, update {update}, identical {same}',
+  записать: 'write',
+  пропустить: 'skip',
+  'Ключей этой папки вам не видно, поэтому есть ли там такой, панель не говорит':
+    'You cannot see the keys of this folder, so the panel does not say whether this one exists',
   'Перенесено: создано {created}, обновлено {updated}, пропущено {skipped}':
     'Migrated: created {created}, updated {updated}, skipped {skipped}',
   'Существующие значения останутся как есть: включите перезапись, если нужно иначе.':
     'Existing values stay as they are: turn on overwrite if you need otherwise.',
-  'Сначала панель покажет, что видит на той стороне и что случится с каждым ключом, и только потом перенесёт. Реквизиты источника нигде не сохраняются.':
-    'First the panel shows what it sees on the other side and what happens to each key, and only then migrates. Source credentials are not stored anywhere.',
   Понятно: 'Got it',
-  'Баз пока нет.': 'No databases yet.',
   'Действует до': 'Valid until',
   действует: 'active',
   Отозвать: 'Revoke',
   Кому: 'To whom',
   Срок: 'Term',
-  Выдано: 'Granted',
   мин: 'min',
   Название: 'Name',
   Обслуживание: 'Maintenance',
@@ -213,13 +221,11 @@ const EN: Record<string, string> = {
     'Set in .env and therefore not erasable here: {fields}',
   'копии записей вне этой базы нет': 'there is no copy of the entries outside this database',
   'Панель сообщает о том, о чём нельзя узнать позже: сейф заперли или открыли, вход заблокирован после серии попыток, собран аварийный архив, журнал перестал сходиться. Раз в несколько часов она обходит значения и сообщает о новых замечаниях — заготовка вместо пароля в проде найдётся сама.':
-    'The panel reports what cannot be learned later: the vault was sealed or opened, logins were blocked after a burst of attempts, an emergency archive was built, the audit chain stopped matching. Every few hours it walks the values and reports new notes — a placeholder instead of a production password finds you itself.',
+    'The panel reports what cannot be found out later: the vault was locked or unlocked, sign-in was blocked after a burst of attempts, an emergency archive was built, the audit chain stopped matching. Every few hours it goes through the values and reports new findings, so a placeholder left where a production password should be gets noticed without anyone looking for it.',
   'В файл попадут ВСЕ значения всех окружений открытым текстом, защищённые только вашим паролем. Сборка попадёт в журнал и в оповещения. Продолжать?':
     'The file will hold ALL values of all environments in plain text, protected only by your password. Building it goes into the audit log and the alerts. Continue?',
   'Открыть его без панели: python3 ops/breakglass.py env <файл> группа/проект/окружение':
     'Open it without the panel: python3 ops/breakglass.py env <file> group/project/environment',
-  'Бэкап снимает ops/backup.sh по расписанию: дамп шифруется своим паролем, отметка попадает сюда. Корневого ключа в нём нет и не должно быть — иначе дамп и ключ ездят вместе.':
-    'ops/backup.sh takes the backup on a schedule: the dump is encrypted with its own password and the mark lands here. The root key is not in it and must not be — otherwise the dump and the key travel together.',
   'Архив отвечает на вопрос «панели нет, корневого ключа нет, а прод надо поднять сейчас». Все значения одним файлом под вашим паролем; открывает его ops/breakglass.py без панели и без сети.':
     'The archive answers the question "no panel, no root key, and production has to come up now". Every value in one file under your password; ops/breakglass.py opens it without the panel and without the network.',
   'Это единственное место, где секреты выходят из панели все сразу. Храните архив там же, где доли ключа, и пересобирайте после заметных изменений.':
@@ -231,7 +237,6 @@ const EN: Record<string, string> = {
   'Введите имя кластера': 'Type the cluster name',
   'Личность в кластере': 'Identity in a cluster',
   Личностей: 'Identities',
-  'Кластеров пока нет.': 'No clusters yet.',
   'Сначала добавьте кластер.': 'Add a cluster first.',
   'Обновить ключи': 'Update keys',
   'Готово. Выдайте ей окружение в разделе «Доступ» — секрет здесь не нужен.':
@@ -241,16 +246,13 @@ const EN: Record<string, string> = {
     'who the pod asks the token for; a token for kubernetes will not fit the panel',
   'Вместе с ним исчезнут личности его подов: проверять их токены станет нечем.':
     'Its pod identities go with it: there would be nothing left to verify their tokens with.',
-  'Панель верит ServiceAccount-токенам этих кластеров: под доказывает себя подписью кластера, и статического секрета в кластере не остаётся вовсе.':
-    'The panel trusts ServiceAccount tokens from these clusters: a pod proves itself with the cluster signature, and no static secret stays in the cluster at all.',
-  'На связи': 'Last seen',
   'ещё не забирал': 'has not pulled yet',
   'поиск по имени, адресу, системе и окружениям': 'search by name, address, system and environments',
   'Поиск идёт по имени, адресу, системе и выданным окружениям.':
     'The search covers the name, addresses, system and granted environments.',
   'все': 'all',
   '«Подключить сервер» покажет команду установки агента с одноразовым токеном.':
-    '«Connect a server» shows the agent install command with a one-time token.',
+    '"Connect a server" shows the agent install command with a one-time token.',
   'давние': 'stale',
   'оставить только давние значения': 'show only stale values',
   'Давним считать значение старше': 'Consider a value stale after',
@@ -296,8 +298,6 @@ const EN: Record<string, string> = {
   'Адреса и подсети через пробел. Пусто — откуда угодно. Проверяется на каждом запросе, поэтому смена адреса закрывает и уже выданный токен.':
     'Addresses and subnets separated by spaces. Empty means from anywhere. Checked on every request, so a change also cuts off a token already issued.',
   'журнал с': 'log starts',
-  'старше года': 'over a year old',
-  'оставить только значения старше года': 'show only values older than a year',
   'последняя правка': 'last changed',
   'Выбрать все': 'Select all',
   'Записать': 'Write',
@@ -308,6 +308,17 @@ const EN: Record<string, string> = {
   'Отозвать все доступы?': 'Revoke every grant?',
   'Отозвать все доступы': 'Revoke every grant',
   'Отозвать все права': 'Revoke every grant',
+  'Снять запрет': 'Lift the ban',
+  'Снять запрет для {name}?': 'Lift the ban for {name}?',
+  'Отозвать право у {name}?': 'Revoke the permission from {name}?',
+  '{where}: доступ откроется в той мере, в какой его дают остальные права. Запрет больше не будет их перекрывать.':
+    '{where}: access opens as far as the other permissions grant it. The ban will no longer override them.',
+  '{where}: доступ пропадет сразу, вернуть его можно только выдав право заново.':
+    '{where}: access is gone at once, and only granting the permission again brings it back.',
+  'Убрать {user} из группы {group}?': 'Remove {user} from the group {group}?',
+  'Права, выданные группе, перестанут действовать на {user} сразу.':
+    'The permissions granted to the group stop applying to {user} at once.',
+  Убрать: 'Remove',
   'Отозвать всё': 'Revoke all',
   'Прав будет снято': 'Grants to be revoked',
   'Сервер перестанет получать эти окружения при следующем обращении. Файлы, которые уже лежат на нём, останутся.':
@@ -329,11 +340,8 @@ const EN: Record<string, string> = {
   'показать, кто забирает это окружение': 'show who pulls this environment',
   'внешний адрес: с него приходит агент': 'public address: the agent connects from it',
   'локальный адрес во внутренней сети': 'local address on the internal network',
-  'Сервер читает выданные ему окружения и не может ничего изменить: в машинном контуре нет маршрутов, которые пишут в секреты. Права выдаются в разделе «Доступ».':
-    'A server reads the environments it was granted and can change nothing: the machine contour has no routes that write to secrets. Permissions are granted in the Access section.',
   Сервер: 'Server',
   'Машина без агента': 'Machine without an agent',
-  'Серверов пока нет.': 'No servers yet.',
   'Удалить сервер?': 'Delete the server?',
   'Введите имя сервера': 'Type the server name',
   'Секрет сервера': 'Server secret',
@@ -341,7 +349,6 @@ const EN: Record<string, string> = {
   сервер: 'server',
   сервера: 'servers',
   серверов: 'servers',
-  'Это окружение забирают': 'Pulled by',
   'Подключить сервер': 'Connect a server',
   'Создать токен': 'Create token',
   Дальше: 'Next',
@@ -362,7 +369,7 @@ const EN: Record<string, string> = {
   'К списку серверов': 'Back to servers',
   'Ничего не подключено': 'Nothing connected yet',
   '«Подключить приложение» выдаст серверу окружение и покажет команду, которой оно добавляется агенту.':
-    '“Connect an app” grants the server an environment and shows the command that adds it to the agent.',
+    '"Connect an application" grants the server an environment and shows the command that adds it to the agent.',
   'Удалить сервер': 'Delete server',
   'Отозвать доступ': 'Revoke access',
   'Отозвать доступ?': 'Revoke access?',
@@ -376,8 +383,8 @@ const EN: Record<string, string> = {
   'агент забирает': 'the agent pulls it',
   агент: 'agent',
   обновлено: 'updated',
-  'Пода в кластере может доказать себя подписью кластера, без секрета вовсе — для этого добавьте кластер в меню сверху.':
-    'A pod can prove itself with its cluster signature and no secret at all — add a cluster from the menu above.',
+  'Под в кластере может доказать себя подписью кластера, без секрета вовсе: для этого добавьте кластер в меню сверху.':
+    'A pod can prove itself with its cluster signature and no secret at all: add a cluster from the menu above.',
   'выдано': 'granted',
   'Серверов пока нет': 'No servers yet',
   'Прав пока нет': 'No permissions yet',
@@ -440,7 +447,6 @@ const EN: Record<string, string> = {
   удалять: 'delete',
   'ключ окружения': 'env key',
   подтверждать: 'approve',
-  'Кластеров пока нет': 'No clusters yet',
   'Сервер только читает выданные ему окружения: в машинном контуре нет маршрутов, которые пишут в секреты.':
     'A server only reads the environments granted to it: the machine API has no routes that write secrets.',
   'ещё': 'more',
@@ -454,7 +460,6 @@ const EN: Record<string, string> = {
   'скопирован': 'copied',
   'поиск по ключам — /': 'search keys — /',
   'из родителя': 'inherited',
-  'выдано ещё': 'also granted',
   'Панель выдаст серверу это окружение и покажет команду, которой оно добавляется агенту.':
     'The panel will grant the server this environment and show the command that adds it to the agent.',
   '1. Новый сервер — подключение, агент и приложение одной командой:':
@@ -467,7 +472,6 @@ const EN: Record<string, string> = {
     'The application directory must match the project name: /app/<project>/compose.yml',
   'Токен действителен до': 'Token valid until',
   'У проекта нет окружений.': 'The project has no environments.',
-  'Новая машина': 'New machine',
   Завести: 'Create',
   Зачем: 'What for',
   'например: сборки биллинга': 'e.g. billing CI builds',
@@ -481,22 +485,37 @@ const EN: Record<string, string> = {
     'The secret is shown once — save it now.',
   'Сменить секрет?': 'Rotate the secret?',
   'Сменить секрет': 'Rotate the secret',
+  'Забрать на себя': 'Take over',
+  'Забрать кластер на себя': 'Take over the cluster',
+  'Забрать сервер на себя?': 'Take over the server?',
+  'Забрать кластер на себя?': 'Take over the cluster?',
+  'Сервер и выданные ему права будут держаться на вас. Можно, только если вы сами читаете все, что он получает.':
+    'The server and the rights granted to it will rest on you. Allowed only if you read everything it receives yourself.',
+  'Кластер, личности его подов и выданные им права будут держаться на вас. Можно, только если вы сами читаете все, что они получают.':
+    'The cluster, its pod identities and their rights will rest on you. Allowed only if you read everything they receive yourself.',
+  'Забрать': 'Take over',
+  'Часть выданного не действует: тот, кто завел сервер, его кластер или выдал доступ, отключен, понижен или сам больше этого не читает.':
+    'Part of what was granted does not work: whoever created the server, its cluster or granted the access is disabled, demoted or no longer reads it.',
+  'Заберите сервер на себя, чтобы он снова получал значения.':
+    'Take the server over so it receives values again.',
   'Прежний секрет и все выданные по нему токены перестанут работать сразу.':
     'The old secret and every token issued with it stop working at once.',
-  'Удалить машину?': 'Delete the machine?',
   'Вместе с ней исчезнут её права. Записи в журнале останутся.':
     'Its permissions go with it. The audit log stays.',
-  'Введите имя машины': 'Type the machine name',
-  'Машин пока нет.': 'No machines yet.',
-  'Машина читает выданные ей окружения и не может ничего изменить: в машинном контуре нет маршрутов, которые пишут в секреты. Права выдаются в разделе «Доступ».':
-    'A machine reads the environments it was granted and can change nothing: the machine contour has no routes that write to secrets. Permissions are granted in the Access section.',
   'ничего не выдано': 'nothing granted',
   Выключить: 'Disable',
-  Была: 'Last seen',
   'Не получилось': 'Did not work',
   'Редактировать все': 'Edit all',
   'Все значения': 'All values',
   'Сохранено ключей': 'Keys saved',
+  'изменили без вас': 'changed meanwhile',
+  'Эти ключи изменили, пока вы правили, и ваши правки в них не записаны:':
+    'These keys were changed while you were editing, and your edits to them were not saved:',
+  'Взять новые значения': 'Take the new values',
+  'Перезаписать своими': 'Overwrite with mine',
+  'Значения скрыты: окно долго стояло без правок.':
+    'The values are hidden: the window sat without edits for a while.',
+  'Показать снова': 'Show again',
   'отправлено на подтверждение': 'sent for approval',
   'не записано': 'not written',
   'Скопировано в буфер': 'Copied to the clipboard',
@@ -505,10 +524,7 @@ const EN: Record<string, string> = {
   'имя проекта должно быть уникальным внутри группы, а не во всей панели':
     'the project name must be unique inside its group, not across the whole panel',
   'Скачать файл': 'Download file',
-  'Сохранить изменения': 'Save changes',
   'Выбрать файл': 'Pick a file',
-  'Текст можно поправить прямо здесь и сохранить. Сохранение создаёт и обновляет ключи; удалённые из текста строки остаются в панели — удаление делается вручную и попадает в журнал отдельно.':
-    'You can edit this text here and save it. Saving creates and updates keys; lines removed from the text stay in the panel — deleting is manual and gets its own audit entry.',
   'показать и править': 'reveal and edit',
   'показать значение': 'reveal the value',
   Скрыть: 'Hide',
@@ -519,19 +535,13 @@ const EN: Record<string, string> = {
   Окружения: 'Environments',
   Ключей: 'Keys',
   'Сменить ключ': 'Rotate key',
-  'Наследование и смена ключа — то, что трогают редко, поэтому живут здесь. Правки в этой таблице применяются сразу.':
-    'Inheritance and key rotation are rarely touched, so they live here. Changes in this table apply immediately.',
   'Сменить ключ окружения?': 'Rotate the environment key?',
   'Сменить ключ окружения': 'Rotate the environment key',
   'Все значения этого окружения будут перешифрованы новым ключом. Читаться они будут как раньше.':
     'Every value in this environment will be re-encrypted with a new key. They will read the same as before.',
   'перешифровано версий': 'versions re-encrypted',
-  'выберите существующую или введите новую; можно оставить пустым':
-    'pick an existing one or type a new one; can be left empty',
   'или оставьте своё — будет новая группа': 'or keep yours — it becomes a new group',
   'Настройки проекта': 'Project settings',
-  'показывается вместо имени; можно оставить пустым':
-    'shown instead of the name; can be left empty',
   'правка от роли ниже порога не вступит в силу, пока её не подтвердит кто-то выше':
     'a change from a role below the threshold does not take effect until someone senior approves it',
   'Удалить проект': 'Delete the project',
@@ -540,17 +550,11 @@ const EN: Record<string, string> = {
     'All its environments, keys and their history go with it. Recovery is only possible from a database backup.',
   'Введите имя проекта': 'Type the project name',
   'вместе со всеми ключами и историей': 'together with every key and its history',
-  'Проект не найден или доступ к нему не выдан.':
-    'The project does not exist, or access to it was not granted.',
-  'Окружение не найдено или доступ к нему не выдан.':
-    'The environment does not exist, or access to it was not granted.',
   'Ссылка скопирована': 'Link copied',
   Готово: 'Done',
   Создать: 'Create',
   Сменить: 'Rotate',
   'строчные латинские буквы, цифры и дефис': 'lowercase latin letters, digits and hyphen',
-  'чтобы длинный список читался; можно оставить пустым':
-    'so a long list stays readable; can be left empty',
   'напр. Биллинг': 'e.g. Billing',
   'напр. Бэкенд': 'e.g. Backend',
   'Наследовать от': 'Inherit from',
@@ -564,10 +568,11 @@ const EN: Record<string, string> = {
   'Переименовать ключ': 'Rename the key',
   'Новое имя': 'New name',
   'Удалить ключ?': 'Delete the key?',
-  'историю это не стирает, удаление обратимо':
-    'history stays, and the deletion can be undone',
+  '{name}: ключ удален': '{name}: key deleted',
+  'Удалено ключей: {n}': 'Keys deleted: {n}',
+  'история остается. Сразу после удаления ключ возвращается кнопкой "Вернуть", позже - если завести его заново с тем же именем в той же папке: прежние версии будут в его истории.':
+    'the history stays. Right after deleting, the key comes back with the "Restore" button; later, by creating it again with the same name in the same folder: the earlier versions will be in its history.',
   'Вернуть прежнее значение?': 'Restore the previous value?',
-  'Значения и история останутся на месте.': 'Values and history stay where they are.',
   'Удалить группу?': 'Delete the group?',
   'Вместе с ней уйдут и выданные ей права.': 'The rights granted to it go away with it.',
   'Учётная запись': 'Account',
@@ -576,6 +581,15 @@ const EN: Record<string, string> = {
     'sign-in stops immediately, the name stays in the audit log',
   'Прежние сессии этой учётки закроются, а событие попадёт в журнал.':
     'Existing sessions of this account will end, and the event goes into the audit log.',
+  'Перестанут получать значения: серверов {m}, кластеров {c}. Вернуть их можно, забрав на себя на странице сервера.':
+    'Will stop receiving values: servers {m}, clusters {c}. To bring them back, take them over on the server page.',
+  'Правки, ожидающие подтверждения, будут сняты: {n}.':
+    'Changes awaiting approval will be withdrawn: {n}.',
+  'Сменить роль?': 'Change the role?',
+  'Снять второй фактор': 'Reset two-factor',
+  'Снять второй фактор?': 'Reset two-factor authentication?',
+  'войдет одним паролем и включит второй фактор заново. Прежние сессии закроются, а событие попадет в журнал и в оповещения.':
+    'will sign in with the password alone and turn two-factor on again. Existing sessions will end, and the event goes into the audit log and the alerts.',
   'право, выданное группе, действует на всех её участников':
     'a right granted to a group applies to all of its members',
   'Сменить корневой ключ?': 'Rotate the root key?',
@@ -593,22 +607,10 @@ const EN: Record<string, string> = {
   свои: 'own',
   окружений: 'environments',
   'ждут подтверждения': 'waiting for approval',
-  'поиск по проектам, группам и окружениям': 'search projects, groups and environments',
-  'поиск по окружениям': 'search environments',
   'поиск по ключам': 'search keys',
-  'окр.': 'env',
   'на подтверждении': 'awaiting approval',
-  'Последнее в журнале': 'Latest in the audit log',
-  'Проектов пока нет. Заведите первый — внутри будут окружения и ключи.':
-    'No projects yet. Create the first one — environments and keys live inside it.',
   'Вам пока не выдали доступ ни к одному проекту.':
     'You have not been granted access to any project yet.',
-  'Группа (можно пусто): команда, продукт, что угодно':
-    'Group (optional): a team, a product, anything',
-  'Окружений пока нет. Заведите prod или dev — ключи живут в них.':
-    'No environments yet. Create prod or dev — keys live in them.',
-  'От какого окружения наследовать? Пусто — ни от какого':
-    'Which environment to inherit from? Empty means none',
   Наследование: 'Inheritance',
   'наследует от': 'inherits from',
   'Показать ещё': 'Show more',
@@ -766,9 +768,13 @@ const EN: Record<string, string> = {
     'Only sees keys and reads values within granted access.',
   'правки разработчиков':
     'edits by developers',
+  'правки разработчиков и ответственных': 'edits by developers and maintainers',
+  'правки наблюдателей: они не пишут, на деле никто': 'edits by viewers: they cannot write, so nobody in practice',
+  'ниже наблюдателя: таких ролей нет, на деле никто': 'below viewer: no such roles, so nobody in practice',
+  'уровень {level}': 'level {level}',
   'Без проекта': 'Without a project',
   'Приложения добавляются на странице сервера кнопкой «Подключить приложение».':
-    'Applications are added on the server page with “Connect application”.',
+    'Applications are added on the server page with "Connect an application".',
   'Все проекты без выданного доступа, права, сейф, оповещения и бэкапы.':
     'All projects without granted access, permissions, the vault, alerts and backups.',
   'Серверы, учётные записи и журнал; окружения - в проектах, выданных целиком. Секреты - по выданному доступу, правки без подтверждения.':
@@ -786,6 +792,9 @@ const EN: Record<string, string> = {
     'The panel will no longer unlock itself after a restart: the key will have to be entered or assembled from shares.',
   Забыть: 'Forget',
   'Уйти, не записав?': 'Leave without writing it down?',
+  'Закрыть без сохранения?': 'Close without saving?',
+  'Уйти, не сохранив?': 'Leave without saving?',
+  'Набранное не сохранено и пропадет.': 'What you typed is not saved and will be lost.',
   'Права в этой папке не загрузились: значения не показаны.':
     'The rights in this folder did not load: values are not shown.',
   'Значение этой версии лежало в папке, где у вас нет права читать.':
@@ -905,14 +914,10 @@ const EN: Record<string, string> = {
   'ключ проекта выдан': 'project key issued',
   'ключ проекта не выдан': 'project key not issued',
   'агент ещё не прислал свой ключ': 'the agent has not sent its own key yet',
-  самостоятельное: 'standalone',
   свой: 'own',
   своих: 'own',
   'значение из другого окружения': 'value comes from another environment',
   Доступ: 'Access',
-  'Выданные права': 'Granted rights',
-  'Прав пока нет. Владелец панели видит всё и без них, остальные — только то, что здесь выдано.':
-    'No rights yet. The panel owner sees everything anyway; everyone else sees only what is granted here.',
   Где: 'Where',
   Что: 'What',
   До: 'Until',
@@ -946,8 +951,6 @@ const EN: Record<string, string> = {
   Отклонить: 'Reject',
   'ждёт того, кто выше': 'waiting for someone senior',
   'правка ждёт': 'change pending',
-  'Почему отклоняем? Причина попадёт в историю':
-    'Why reject it? The reason goes into the history',
   'Подтверждение изменений': 'Change approval',
   'не требуется': 'not required',
   'Двухфакторная аутентификация': 'Two-factor authentication',
@@ -963,25 +966,16 @@ const EN: Record<string, string> = {
   Секреты: 'Secrets',
   'Новый проект': 'New project',
   'Новое окружение': 'New environment',
-  'окружений пока нет': 'no environments yet',
-  'Имя проекта латиницей, например billing': 'Project name in latin letters, e.g. billing',
-  'Имя окружения, например prod': 'Environment name, e.g. prod',
-  'поиск по имени или папке': 'search by name or folder',
   'Добавить ключ': 'Add a key',
-  Экспорт: 'Export',
   Значение: 'Value',
   'Ключей пока нет': 'No keys yet',
   'Ничего не нашлось': 'Nothing found',
-  'Кто менял': 'Changed by',
   Показать: 'Reveal',
   Копировать: 'Copy',
   Изменить: 'Edit',
   История: 'History',
   Переименовать: 'Rename',
   Удалить: 'Delete',
-  'Новое имя ключа': 'New key name',
-  'Удалить ключ {name}? Историю это не стирает, удаление обратимо.':
-    'Delete the key {name}? History stays, and the deletion can be undone.',
   'Новый ключ': 'New key',
   Имя: 'Name',
   версия: 'version',
@@ -999,19 +993,11 @@ const EN: Record<string, string> = {
   'перезаписывать существующие': 'overwrite existing keys',
   Импортировать: 'Import',
   'Создано {c}, обновлено {u}, пропущено {s}': 'Created {c}, updated {u}, skipped {s}',
-  'Экспорт .env': 'Export .env',
-  'Это все значения окружения открытым текстом. Выгрузка отдельной строкой записана в журнал.':
-    'These are all the values of the environment in plain text. The export is recorded in the audit log as its own entry.',
   Скопировать: 'Copy',
-  'Снимок помнит, какой ключ какой версией был. Значения не копируются — они и так в истории.':
-    'A snapshot remembers which version each key was at. Values are not copied — they are already in the history.',
-  'например: перед релизом 4.2': 'e.g. before release 4.2',
   Снять: 'Take',
   ключей: 'keys',
   'Что изменится': 'What will change',
-  'При восстановлении:': 'On restore:',
   Восстановить: 'Restore',
-  'Возвращено {r}, удалено {d}': 'Restored {r}, removed {d}',
   Меню: 'Menu',
   'На главную': 'Home',
   'О панели Sekvyr': 'About Sekvyr',
@@ -1021,7 +1007,7 @@ const EN: Record<string, string> = {
     'A panel for secrets and environment variables. Values are encrypted; the key lives only in the panel memory.',
   Сейф: 'Vault',
   'сейф ещё не создан': 'no vault yet',
-  открыта: 'unlocked',
+  отперта: 'unlocked',
   'Режим ключа': 'Key mode',
   доли: 'shares',
   из: 'of',
@@ -1051,7 +1037,7 @@ const EN: Record<string, string> = {
   'Администратор один? Берите один ключ и держите его в менеджере паролей — или доли, разложенные по разным местам, чтобы потеря одного хранилища не была фатальной.':
     'Working alone? Take a single key and keep it in your password manager — or take shares and spread them across places, so losing one of them is not fatal.',
   'Всего долей': 'Shares in total',
-  'Нужно для входа': 'Needed to unseal',
+  'Нужно для отпирания': 'Needed to unlock',
   'Ключа целиком не будет ни у кого. Порог 3 из 5 переживает потерю двух долей; потеря большего числа — потеря всех значений.':
     'Nobody holds the whole key. A 3-of-5 threshold survives losing two shares; losing more means losing every value.',
   Отпереть: 'Unlock',
@@ -1061,10 +1047,7 @@ const EN: Record<string, string> = {
   'Введено долей': 'Shares entered',
   'Запишите это сейчас': 'Write this down now',
   'Записал, скрыть': 'Written down, hide',
-  'Опасные действия': 'Dangerous actions',
   'Сменить корневой ключ': 'Rotate the root key',
-  'Сменить корневой ключ? Прежние доли перестанут работать.':
-    'Rotate the root key? The old shares will stop working.',
   'Корневой ключ сменён. Прежние доли и прежний ключ больше не работают — замените их везде, где они лежат.':
     'The root key has been rotated. The old shares and key no longer work — replace them wherever they are kept.',
   'Как только панель заперта, значения перестают выдаваться и людям, и серверам.':

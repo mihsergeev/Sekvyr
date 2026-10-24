@@ -13,7 +13,10 @@ top of a working environment is the fastest way to break production quietly.
 
 **Infisical.** A machine identity (Universal Auth) allowed to read the project:
 its id and secret. The panel can list the projects that identity can see - the
-"Find projects" button.
+"Find projects" button. It needs the right to read values: without it Infisical
+returns a placeholder instead of the value, and the panel does not migrate such
+a key but shows it as skipped. The panel asks `/api/v4/secrets`, and
+`/api/v3/secrets/raw` on a self-hosted Infisical that does not have it yet.
 
 **Vault.** A token allowed to read a KV v2 subtree and to `LIST` its metadata.
 The mount and the path are given separately.
@@ -26,6 +29,12 @@ vault. Which is also why preview and migration each fetch from the source anew.
 
 **Infisical.** The secret path maps one to one: `/` stays at the root, `/infra`
 becomes the folder `/infra` inside the chosen panel folder.
+
+The environment's imports are migrated with it, into the folder that was read,
+and become ordinary keys. They merge the way the Infisical CLI merges them: a key
+of the environment itself wins over an imported one with the same name, and of
+two imports the later one wins. References to other keys (`${KEY}`) are
+expanded: what gets migrated is the value the application sees.
 
 **Vault.** A Vault secret is a set of pairs, usually the variables of one
 application. Its fields become the keys, and the path of the secret from the
@@ -41,6 +50,16 @@ strings (numbers, flags, objects) arrive as JSON.
 For each key, what will happen: **create**, **update** or **identical**. Values
 do not reach the preview, only their length: it must not become a way to look at
 someone else's secrets around the read permission.
+
+Two more answers:
+
+- **skip** - the migration will not write this key, and the reason is next to
+  it: an invalid name or folder, or the source did not return the value. The
+  preview checks what the migration checks and does not promise "create" where
+  the migration would skip.
+- **write** - you may write into the folder but cannot see its keys. In that
+  case the panel does not say whether a key with this name is there: otherwise
+  the preview would answer that around the restriction.
 
 The summary at the top answers the main question of a migration: how many keys
 arrive new and how many are already there.
@@ -64,9 +83,11 @@ updated and skipped. No values there.
 
 The migration page is for maintainers and above: it calls external systems with
 credentials typed into it, which is an administrator's job. On top of that the
-`write` right in the target environment is checked as for any edit; there is no
-separate migration right, since this is ordinary writing of values, just a lot
-of them at once.
+`write` right is checked as for any edit, in the target environment and in every
+folder the keys land in. The preview requires the same as the migration: for a
+folder you may not write into it answers 403, not a list of that folder's keys.
+There is no separate migration right, since this is ordinary writing of values,
+just a lot of them at once.
 
 ## Caveats
 
@@ -80,9 +101,12 @@ of them at once.
 - Only current values are migrated. Version history, comments and permissions
   stay on the other side - every vault stores them differently, and pretending to
   "migrate everything" would give a plausible but wrong picture.
-- Infisical imports from other environments are migrated as ordinary keys: they
-  will no longer be references. The panel says so.
+- Infisical imports are migrated as ordinary keys: they will no longer be
+  references. The panel says so, and says how many keys came from imports.
 - A key name holds only letters, digits, `_`, a dot and a dash, what docker
   compose can parse. A key with another name (a Vault field `smtp/host`, for
   example) is not migrated: it lands in the skipped list with the reason.
-- More than 5000 keys at once is refused - narrow the path.
+- More than 5000 keys at once is refused - narrow the path. So is a source
+  answer larger than 20 MB: the size is checked while reading. An answer in the
+  wrong format (a proxy placeholder, another service at that address) gives a
+  clear error, not a 500.

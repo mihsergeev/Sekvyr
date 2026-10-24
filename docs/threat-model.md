@@ -62,9 +62,22 @@ your own, and the last owner cannot be demoted. A viewer only sees keys and
 reads values, even if a write permission reaches them through a group. Accounts
 are created and changed by a maintainer or above.
 
+A departing employee does not keep access through their servers: a machine
+grant works while whoever gave it could still give it now, and a machine set up
+by a disabled or demoted person gets neither a token nor values. The same holds
+for a cluster they set up. On disabling, the panel says how many servers and
+clusters will stop, and the owner takes them over. Changes the person proposed
+and never saw approved are withdrawn when they are disabled or their role
+changes, and only a role at or above the project threshold can approve, so a
+reset of someone else's password does not let anyone approve their own change.
+
 **What remains.** Anyone granted a value can copy it elsewhere - every secrets
 store ends there. The log says who read what and when; it does not prevent
-reading.
+reading. A machine secret the person copied off a server stops working only
+together with their rights or after the secret is rotated: if someone else
+takes the server over and the secret stays the same, it still reads everything
+granted to the server. After a person leaves, rotate the secrets of their
+servers.
 
 ## Whoever obtained a backup
 
@@ -182,9 +195,21 @@ checked against the signed hash before it ever lands on disk as executable. The
 signing key is kept out of the repository and off the server, so a compromised
 panel may serve anything it likes and the node will still install nothing.
 
-That holds for updates. The first install trusts the panel and its TLS: a clean
-node has no key to check a signature with yet, and the installer only compares
-the binary with the hash the same panel serves.
+That holds for updates, re-running the installer included: on a connected node
+it does not download the binary, the installed agent replaces it with
+`sekvyr update`, by the signature and only forward. If the installed agent
+rejects the version, the installation stops and the previous agent and unit
+stay as they were. The first install (and `--reenroll`, where the node may be
+moving to another panel) trusts the panel and its TLS: a clean node has no key
+to check a signature with yet, and the installer only compares the binary with
+the hash the same panel serves.
+
+The installer itself also comes from the panel and runs as root, and the agent
+signature does not cover it: a compromised panel can serve any script in its
+place. So on a connected node the agent is updated with `sudo sekvyr update`
+(or updates itself), and the script is run only for a new node or a new unit,
+after reading it first:
+`curl -fsSL https://PANEL/api/v1/machine/install.sh -o install.sh`.
 
 The agent never moves backwards: only a version strictly newer than the current
 one is installed. Otherwise a compromised panel could roll the fleet back to an

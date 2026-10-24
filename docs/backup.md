@@ -104,14 +104,16 @@ quietly, and it surfaces on the day they are needed.
 ## Restoring
 
 ```sh
-ops/restore.sh backups/sekvyr-20260908-031700.sql.sealed
+cd /opt/sekvyr
+sudo ops/restore.sh backups/sekvyr-20260908-031700.sql.sealed
 ```
 
 The script asks for the database name as confirmation, takes a safety dump of
 the current state, stops the backend, loads the dump and brings the panel back.
 The load runs in one transaction: if it fails, the database stays as it was. The
-safety dump goes back with the same command:
-`ops/restore.sh backups/before-restore-<time>.sql`.
+safety dump is sealed with the backup password, like the nightly ones, and the
+last five are kept. It goes back with the same command:
+`sudo ops/restore.sh backups/before-restore-<time>.sql.sealed`.
 
 **On a new server** install the panel first (quickstart is fine), copy the backup
 file there and run the same command. The new installation already has its own

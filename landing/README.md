@@ -41,6 +41,11 @@ scp landing/nginx.ssl.conf_security <host>:/tmp/
 ssh <host> 'sudo cp /tmp/nginx.ssl.conf_security /home/<user>/conf/web/sekvyr.ru/ && sudo nginx -t && sudo systemctl reload nginx'
 ```
 
+Hestia открывает на каждом домене свои phpMyAdmin и phpPgAdmin, и снаружи их
+видно как форму входа с версией PHP. `nginx.conf_noadmin` отвечает на эти пути
+404. Кладется дважды, для http и https, под именами `nginx.conf_noadmin` и
+`nginx.ssl.conf_noadmin`; остальных сайтов хостинга это не касается.
+
 Выкладка - tar по ssh. Распаковка от имени пользователя сайта, иначе файлы
 достанутся владельцу с рабочей машины:
 

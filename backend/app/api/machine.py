@@ -21,6 +21,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
@@ -29,7 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app import access, audit, e2e, kube, machines, ratelimit, roles, secrets_store
@@ -54,6 +55,21 @@ from app.security import hash_token
 router = APIRouter(prefix="/v1/machine", tags=["machine"])
 
 bearer = HTTPBearer(auto_error=False)
+
+
+# Управляющие C0 и C1, переворот строки и символы нулевой ширины. Имя хоста и
+# идентификатор приходят сюда до проверки токена, а отчет - от самой машины, и
+# все это попадает в журнал и в список серверов. С такими символами строка там
+# выглядит как другая, а перевод строки рисует в выгрузке журнала лишнюю запись.
+_UNSEEN = re.compile(
+    r"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]"
+)
+
+
+def _plain(text: str, limit: int) -> str:
+    """Строка от машины, пригодная для журнала и интерфейса: без невидимого и не
+    длиннее limit."""
+    return _UNSEEN.sub("", text).strip()[:limit]
 
 
 # --- вход -----------------------------------------------------------------
@@ -248,7 +264,7 @@ async def _deny(
             _REFUSED_LOGGED[quiet] = now
             await audit.record(
                 session,
-                actor=f"machine:{label[:64]}",
+                actor=f"machine:{_plain(label, 64)}",
                 action="machine_denied",
                 target=target,
                 ip=ip,
@@ -267,7 +283,7 @@ async def _deny(
     # адрес": разница подсказывала бы, какой из трех параметров угадан.
     await audit.record(
         session,
-        actor=f"machine:{label[:64]}",
+        actor=f"machine:{_plain(label, 64)}",
         action="machine_denied",
         target=target,
         ip=ip,
@@ -346,6 +362,28 @@ async def _creator_still_may(
     )
 
 
+KEEPER_GONE = "Тот, кто завел машину или ее кластер, больше не может выдавать ей доступ"
+
+
+async def _keepers_still_may(session: SessionDep, machine: MachineIdentity) -> bool:
+    """Токен машине - пока тот, кто ее завел, может заводить машины, а у машины
+    за подом - и тот, кто завел ее кластер. Та же проверка, что у токена
+    подключения (_creator_still_may): у отключенного человека остается секрет
+    его машины, и без этой проверки он читал бы через нее то, что ему уже
+    закрыто.
+    Чтение проверяет то же самое и вдобавок каждое выданное право
+    (machines.effective_policies): уже выданный токен живет четверть часа."""
+    names = [machine.created_by]
+    if machine.cluster_id is not None:
+        cluster = await session.get(Cluster, machine.cluster_id)
+        names.append(cluster.created_by if cluster else "")
+    for name in names:
+        keeper = await session.scalar(select(User).where(User.username == name))
+        if not machines.may_vouch(keeper):
+            return False
+    return True
+
+
 @router.post("/token", response_model=TokenOut)
 async def issue_token(
     body: TokenIn, request: Request, session: SessionDep
@@ -383,6 +421,11 @@ async def issue_token(
             session, machine, body.client_id or "kubernetes", ip, "token",
             "Неверная пара идентификатор и секрет",
         )
+    if not await _keepers_still_may(session, machine):
+        await _deny(
+            session, machine, body.client_id or "kubernetes", ip, "token",
+            KEEPER_GONE,
+        )
 
     token, ttl = machines.create_token(machine, get_settings().jwt_secret)
     # Удачная выдача в журнал не пишется: агент берет токен на каждый круг, то
@@ -411,7 +454,13 @@ async def _resolve(
     """Проект и окружение по именам, а не по номерам.
 
     Номера у разных стендов свои, а конфиг агента переезжает между ними как
-    есть. Имя группы можно не указывать, пока имя проекта единственное.
+    есть. Имя группы можно не указывать, пока имя проекта во всей панели
+    единственное.
+
+    Адрес из конфига агента подменять нельзя: ответ с чужим проектом агент
+    молча запишет в .env и перезапустит приложение. Поэтому проект берется
+    либо ровно по адресу, либо тот, что переехал с этого адреса в другую
+    группу, и никогда - просто одноименный, оказавшийся выданным.
     """
     # Кандидаты - только то, что этой машине выдано: ответы "нет такого",
     # "не выдано" и "есть в нескольких группах" иначе перечисляли бы чужие
@@ -427,12 +476,41 @@ async def _resolve(
             session, machine, access.READ, found.id, environment.id
         ) or await machines.sees_anything(session, machine, access.LIST, found.id, environment.id):
             candidates.append((found, environment))
-    if group:
-        exact = [pair for pair in candidates if pair[0].group_slug == group]
-        # Проект перенесли в другую группу, а агент помнит прежнюю: если под
-        # этим именем машине выдан ровно один проект, это он. Иначе перенос
-        # молча отключал все подключенные серверы, поды и ESO.
-        candidates = exact or (candidates if len(candidates) == 1 else [])
+    exact = [pair for pair in candidates if pair[0].group_slug == group]
+    if exact:
+        candidates = exact
+    elif candidates:
+        here = await session.scalar(
+            select(Project.id)
+            .where(Project.group_slug == group, Project.slug == project)
+            .limit(1)
+        )
+        # Проект по этому адресу есть, но машине его не выдали или право
+        # кончилось: отказ, а не тезка из соседней группы.
+        moved = [
+            pair for pair in candidates if (group or "-") in pair[0].moved_from.split()
+        ]
+        if here is not None:
+            candidates = []
+        elif len(moved) == 1:
+            # Проект перенесли в другую группу, а агент помнит прежнюю. Без
+            # этого перенос молча отключал все подключенные серверы, поды и ESO.
+            candidates = moved
+        elif group:
+            candidates = []
+        else:
+            # Без группы проект ищется по одному имени, и оно должно быть
+            # единственным во всей панели, а не только среди выданного: иначе
+            # потеря права на свой проект переключала бы сервер на тезку.
+            # Что тезка где-то есть, машина узнает, но не узнает, где именно.
+            namesakes = await session.scalar(
+                select(func.count()).select_from(Project).where(Project.slug == project)
+            )
+            if namesakes > 1:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    "Проект с таким именем есть в нескольких группах — укажите group",
+                )
     if len(candidates) > 1:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -549,7 +627,7 @@ async def _record_read(
 async def whoami(machine: CurrentMachine, session: SessionDep) -> WhoamiOut:
     """Кто я и что мне выдано. Первое, что спрашивает агент после настройки."""
     names: list[str] = []
-    for policy in await machines.policies_for(session, machine):
+    for policy in await machines.effective_policies(session, machine):
         if policy.effect != "allow" or policy.environment_id is None:
             continue
         environment = await session.get(Environment, policy.environment_id)
@@ -765,9 +843,10 @@ async def _remember_app(
             )
             if row is None:
                 return False
-    changed = row.path != body.path[:300] or row.applied != body.applied[:200]
-    row.path = body.path[:300]
-    row.applied = body.applied[:200]
+    path, applied = _plain(body.path, 300), _plain(body.applied, 200)
+    changed = row.path != path or row.applied != applied
+    row.path = path
+    row.applied = applied
     row.last_seen_at = datetime.now(timezone.utc)
     return changed
 
@@ -787,19 +866,21 @@ async def report(
     разные, и каждое чередование давало бы строку.
     """
     before = (machine.agent_version, machine.public_key)
-    machine.agent_version = body.agent_version[:64]
+    version, applied = _plain(body.agent_version, 64), _plain(body.applied, 200)
+    machine.agent_version = version
     # Отчет без итога (агент жив, а значений этот раз не было: e2e-проект без
     # ключа, отказ, файл не записан) не затирает прежний итог.
-    if body.applied:
-        machine.applied = body.applied[:200]
+    if applied:
+        machine.applied = applied
     machine.last_seen_at = datetime.now(timezone.utc)
     machine.last_ip = peer_ip(request)
     # Пустое поле не затирает известное: старый агент про систему молчит, и
     # терять из-за этого то, что панель уже показывала, незачем.
-    if body.os:
-        machine.os = body.os[:128]
-    if body.local_ip:
-        machine.local_ip = body.local_ip[:64]
+    system, local_ip = _plain(body.os, 128), _plain(body.local_ip, 64)
+    if system:
+        machine.os = system
+    if local_ip:
+        machine.local_ip = local_ip
     key_changed = bool(machine.public_key) and bool(body.public_key) and (
         body.public_key != machine.public_key
     )
@@ -824,7 +905,7 @@ async def report(
         # украл секрет машины и прислал свой ключ: следующая "Выдать заново"
         # отдала бы ему ключ проекта. Прежде чем выдавать, стоит понять, почему
         # ключ сменился (переустановка ноды - да, на ровном месте - нет).
-        parts = [f"{body.agent_version} {body.applied}".strip()]
+        parts = [f"{version} {applied}".strip()]
         if key_changed:
             parts.append(KEY_CHANGED)
         await audit.record(
@@ -934,7 +1015,7 @@ async def enroll(body: EnrollIn, request: Request, session: SessionDep) -> Enrol
             session,
             actor="machine:?",
             action="machine_enroll_denied",
-            target=body.hostname[:120],
+            target=_plain(body.hostname, 120),
             detail=refused,
             ip=ip,
         )
@@ -945,12 +1026,12 @@ async def enroll(body: EnrollIn, request: Request, session: SessionDep) -> Enrol
 
     client_id, secret = machines.new_credentials()
     machine = MachineIdentity(
-        name=(body.hostname.strip() or client_id)[:120],
+        name=_plain(body.hostname, 120) or client_id,
         client_id=client_id,
         secret_hash=hash_token(secret),
         description="",
         allow_ips=found.allow_ips,
-        agent_version=body.agent_version[:64],
+        agent_version=_plain(body.agent_version, 64),
         last_seen_at=now,
         last_ip=ip,
         created_by=found.created_by,

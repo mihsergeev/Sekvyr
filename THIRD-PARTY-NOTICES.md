@@ -4,7 +4,7 @@ Sekvyr includes material from the following projects.
 
 ## DB-IP IP to Country Lite
 
-IP Geolocation by DB-IP — https://db-ip.com
+IP Geolocation by DB-IP: https://db-ip.com
 
 Used for the offline country lookup of servers (`backend/app/data/geoip.csv.gz`).
 Licensed under the Creative Commons Attribution 4.0 International License

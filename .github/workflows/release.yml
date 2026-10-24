@@ -1,26 +1,44 @@
 name: Release
 
 # По тегу vX.Y.Z собирает и публикует в GHCR образы панели (backend, frontend)
-# и образ агента для Kubernetes. Сначала агент собирается так же, как в образе
-# панели, и сверяется с подписанным agent/manifest.json: образ, который отвечал
-# бы 500 вместо агента, выпускать нельзя.
+# и образ агента для Kubernetes. Сначала проверка: тег стоит на коммите из main,
+# версия в коде та же, самопроверка чистая, подпись агента сходится с
+# agent/pubkey.txt, а агент, собранный так же, как в образе панели, - с
+# подписанным agent/manifest.json. Образ, который отвечал бы 500 вместо агента,
+# выпускать нельзя.
+#
+# Права токена выдаются заданиям по отдельности: проверка только читает, а
+# писать в реестр может только публикация и только после проверки.
 
 on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: read
-  packages: write
+permissions: {}
 
 jobs:
-  images:
+  verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Вся история: по ней видно, есть ли коммит тега в main.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
+
+      # Тег можно поставить на коммит, которого нет в main: с ветки, которую не
+      # смотрели и где CI не проходил. Выпуском он стал бы образом для всех.
+      - name: Tag is on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "tag $GITHUB_REF_NAME ($GITHUB_SHA) is not on main" >&2
+            exit 1
+          fi
 
       # Тег и версия в коде должны совпадать: иначе образ v1.2.0 показывал бы в
       # "О панели" 1.1.0, и по журналу обновления не понять, что стоит на деле.
@@ -35,19 +53,37 @@ jobs:
             exit 1
           fi
 
+      - name: Selfcheck
+        run: |
+          pip install cryptography
+          python ops/selfcheck.py
+
+      - name: Agent signature
+        run: python ops/agent_release.py --verify
+
       - name: Agent build matches the signature
         run: |
           docker build --target agent -f backend/Dockerfile -t sekvyr-agent-build .
           id=$(docker create sekvyr-agent-build sh)
           docker cp "$id:/out" agent-out
           docker rm "$id"
-          pip install cryptography
           python ops/agent_release.py --compare agent-out
 
-      - uses: docker/setup-buildx-action@v4
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -67,21 +103,29 @@ jobs:
             echo "final=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # VERSION и REVISION уходят в метки образа (org.opencontainers.image.*):
+      # по ним видно, из какого выпуска и коммита образ.
       - name: Backend
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: backend/Dockerfile
           push: true
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            REVISION=${{ github.sha }}
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner }}/sekvyr-backend:${{ steps.meta.outputs.version }}
             ${{ steps.meta.outputs.final == 'true' && format('ghcr.io/{0}/sekvyr-backend:latest', steps.meta.outputs.owner) || '' }}
 
       - name: Frontend
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./frontend
           push: true
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            REVISION=${{ github.sha }}
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner }}/sekvyr-frontend:${{ steps.meta.outputs.version }}
             ${{ steps.meta.outputs.final == 'true' && format('ghcr.io/{0}/sekvyr-frontend:latest', steps.meta.outputs.owner) || '' }}
@@ -89,11 +133,14 @@ jobs:
       # Агент собирается кросс-компиляцией на платформе сборщика, эмуляция
       # для arm64 не нужна: в последнем слое только копирование бинаря.
       - name: Agent image for Kubernetes
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./agent
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            VERSION=${{ steps.meta.outputs.agent }}
+            REVISION=${{ github.sha }}
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner }}/sekvyr-agent:${{ steps.meta.outputs.agent }}
             ${{ steps.meta.outputs.final == 'true' && format('ghcr.io/{0}/sekvyr-agent:latest', steps.meta.outputs.owner) || '' }}

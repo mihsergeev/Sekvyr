@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  adoptCluster,
+  adoptMachine,
   agentLatest,
   attachEnvironment,
   deleteMachine,
   deletePolicy,
   listAllEnvironments,
+  listClusters,
   listMachines,
   listPolicies,
   listProjects,
@@ -326,6 +329,32 @@ export function ServerPage({
     }
   }
 
+  /** Забрать сервер (или кластер его пода) на себя: доступ держится на том,
+      кто завел и выдал, и встает, когда его отключают или понижают. */
+  async function adopt(whole: boolean) {
+    if (!machine) return
+    const yes = await confirm({
+      title: whole ? t('Забрать кластер на себя?') : t('Забрать сервер на себя?'),
+      text: whole
+        ? t('Кластер, личности его подов и выданные им права будут держаться на вас. Можно, только если вы сами читаете все, что они получают.')
+        : t('Сервер и выданные ему права будут держаться на вас. Можно, только если вы сами читаете все, что он получает.'),
+      submit: t('Забрать'),
+    })
+    if (!yes) return
+    try {
+      if (whole) {
+        const cluster = (await listClusters()).find((c) => c.name === machine.cluster)
+        if (!cluster) return
+        await adoptCluster(cluster.id)
+      } else {
+        await adoptMachine(machine.id)
+      }
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   async function remove() {
     if (!machine) return
     const answer = await ask({
@@ -497,6 +526,28 @@ export function ServerPage({
                         {t('Сменить секрет')}
                       </button>
                     )}
+                    {(machine.stalled || machine.created_by !== auth.username) && (
+                      <button
+                        className="menu-item"
+                        onClick={() => {
+                          setMenu(null)
+                          void adopt(false)
+                        }}
+                      >
+                        {t('Забрать на себя')}
+                      </button>
+                    )}
+                    {machine.cluster && (
+                      <button
+                        className="menu-item"
+                        onClick={() => {
+                          setMenu(null)
+                          void adopt(true)
+                        }}
+                      >
+                        {t('Забрать кластер на себя')}
+                      </button>
+                    )}
                     <button
                       className="menu-item menu-item-danger"
                       onClick={() => {
@@ -524,6 +575,17 @@ export function ServerPage({
       )}
 
       {machine.description && <p className="muted small">{machine.description}</p>}
+
+      {/* Доступ сервера держится на людях: на том, кто его завел, завел его
+          кластер или выдал права. Отключили или понизили человека - сервер
+          перестает получать выданное им, и об этом надо сказать здесь, а не
+          ждать, пока заметят по упавшему приложению. */}
+      {machine.stalled && (
+        <p className="small stale-warn">
+          {t('Часть выданного не действует: тот, кто завел сервер, его кластер или выдал доступ, отключен, понижен или сам больше этого не читает.')}{' '}
+          {auth.isManager && t('Заберите сервер на себя, чтобы он снова получал значения.')}
+        </p>
+      )}
 
       {rows.length === 0 ? (
         <div className="card empty">

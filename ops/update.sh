@@ -8,7 +8,9 @@
 # выпуска, а не до main: код рядом и образы должны быть одной версии.
 #
 # Порядок такой: сначала бэкап, потом обновление. Миграции необратимы, и
-# "откатимся, если что" без свежего дампа - это не план, а надежда.
+# "откатимся, если что" без свежего дампа - это не план, а надежда. Образы
+# нового выпуска скачиваются еще раньше бэкапа: не скачались - не меняется
+# ничего.
 set -eu
 
 # git pull ниже переписывает и этот файл, а sh читает скрипт по ходу
@@ -61,6 +63,16 @@ esac
 [ -f "$APP/compose.yml" ] || { msg "не найдена установка панели: $APP" "panel installation not found: $APP" >&2; exit 1; }
 cd "$APP"
 pick_lang
+
+# .env закрыт правами 0600, каталог панели и git принадлежат его владельцу
+# (обычно root). Без доступа скрипт ошибался молча и посреди работы: не
+# прочитав .env, он принимал панель на готовых образах за сборку из исходников,
+# а git не мог перейти на новую версию уже после бэкапа.
+if { [ -e .env ] && { [ ! -r .env ] || [ ! -w .env ]; }; } || [ ! -w . ]; then
+    msg "✗ у $(id -un) нет доступа к $APP/.env или к каталогу панели: запустите скрипт от root (sudo $APP/ops/update.sh${REF:+ $REF})" \
+        "✗ $(id -un) has no access to $APP/.env or the panel directory: run the script as root (sudo $APP/ops/update.sh${REF:+ $REF})" >&2
+    exit 1
+fi
 
 if docker compose ps >/dev/null 2>&1; then DC="docker compose"
 elif sudo -n docker compose ps >/dev/null 2>&1; then DC="sudo docker compose"
@@ -173,6 +185,37 @@ if [ -n "$REF" ]; then
     fi
 fi
 
+# compose с меткой образов не из .env: переменная окружения перебивает .env.
+# sudo окружение сбрасывает, поэтому под ним метка передается через env.
+dc_tag() {
+    _tag="$1"; shift
+    if [ "$DC" = "docker compose" ]; then
+        SEKVYR_IMAGE_TAG="$_tag" docker compose "$@"
+    else
+        sudo env SEKVYR_IMAGE_TAG="$_tag" docker compose "$@"
+    fi
+}
+
+# Образы новой версии берем до бэкапа и до checkout. Раньше их скачивал up,
+# когда код уже стоял на новой метке, а в .env был новый SEKVYR_IMAGE_TAG:
+# без доступа к ghcr.io или с выпуском, который CI еще собирает, обновление
+# обрывалось на полпути, и следующий же docker compose up искал образы,
+# которых нет. Теперь такой сбой не меняет ничего.
+OLD_TAG=""
+NEW_TAG=""
+if [ "$GHCR" = "1" ]; then
+    OLD_TAG="$(grep -m1 '^SEKVYR_IMAGE_TAG=' .env | cut -d= -f2-)"
+    NEW_TAG="${REF#v}"
+    msg "→ беру образы $REF" "→ pulling the $REF images"
+    if ! dc_tag "$NEW_TAG" pull backend frontend; then
+        msg "✗ образы $REF не скачались. Ничего не изменено: панель работает на прежней версии ($WAS)." \
+            "✗ the $REF images could not be pulled. Nothing was changed: the panel runs the previous version ($WAS)." >&2
+        msg "  Проверьте, что сервер достает до ghcr.io. Образы нового выпуска появляются там через несколько минут после метки." \
+            "  Check that the server reaches ghcr.io. The images of a new release appear there a few minutes after its tag." >&2
+        exit 1
+    fi
+fi
+
 msg "→ бэкап перед обновлением" "→ backup before the update"
 [ -x ops/backup.sh ] || {
     msg "  ops/backup.sh не найден — обновление отменено" "  ops/backup.sh not found, the update is cancelled" >&2
@@ -215,7 +258,11 @@ else
     git pull --ff-only --quiet
 fi
 NOW="$(git rev-parse --short HEAD)"
-[ "$WAS" = "$NOW" ] && msg "  версия та же ($NOW)" "  same version ($NOW)"
+# Та же версия - это и тот же код, и та же метка образов: на готовых образах
+# код мог уже стоять на выпуске, а .env отставать.
+SAME=0
+[ "$WAS" = "$NOW" ] && [ "$OLD_TAG" = "$NEW_TAG" ] && SAME=1
+[ "$SAME" = "1" ] && msg "  версия та же ($NOW)" "  same version ($NOW)"
 
 # Без COMPOSE_FILE compose берет один compose.yml. Если панель стоит за caddy
 # (оверлей compose.caddy.yml), такое обновление пересоздало бы фронтенд без
@@ -239,7 +286,7 @@ if ! grep -q '^COMPOSE_FILE=' .env 2>/dev/null && [ -f compose.caddy.yml ]; then
 fi
 
 if [ "$GHCR" = "1" ]; then
-    msg "→ беру образы $REF и поднимаю" "→ pulling the $REF images and starting"
+    msg "→ поднимаю $REF" "→ starting $REF"
     $DC up -d --pull missing
 else
     msg "→ собираю и поднимаю" "→ building and starting"
@@ -256,7 +303,13 @@ while [ $i -lt 90 ]; do
         $DC exec -T backend python -c \
             "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/api/health').read().decode())" \
             </dev/null
-        msg "✓ обновлено: $WAS → $NOW" "✓ updated: $WAS → $NOW"
+        if [ "$SAME" = "1" ]; then
+            msg "✓ версия прежняя ($NOW), панель отвечает" "✓ the version is unchanged ($NOW), the panel answers"
+        elif [ "$WAS" = "$NOW" ]; then
+            msg "✓ образы приведены к $REF (были ${OLD_TAG:-latest})" "✓ the images now match $REF (they were ${OLD_TAG:-latest})"
+        else
+            msg "✓ обновлено: $WAS → $NOW" "✓ updated: $WAS → $NOW"
+        fi
         exit 0
     fi
     i=$((i + 1))

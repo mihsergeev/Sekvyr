@@ -163,6 +163,10 @@ class MachineOut(BaseModel):
     # Что сервер на самом деле забирает. Отличается от `environments`: там
     # выданные права, здесь приложения, о которых отчитался агент.
     apps: list[MachineAppOut] = []
+    # Часть выданного не действует: тот, кто завел сервер, его кластер или
+    # выдал ему доступ, отключен, понижен или сам больше этого не читает
+    # (machines.effective_policies). Вернуть доступ - забрать сервер на себя.
+    stalled: bool = False
 
 
 class CreatedOut(MachineOut):
@@ -255,7 +259,22 @@ async def _apps(session: SessionDep, machine: MachineIdentity) -> list[MachineAp
     return out
 
 
-async def _out(session: SessionDep, machine: MachineIdentity) -> MachineOut:
+async def _stalled(session: SessionDep, machine: MachineIdentity, people: dict | None) -> bool:
+    now = datetime.now(timezone.utc)
+    granted = {
+        p.id
+        for p in await machines.policies_for(session, machine)
+        if p.effect == "allow" and access.alive(p, now)
+    }
+    working = {
+        p.id for p in await machines.effective_policies(session, machine, people=people)
+    }
+    return bool(granted - working)
+
+
+async def _out(
+    session: SessionDep, machine: MachineIdentity, people: dict | None = None
+) -> MachineOut:
     cluster = (
         await session.get(Cluster, machine.cluster_id) if machine.cluster_id else None
     )
@@ -280,13 +299,61 @@ async def _out(session: SessionDep, machine: MachineIdentity) -> MachineOut:
         created_by=machine.created_by,
         environments=await _environments(session, machine),
         apps=await _apps(session, machine),
+        stalled=await _stalled(session, machine, people),
     )
 
 
 @router.get("", response_model=list[MachineOut])
 async def list_machines(user: MaintainerUser, session: SessionDep) -> list[MachineOut]:
     rows = await session.scalars(select(MachineIdentity).order_by(MachineIdentity.name))
-    return [await _out(session, machine) for machine in rows]
+    people: dict = {}
+    return [await _out(session, machine, people) for machine in rows]
+
+
+@router.post("/{machine_id}/adopt", response_model=MachineOut)
+async def adopt_machine(
+    machine_id: int, request: Request, user: MaintainerUser, session: SessionDep
+) -> MachineOut:
+    """Забрать сервер на себя: отвечать за его доступ дальше будет тот, кто
+    нажал.
+
+    Доступ машины держится на тех, кто ее завел и выдал ей права, и встает,
+    когда их отключают или понижают. Чтобы сервер снова получал значения, его
+    забирает себе тот, кто сам читает все, что он открывает (или владелец):
+    ему переходят и машина, и выданные ей права. Тому, кто читает меньше,
+    нельзя: это было бы то же, что подключить свою машину к чужому окружению.
+    """
+    machine = await session.get(MachineIdentity, machine_id)
+    if machine is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Машина не найдена")
+    await _require_reach(session, user, [machine.id])
+    before = machine.created_by
+    machine.created_by = user.username
+    await _take_policies(session, [machine.id], user.username)
+    await audit.record(
+        session,
+        actor=user.username,
+        action="machine_updated",
+        target=machine.name,
+        detail=f"забрал на себя у {before or '-'}",
+        ip=peer_ip(request),
+    )
+    await session.commit()
+    return await _out(session, machine)
+
+
+async def _take_policies(session: SessionDep, machine_ids: list[int], username: str) -> None:
+    """Разрешения машин переходят тому, кто их забрал: дальше их держит он.
+    Охват уже проверен (_require_reach), поэтому он может выдать их и сам."""
+    rows = await session.scalars(
+        select(Policy).where(
+            Policy.subject_type == "machine",
+            Policy.subject_id.in_(machine_ids or [-1]),
+            Policy.effect == "allow",
+        )
+    )
+    for policy in rows:
+        policy.created_by = username
 
 
 @router.post("", response_model=CreatedOut, status_code=status.HTTP_201_CREATED)
@@ -880,6 +947,50 @@ async def update_cluster(
         audience=cluster.audience,
         disabled=cluster.disabled,
         identities=identities,
+    )
+
+
+@router.post("/clusters/{cluster_id}/adopt", response_model=ClusterOut)
+async def adopt_cluster(
+    cluster_id: int, request: Request, user: MaintainerUser, session: SessionDep
+) -> ClusterOut:
+    """Забрать кластер на себя вместе с личностями его подов и их правами.
+
+    Поды кластера встают, если отключен или понижен тот, кто его завел: он
+    распоряжается ключами, которыми кластер подписывает токены. Забрать может
+    тот, кто читает все, что читают поды этого кластера, или владелец, как и
+    при смене ключей кластера.
+    """
+    cluster = await session.get(Cluster, cluster_id)
+    if cluster is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Кластер не найден")
+    identities = list(
+        await session.scalars(
+            select(MachineIdentity).where(MachineIdentity.cluster_id == cluster.id)
+        )
+    )
+    await _require_reach(session, user, [m.id for m in identities])
+    before = cluster.created_by
+    cluster.created_by = user.username
+    for machine in identities:
+        machine.created_by = user.username
+    await _take_policies(session, [m.id for m in identities], user.username)
+    await audit.record(
+        session,
+        actor=user.username,
+        action="cluster_updated",
+        target=cluster.name,
+        detail=f"забрал на себя у {before or '-'}, личностей {len(identities)}",
+        ip=peer_ip(request),
+    )
+    await session.commit()
+    return ClusterOut(
+        id=cluster.id,
+        name=cluster.name,
+        issuer=cluster.issuer,
+        audience=cluster.audience,
+        disabled=cluster.disabled,
+        identities=len(identities),
     )
 
 

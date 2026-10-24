@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { ComboInput } from './ComboInput'
 import { LONG_LIST, PickInput } from './PickInput'
-import { copyToClipboard } from './clipboard'
+import { copyToClipboard, forgetLater } from './clipboard'
 import { EyeIcon, EyeOffIcon } from './icons'
 import { useI18n } from './i18n'
 import { useEscape } from './useEscape'
@@ -80,8 +80,9 @@ type Dialogs = {
   confirm: (options: ConfirmOptions) => Promise<boolean>
   notify: (title: string, text?: string) => Promise<boolean>
   /** Сообщение "готово", которое не требует ответа: всплывает и уходит само.
-   *  Модальное окно ради "скопировано" отнимает у человека лишний клик. */
-  toast: (text: string) => void
+   *  Модальное окно ради "скопировано" отнимает у человека лишний клик.
+   *  action - кнопка при сообщении, например "Вернуть" после удаления. */
+  toast: (text: string, action?: ToastAction) => void
   /** Закрыть открытое окно как отмену: выход по бездействию и конец сессии
    *  не оставляют вопрос висеть над экраном входа. */
   dismiss: () => void
@@ -95,7 +96,9 @@ const DialogContext = createContext<Dialogs>({
   dismiss: () => {},
 })
 
-type Toast = { id: number; text: string }
+export type ToastAction = { label: string; run: () => void }
+
+type Toast = { id: number; text: string; action?: ToastAction }
 
 type State =
   | { kind: 'ask'; options: AskOptions }
@@ -137,7 +140,12 @@ function DialogText({ text, onCopied }: { text: string; onCopied: (ok: boolean) 
   const { t } = useI18n()
   const blocks = split(text)
 
-  const copy = async (value: string) => onCopied(await copyToClipboard(value))
+  // Здесь копируют токены и команды с ними: в буфере они не остаются.
+  const copy = async (value: string) => {
+    const ok = await copyToClipboard(value)
+    if (ok) forgetLater(value)
+    onCopied(ok)
+  }
 
   return (
     <div className="dialog-text">
@@ -237,11 +245,15 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     if (resolve.current) finish(null)
   }, [finish])
 
-  const toast = useCallback<Dialogs['toast']>((text) => {
+  const toast = useCallback<Dialogs['toast']>((text, action) => {
     const id = nextToast.current++
-    setToasts((list) => [...list, { id, text }])
-    // Три секунды: успеть прочитать короткую фразу и не мешать дальше.
-    window.setTimeout(() => setToasts((list) => list.filter((item) => item.id !== id)), 3000)
+    setToasts((list) => [...list, { id, text, action }])
+    // Три секунды: успеть прочитать короткую фразу и не мешать дальше. С
+    // кнопкой дольше: за три секунды "Вернуть" не успевают даже найти глазами.
+    window.setTimeout(
+      () => setToasts((list) => list.filter((item) => item.id !== id)),
+      action ? 15_000 : 3000,
+    )
   }, [])
 
   // Пока идет отправка, Escape остается у окна и ничего не делает: снять окно
@@ -314,6 +326,17 @@ export function DialogProvider({ children }: { children: ReactNode }) {
           {toasts.map((item) => (
             <div key={item.id} className="toast">
               {item.text}
+              {item.action && (
+                <button
+                  className="ghost small-btn toast-action"
+                  onClick={() => {
+                    setToasts((list) => list.filter((one) => one.id !== item.id))
+                    item.action?.run()
+                  }}
+                >
+                  {item.action.label}
+                </button>
+              )}
             </div>
           ))}
         </div>

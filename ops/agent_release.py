@@ -74,7 +74,7 @@ ROOT = Path(__file__).resolve().parent.parent
 AGENT = ROOT / "agent"
 MANIFEST = AGENT / "manifest.json"
 PUBKEY = AGENT / "pubkey.txt"
-GO_IMAGE = "golang:1.27.1-alpine"
+GO_IMAGE = "golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c"
 ARCHES = ("amd64", "arm64")
 
 
@@ -149,27 +149,38 @@ def build(ver: str) -> dict[str, dict[str, object]]:
     return files
 
 
-def digests_from(args: list[str]) -> dict[str, str]:
+def digests_from(args: list[str]) -> dict[str, dict[str, object]]:
     """Хеши, посчитанные где-то еще: `--digest amd64=abc... --digest arm64=...`.
 
     Сборка и подпись - разные машины: собирать можно где угодно, а закрытый ключ
     должен оставаться там, где его держат. Хеши для этого и нужны - их можно
-    передать по любому каналу, они не тайна.
+    передать по любому каналу, они не тайна. Размер можно дописать через
+    двоеточие (`amd64=abc...:7340032`); без него поля size в описании не будет
+    вовсе, а не будет стоять ноль, как будто бинарь пустой.
     """
-    out: dict[str, str] = {}
+    out: dict[str, dict[str, object]] = {}
     for item in args:
-        arch, _, digest = item.partition("=")
+        arch, _, rest = item.partition("=")
+        digest, _, size = rest.partition(":")
         # Get-FileHash в PowerShell печатает хеш заглавными, а агент сверяет
         # строчные: такой хеш подписывался, и обновление отклонялось на всех
         # нодах. Приводим к одному виду и не пропускаем не-hex.
         digest = digest.strip().lower()
-        if arch not in ARCHES or len(digest) != 64 or set(digest) - set("0123456789abcdef"):
+        size = size.strip()
+        if (
+            arch not in ARCHES
+            or len(digest) != 64
+            or set(digest) - set("0123456789abcdef")
+            or (size and not size.isdigit())
+        ):
             raise SystemExit(t(f"не разобрал --digest {item}", f"cannot parse --digest {item}"))
-        out[arch] = digest
+        out[arch] = {"sha256": digest}
+        if size:
+            out[arch]["size"] = int(size)
     return out
 
 
-def sign(digests: dict[str, str] | None = None) -> int:
+def sign(given: dict[str, dict[str, object]] | None = None) -> int:
     raw = os.environ.get("SEKVYR_AGENT_KEY", "").strip()
     if not raw:
         raise SystemExit(
@@ -194,11 +205,8 @@ def sign(digests: dict[str, str] | None = None) -> int:
     PUBKEY.write_text(public + "\n", encoding="utf-8", newline="\n")
 
     ver = version()
-    if digests:
-        files = {arch: {"sha256": digest, "size": 0} for arch, digest in digests.items()}
-    else:
-        files = build(ver)
-        digests = {arch: str(files[arch]["sha256"]) for arch in files}
+    files = given or build(ver)
+    digests = {arch: str(files[arch]["sha256"]) for arch in files}
     signature = base64.b64encode(private.sign(signed_text(ver, digests))).decode()
     MANIFEST.write_text(
         json.dumps(
@@ -288,7 +296,7 @@ def main() -> int:
         "--digest",
         action="append",
         default=[],
-        metavar="arch=sha256",
+        metavar="arch=sha256[:size]",
         help=t("подписать чужую сборку по её хешам, без docker", "sign a build made elsewhere by its hashes, without docker"),
     )
     parser.add_argument(

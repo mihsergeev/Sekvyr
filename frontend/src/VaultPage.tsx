@@ -181,7 +181,7 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
     ? t('сейф ещё не создан')
     : status.sealed
       ? t('заперта: значения не выдаются')
-      : t('открыта')
+      : t('отперта')
 
   return (
     <div className="stack">
@@ -399,7 +399,7 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
                 />
               </label>
               <label>
-                {t('Нужно для входа')}
+                {t('Нужно для отпирания')}
                 <input
                   type="number"
                   min={2}

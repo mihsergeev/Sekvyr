@@ -20,9 +20,9 @@ import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import access
+from app import access, roles
 from app.access import Scope
-from app.models import MachineIdentity, Policy
+from app.models import Cluster, MachineIdentity, Policy, User
 
 # Машине доступны только эти действия. Список короткий и намеренно жесткий:
 # `write`, `delete`, `rotate` и `approve` не выдаются в принципе, даже если
@@ -116,6 +116,127 @@ async def policies_for(session: AsyncSession, machine: MachineIdentity) -> list[
     return list(rows)
 
 
+def may_vouch(user: User | None, without: str = "") -> bool:
+    """Может ли человек отвечать за доступ машины: учетка есть, не отключена и
+    роль не ниже ответственного. Те же условия, что у токена подключения
+    (api/machine.py, _creator_still_may): заводят машины и выдают им права
+    ответственный и выше. without - имя, которое считать уже отключенным
+    (сколько машин встанет, если отключить этого человека)."""
+    if user is None or user.disabled or (without and user.username == without):
+        return False
+    return roles.level(user.role) >= roles.level(roles.MAINTAINER)
+
+
+def _reads_all(
+    user: User, user_policies: list[Policy], policy: Policy, denies: list[Policy], now: datetime
+) -> bool:
+    """Читает ли человек сейчас все, что машине открывает эта политика (с
+    учетом запретов самой машины). Сравнение во всех местах, где решение
+    может меняться, как в access.covers, но только в момент "сейчас": право
+    машины проверяется на каждом обращении и кончается вместе с правом того,
+    кто его выдал."""
+    if user.role == access.OWNER:
+        return True
+    target = [policy, *denies]
+    pairs = {(p.project_id, p.environment_id) for p in [*user_policies, *target]}
+    paths = access.interesting_paths([*user_policies, *target], [])
+    for project_id, env_id in pairs:
+        for path in paths:
+            scope = Scope(project_id=project_id, environment_id=env_id, path=path)
+            for action in MACHINE_ACTIONS:
+                if decide(target, action, scope, now) and not access.decide(
+                    user_policies, user, action, scope, now
+                ):
+                    return False
+    return True
+
+
+async def effective_policies(
+    session: AsyncSession,
+    machine: MachineIdentity,
+    *,
+    without: str = "",
+    people: dict | None = None,
+) -> list[Policy]:
+    """Политики машины, которые действуют сейчас.
+
+    Право машины держится на людях. Разрешение действует, пока тот, кто его
+    выдал, может выдать его и сейчас: учетка не отключена, роль не ниже
+    ответственного и сам читает все, что выдал. Иначе отключенный или
+    лишенный окружения человек продолжал бы читать его через свою машину.
+    Кроме того, машина не получает ничего, если отключен или понижен тот, кто
+    ее завел (у него ее секрет), а у машины за подом - тот, кто завел ее
+    кластер (он распоряжается ключами кластера). Запреты действуют всегда.
+
+    people - общий на один запрос словарь учеток с их политиками: список
+    серверов спрашивает об одних и тех же людях для каждой машины.
+    """
+    cache = people if people is not None else {}
+
+    async def person(name: str) -> tuple[User | None, list[Policy]]:
+        if name not in cache:
+            user = await session.scalar(select(User).where(User.username == name))
+            cache[name] = (user, await access.policies_for(session, user) if user else [])
+        return cache[name]
+
+    policies = await policies_for(session, machine)
+    denies = [p for p in policies if p.effect != "allow"]
+    keepers = [machine.created_by]
+    if machine.cluster_id is not None:
+        cluster = await session.get(Cluster, machine.cluster_id)
+        keepers.append(cluster.created_by if cluster else "")
+    for name in keepers:
+        user, _ = await person(name)
+        if not may_vouch(user, without):
+            return denies
+    now = datetime.now(timezone.utc)
+    out = list(denies)
+    for policy in policies:
+        if policy.effect != "allow":
+            continue
+        user, user_policies = await person(policy.created_by)
+        if may_vouch(user, without) and _reads_all(user, user_policies, policy, denies, now):
+            out.append(policy)
+    return out
+
+
+async def resting_on(session: AsyncSession, username: str) -> list[MachineIdentity]:
+    """Живые машины, которые потеряют хоть одно окружение, если этот человек
+    больше не сможет выдавать доступ (его отключат или понизят): он их завел,
+    завел их кластер или выдал им права. По этому списку отключение учетки
+    говорит, сколько серверов и кластеров перестанут получать значения."""
+    granted = select(Policy.subject_id).where(
+        Policy.subject_type == "machine", Policy.created_by == username
+    )
+    clusters = select(Cluster.id).where(Cluster.created_by == username)
+    rows = await session.scalars(
+        select(MachineIdentity)
+        .where(
+            (MachineIdentity.created_by == username)
+            | MachineIdentity.id.in_(granted)
+            | MachineIdentity.cluster_id.in_(clusters)
+        )
+        .order_by(MachineIdentity.id)
+    )
+    people: dict = {}
+    now = datetime.now(timezone.utc)
+    out: list[MachineIdentity] = []
+    for machine in rows:
+        if not alive(machine):
+            continue
+
+        def working(policies: list[Policy]) -> set[int]:
+            return {p.id for p in policies if p.effect == "allow" and access.alive(p, now)}
+
+        before = working(await effective_policies(session, machine, people=people))
+        after = working(
+            await effective_policies(session, machine, without=username, people=people)
+        )
+        if before - after:
+            out.append(machine)
+    return out
+
+
 def decide(policies: list[Policy], action: str, scope: Scope, now: datetime) -> bool:
     """Решение для машины по уже загруженным политикам."""
     if action not in MACHINE_ACTIONS:
@@ -131,7 +252,9 @@ async def allowed(
 ) -> bool:
     """Разрешено ли машине действие. Владельца-исключения здесь нет: машина не
     бывает владельцем панели, и "все можно" для нее не существует."""
-    return decide(await policies_for(session, machine), action, scope, datetime.now(timezone.utc))
+    return decide(
+        await effective_policies(session, machine), action, scope, datetime.now(timezone.utc)
+    )
 
 
 async def place_check(
@@ -139,7 +262,7 @@ async def place_check(
 ) -> access.PlaceCheck:
     """Решатель по путям окружения для машины: запрет на папку в машинной
     политике должен действовать и в выдаче окружения целиком."""
-    policies = await policies_for(session, machine)
+    policies = await effective_policies(session, machine)
     now = datetime.now(timezone.utc)
     cache: dict[str, bool] = {}
 
@@ -158,7 +281,7 @@ async def sees_anything(
 ) -> bool:
     """Есть ли у машины право хоть на одну папку окружения. Политика только на
     /app раньше не давала ничего: проверялся корень."""
-    policies = await policies_for(session, machine)
+    policies = await effective_policies(session, machine)
     now = datetime.now(timezone.utc)
     return any(
         decide(policies, action, Scope(project_id=project_id, environment_id=env_id, path=path), now)

@@ -5,6 +5,7 @@ import {
   myPermissions,
   putSecret,
   readAllValues,
+  readSecret,
   readSecretVersion,
   rollbackSecret,
   secretHistory,
@@ -13,18 +14,24 @@ import {
   type SecretValueRow,
   type SpreadResult,
   type SecretVersion,
+  versionConflict,
 } from './api'
-import { copyToClipboard } from './clipboard'
+import { copyToClipboard, forgetLater } from './clipboard'
 import { diffCounts, lineDiff, type DiffLine } from './diff'
 import { useDialogs } from './Dialogs'
 import { useI18n } from './i18n'
 import { useEscape } from './useEscape'
+import { useLeave } from './useLeave'
 import { formatDateTime } from './time'
 import { versionComment } from './serverText'
 
 /* Небольшие окна раздела секретов. Собраны в один файл: каждое - тридцать
  * строк разметки вокруг одного вызова API, и раскладывать их по отдельным
  * файлам значит плодить навигацию на ровном месте. */
+
+/** Сколько открытое значение стоит на экране без правок. Одно на список и на
+ *  окно всех значений: "закрывается само" должно значить одно и то же. */
+export const HIDE_AFTER_MS = 45_000
 
 function err(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
@@ -47,65 +54,150 @@ function rowsFor(text: string): number {
 
 // ---------------------------------------------------------------- значение
 
+/** Сервер не принял правку: ключ успели изменить. current - действующая
+ *  версия (0 - своего ключа больше нет), theirs - действующее значение, null
+ *  пока не загрузили или если читать его нельзя. */
+type Clash = { current: number; theirs: string | null }
+
 export function SecretEditor({
   secret,
   onClose,
   onSaved,
   save,
-  load,
+  read,
+  resume,
 }: {
   secret: SecretRow | null
   onClose: () => void
   onSaved: () => void
-  save: (body: { name: string; path: string; value: string; comment: string }) => Promise<void>
-  /** Откуда взять текущее значение. Пусто - поле открывается пустым (новый
-   *  ключ или нет права читать). */
-  load?: () => Promise<string>
+  save: (body: {
+    name: string
+    path: string
+    value: string
+    comment: string
+    expected_version: number
+  }) => Promise<void>
+  /** Откуда взять значение ключа и его версию. Пусто - нет права читать:
+   *  поле открывается пустым, а при конфликте правок разницу не показать. */
+  read?: (name: string, path: string) => Promise<{ value: string; version: number }>
+  /** Правка из строки списка, которую сервер не принял, потому что ключ
+   *  успели изменить: окно открывается с набранным и сразу с конфликтом. */
+  resume?: { value: string; version: number; current: number }
 }) {
   const { t } = useI18n()
-  useEscape(onClose)
   const [name, setName] = useState(secret?.name ?? '')
   const [path, setPath] = useState(secret?.path ?? '/')
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(resume?.value ?? '')
+  // Человек что-то ввел сам. Пока нет, пустое поле без загруженного значения
+  // значит "не знаю, что там", а не "сделать пустым".
+  const [touched, setTouched] = useState(Boolean(resume))
+  // Версия своего ключа, от которой начата правка: ее сверяет сервер. У
+  // унаследованного и у нового ключа своей версии нет, это 0.
+  const [base, setBase] = useState(
+    resume?.version ?? (secret && !secret.inherited_from ? secret.version : 0),
+  )
   const [comment, setComment] = useState('')
   const [busy, setBusy] = useState(false)
-  const [loading, setLoading] = useState(Boolean(load))
-  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(Boolean(secret && read && !resume))
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [clash, setClash] = useState<Clash | null>(
+    resume ? { current: resume.current, theirs: null } : null,
+  )
+  const [showDiff, setShowDiff] = useState(false)
+  const [error, setError] = useState(
+    resume ? t('Ключ изменили, пока вы его правили: ваша правка не записана') : '',
+  )
+
+  // Escape и переход по разделам с набранным спрашивают: раньше они молча
+  // выбрасывали правку.
+  const dirty = touched || comment.trim() !== '' || (!secret && name.trim() !== '')
+  const leave = useLeave(dirty && !busy, onClose)
+  useEscape(leave)
+
+  const readRef = useRef(read)
+  readRef.current = read
+
+  // Что сейчас на сервере: чтобы показать разницу и дать взять новое значение.
+  const fetchTheirs = useCallback((keyName: string, keyPath: string, current: number) => {
+    const fetchValue = readRef.current
+    if (!fetchValue || current === 0) return
+    fetchValue(keyName, keyPath)
+      .then((now) => setClash((prev) => (prev ? { current: now.version, theirs: now.value } : prev)))
+      .catch(() => undefined)
+  }, [])
 
   // Правка начинается с того, что есть сейчас. Пустое поле означало "перезаписать
   // вслепую": человек не видел, что меняет, и терял все, чего не помнил.
-  const loadRef = useRef(load)
+  const opening = useRef({ secret, resume })
   useEffect(() => {
-    const fetchValue = loadRef.current
+    const { secret: key, resume: back } = opening.current
+    if (!key) return
+    if (back) {
+      fetchTheirs(key.name, key.path, back.current)
+      return
+    }
+    const fetchValue = readRef.current
     if (!fetchValue) return
     let alive = true
-    fetchValue()
+    fetchValue(key.name, key.path)
       .then((current) => {
         if (!alive) return
-        setValue(current)
+        setValue(current.value)
+        if (!key.inherited_from) setBase(current.version)
         setLoading(false)
       })
       .catch((e) => {
         if (!alive) return
         setError(err(e))
+        setLoadFailed(true)
         setLoading(false)
       })
     return () => {
       alive = false
     }
-  }, [])
+  }, [fetchTheirs])
+
+  // Значения не видно: нет права читать или загрузка не удалась.
+  const blind = Boolean(secret) && (!read || loadFailed)
 
   async function submit() {
     setBusy(true)
     setError('')
+    const keyName = secret ? secret.name : name.trim()
+    const keyPath = secret ? secret.path : path.trim() || '/'
     try {
-      await save({ name: name.trim(), path: path.trim() || '/', value, comment })
+      // Пока на экране конфликт, кнопка перезаписывает осознанно: поверх той
+      // версии, о которой человеку только что сказали.
+      await save({
+        name: keyName,
+        path: keyPath,
+        value,
+        comment,
+        expected_version: clash ? clash.current : base,
+      })
       onSaved()
     } catch (e) {
+      const conflict = versionConflict(e)
+      if (conflict) {
+        setClash({ current: conflict.current, theirs: null })
+        setShowDiff(false)
+        fetchTheirs(keyName, keyPath, conflict.current)
+      }
       setError(err(e))
     } finally {
       setBusy(false)
     }
+  }
+
+  // Отказаться от своей правки и продолжить с того, что записали без нас.
+  function takeTheirs() {
+    if (!clash || clash.theirs === null) return
+    setValue(clash.theirs)
+    setBase(clash.current)
+    setTouched(false)
+    setClash(null)
+    setShowDiff(false)
+    setError('')
   }
 
   return (
@@ -144,7 +236,10 @@ export function SecretEditor({
           <textarea
             className="value-input"
             value={loading ? t('Загружаем…') : value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              setValue(e.target.value)
+              setTouched(true)
+            }}
             disabled={loading}
             spellCheck={false}
             autoComplete="off"
@@ -152,6 +247,15 @@ export function SecretEditor({
             rows={rowsFor(value)}
           />
         </label>
+        {/* Без этой строки пустое поле читалось как "значение пустое", и его
+            сохраняли, стирая настоящее. */}
+        {blind && (
+          <p className="muted small">
+            {loadFailed
+              ? t('Текущее значение не загрузилось. Введенное заменит его целиком.')
+              : t('Текущее значение не показывается: читать его вам нельзя. Введенное заменит его целиком.')}
+          </p>
+        )}
         <label>
           {t('Комментарий к изменению')}
           <input
@@ -161,12 +265,48 @@ export function SecretEditor({
           />
         </label>
         {error && <p className="form-error">{error}</p>}
+        {clash && (
+          <div className="stack-tight">
+            <p className="muted small">
+              {clash.current === 0
+                ? t('Сохранить все равно значит завести ключ заново.')
+                : t(
+                    'Действующая версия теперь {version}. Перезаписать значит поставить ваше значение поверх нее, она останется в истории.',
+                    { version: clash.current },
+                  )}
+            </p>
+            {clash.theirs !== null && (
+              <div className="row-actions">
+                <button className="ghost small-btn" onClick={() => setShowDiff((v) => !v)}>
+                  {showDiff ? t('Скрыть разницу') : t('Показать разницу')}
+                </button>
+                <button className="ghost small-btn" onClick={takeTheirs}>
+                  {t('Взять новое значение')}
+                </button>
+              </div>
+            )}
+            {showDiff && clash.theirs !== null && (
+              <>
+                <p className="muted small">{t('Чем ваше значение отличается от действующего:')}</p>
+                <DiffView lines={lineDiff(clash.theirs, value)} />
+              </>
+            )}
+          </div>
+        )}
         <div className="row-actions dialog-actions">
-          <button className="ghost" onClick={onClose}>
+          <button className="ghost" onClick={leave}>
             {t('Отмена')}
           </button>
-          <button onClick={submit} disabled={busy || loading || (!secret && !name.trim())}>
-            {t('Сохранить')}
+          <button
+            className={clash ? 'danger-btn' : undefined}
+            onClick={submit}
+            disabled={busy || loading || (!secret && !name.trim()) || (blind && !touched)}
+          >
+            {clash
+              ? clash.current === 0
+                ? t('Сохранить все равно')
+                : t('Перезаписать')
+              : t('Сохранить')}
           </button>
         </div>
       </div>
@@ -452,13 +592,15 @@ export function ImportModal({
   onDone: () => void
 }) {
   const { t } = useI18n()
-  useEscape(onClose)
   const [text, setText] = useState('')
   const [path, setPath] = useState('/')
   const [overwrite, setOverwrite] = useState(false)
   const [result, setResult] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // Вставленный и еще не импортированный текст: Escape спрашивает.
+  const leave = useLeave(Boolean(text.trim()) && !result && !busy, onClose)
+  useEscape(leave)
 
   async function submit() {
     setBusy(true)
@@ -532,7 +674,7 @@ export function ImportModal({
         {error && <p className="form-error">{error}</p>}
         {result && <p className="muted small">{result}</p>}
         <div className="row-actions dialog-actions">
-          <button className="ghost" onClick={onClose}>
+          <button className="ghost" onClick={leave}>
             {t('Закрыть')}
           </button>
           <button onClick={submit} disabled={busy || !text.trim()}>
@@ -572,24 +714,32 @@ export function BulkEditModal({
   onChanged: () => void
 }) {
   const { t } = useI18n()
-  useEscape(onClose)
   const [rows, setRows] = useState<SecretValueRow[]>([])
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   // Значения не отдали (закрытая папка в окружении): окно говорит только
   // причину. "Ключей пока нет" и кнопки выгрузки рядом с отказом путали.
   const [refused, setRefused] = useState(false)
+  // Значения убраны с экрана по таймеру, как в списке.
+  const [hidden, setHidden] = useState(false)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState('')
   const [error, setError] = useState('')
+  // Ключи, которые успели изменить, пока окно было открыто: их правки сервер
+  // не записал.
+  const [stale, setStale] = useState<Record<string, Clash>>({})
+  const [showDiff, setShowDiff] = useState(false)
 
   const id = (row: { path: string; name: string }) => `${row.path}:${row.name}`
 
-  useEffect(() => {
+  const fetchAll = useCallback(() => {
+    setLoading(true)
     readAllValues(envId)
       .then((values) => {
         setRows(values)
         setDraft(Object.fromEntries(values.map((row) => [id(row), row.value])))
+        setStale({})
+        setHidden(false)
       })
       .catch((e) => {
         setRefused(true)
@@ -598,7 +748,31 @@ export function BulkEditModal({
       .finally(() => setLoading(false))
   }, [envId])
 
+  useEffect(() => {
+    fetchAll()
+  }, [fetchAll])
+
   const changed = rows.filter((row) => draft[id(row)] !== row.value)
+  // Спорные - только пока в них остается своя правка.
+  const staleRows = changed.filter((row) => stale[id(row)])
+  const fresh = changed.length - staleRows.length
+
+  const leave = useLeave(changed.length > 0 && !busy, onClose)
+  useEscape(leave)
+
+  // Значения не висят на экране вечно, как и в списке: без несохраненных
+  // правок окно убирает их через то же время. Начатую правку таймер не трогает.
+  const calm = !loading && !hidden && rows.length > 0 && changed.length === 0
+  useEffect(() => {
+    if (!calm) return
+    const timer = window.setTimeout(() => {
+      setHidden(true)
+      setRows([])
+      setDraft({})
+      setResult('')
+    }, HIDE_AFTER_MS)
+    return () => window.clearTimeout(timer)
+  }, [calm])
 
   // Папки идут отдельными подписями: сотня полей подряд читается как стена.
   const folders: [string, SecretValueRow[]][] = []
@@ -608,33 +782,48 @@ export function BulkEditModal({
     else folders.push([row.path, [row]])
   }
 
-  async function save() {
+  // overwrite - записать поверх тех, что изменили без нас: человек видел
+  // предупреждение и выбрал свое значение.
+  async function save(overwrite = false) {
     setBusy(true)
     setError('')
     setResult('')
+    const targets = changed.filter((row) => Boolean(stale[id(row)]) === overwrite)
     // Что записано, а что ушло на подтверждение: в проекте с порогом правка
     // разработчика не вступает в силу сразу, и "Сохранено" с новым значением в
     // поле было бы неправдой.
-    const written = new Set<string>()
+    const written = new Map<string, number>()
     const proposed = new Set<string>()
+    const clashed: Record<string, Clash> = {}
     let failed = false
     try {
       // По четыре за раз: правок обычно единицы, а сотня параллельных записей
       // легла бы очередью на сервере и перемешала бы порядок в журнале.
-      for (let i = 0; i < changed.length; i += 4) {
-        const chunk = changed.slice(i, i + 4)
+      for (let i = 0; i < targets.length; i += 4) {
+        const chunk = targets.slice(i, i + 4)
         const out = await Promise.allSettled(
           chunk.map((row) =>
-            putSecret(envId, { name: row.name, path: row.path, value: draft[id(row)] }),
+            putSecret(envId, {
+              name: row.name,
+              path: row.path,
+              value: draft[id(row)],
+              expected_version:
+                stale[id(row)]?.current ?? (row.inherited_from ? 0 : row.version),
+            }),
           ),
         )
         let reason: unknown = null
         out.forEach((res, k) => {
+          const key = id(chunk[k])
           if (res.status === 'fulfilled') {
-            ;(res.value.pending ? proposed : written).add(id(chunk[k]))
-          } else if (reason === null) {
-            reason = res.reason
+            if (res.value.pending) proposed.add(key)
+            else written.set(key, res.value.version)
+            return
           }
+          // Чужая правка в одном ключе не повод бросать остальные.
+          const conflict = versionConflict(res.reason)
+          if (conflict) clashed[key] = { current: conflict.current, theirs: null }
+          else if (reason === null) reason = res.reason
         })
         if (reason !== null) throw reason
       }
@@ -645,7 +834,12 @@ export function BulkEditModal({
       // В список попадает только вступившее в силу. Предложенное ждет
       // подтверждения: поле возвращается к действующему значению.
       setRows((prev) =>
-        prev.map((row) => (written.has(id(row)) ? { ...row, value: draft[id(row)] } : row)),
+        prev.map((row) => {
+          const version = written.get(id(row))
+          return version === undefined
+            ? row
+            : { ...row, value: draft[id(row)], version, inherited_from: undefined }
+        }),
       )
       if (proposed.size) {
         setDraft((prev) => {
@@ -654,16 +848,78 @@ export function BulkEditModal({
           return next
         })
       }
+      setStale((prev) => {
+        const next = { ...prev }
+        for (const key of [...written.keys(), ...proposed]) delete next[key]
+        return { ...next, ...clashed }
+      })
       const parts: string[] = []
       if (written.size) parts.push(`${t('Сохранено ключей')}: ${written.size}`)
       if (proposed.size) parts.push(`${t('отправлено на подтверждение')}: ${proposed.size}`)
+      const lost = Object.keys(clashed).length
+      if (lost) parts.push(`${t('изменили без вас')}: ${lost}`)
       if (failed) {
-        parts.push(`${t('не записано')}: ${changed.length - written.size - proposed.size}`)
+        parts.push(
+          `${t('не записано')}: ${targets.length - written.size - proposed.size - lost}`,
+        )
       }
       setResult(parts.join(' · '))
       if (written.size || proposed.size) onChanged()
       setBusy(false)
     }
+    // Действующие значения тех, что изменили без нас: показать разницу и дать
+    // взять их. Совпало с набранным - правка уже на месте, спорить не о чем.
+    for (const [key, clash] of Object.entries(clashed)) {
+      const row = targets.find((one) => id(one) === key)
+      if (!row || clash.current === 0) continue
+      try {
+        const now = await readSecret(envId, row.name, row.path)
+        if (now.value === draft[key]) {
+          setRows((prev) =>
+            prev.map((one) =>
+              id(one) === key
+                ? { ...one, value: now.value, version: now.version, inherited_from: undefined }
+                : one,
+            ),
+          )
+          setStale((prev) => {
+            const next = { ...prev }
+            delete next[key]
+            return next
+          })
+        } else {
+          setStale((prev) =>
+            prev[key] ? { ...prev, [key]: { current: now.version, theirs: now.value } } : prev,
+          )
+        }
+      } catch {
+        // Не прочитали - разницы не будет, перезаписать все равно можно.
+      }
+    }
+  }
+
+  // Отказаться от своих правок там, где ключи изменили без нас.
+  function takeTheirs() {
+    const taken = staleRows.filter((row) => stale[id(row)].theirs !== null)
+    setRows((prev) =>
+      prev.map((row) => {
+        const clash = stale[id(row)]
+        return clash && clash.theirs !== null
+          ? { ...row, value: clash.theirs, version: clash.current, inherited_from: undefined }
+          : row
+      }),
+    )
+    setDraft((prev) => {
+      const next = { ...prev }
+      for (const row of taken) next[id(row)] = stale[id(row)].theirs as string
+      return next
+    })
+    setStale((prev) => {
+      const next = { ...prev }
+      for (const row of taken) delete next[id(row)]
+      return next
+    })
+    setShowDiff(false)
   }
 
   async function download() {
@@ -685,12 +941,16 @@ export function BulkEditModal({
       const res = await exportEnv(envId)
       // Без navigator.clipboard (панель по http) раньше показывалось
       // "Скопировано", хотя в буфере ничего не было.
-      if (await copyToClipboard(res.text)) setResult(t('Скопировано в буфер'))
-      else setError(t('Скопировать не вышло'))
+      if (await copyToClipboard(res.text)) {
+        forgetLater(res.text)
+        setResult(t('Скопировано в буфер'))
+      } else setError(t('Скопировать не вышло'))
     } catch (e) {
       setError(err(e))
     }
   }
+
+  const anyTheirs = staleRows.some((row) => stale[id(row)].theirs !== null)
 
   return (
     <div className="modal-backdrop">
@@ -701,7 +961,14 @@ export function BulkEditModal({
 
         {loading ? (
           <p className="muted">{t('Загружаем…')}</p>
-        ) : refused ? null : rows.length === 0 ? (
+        ) : refused ? null : hidden ? (
+          <div className="row-actions">
+            <p className="muted">{t('Значения скрыты: окно долго стояло без правок.')}</p>
+            <button className="ghost small-btn" onClick={fetchAll}>
+              {t('Показать снова')}
+            </button>
+          </div>
+        ) : rows.length === 0 ? (
           <p className="muted">{t('Ключей пока нет')}</p>
         ) : (
           <div className="stack">
@@ -732,8 +999,12 @@ export function BulkEditModal({
                       {row.inherited_from && (
                         <span className="tag tag-muted">{row.inherited_from}</span>
                       )}
-                      {draft[id(row)] !== row.value && (
-                        <span className="tag">{t('изменено')}</span>
+                      {stale[id(row)] && draft[id(row)] !== row.value ? (
+                        <span className="tag tag-deny">{t('изменили без вас')}</span>
+                      ) : (
+                        draft[id(row)] !== row.value && (
+                          <span className="tag">{t('изменено')}</span>
+                        )
                       )}
                     </span>
                     {/* Однострочное значение - обычное поле: у textarea в одну
@@ -775,6 +1046,45 @@ export function BulkEditModal({
         {error && <p className="form-error">{error}</p>}
         {result && <p className="muted small">{result}</p>}
 
+        {staleRows.length > 0 && (
+          <div className="stack-tight">
+            <p className="form-error">
+              {t('Эти ключи изменили, пока вы правили, и ваши правки в них не записаны:')}{' '}
+              <span className="mono">{staleRows.map((row) => row.name).join(', ')}</span>
+            </p>
+            <div className="row-actions">
+              {anyTheirs && (
+                <button className="ghost small-btn" onClick={() => setShowDiff((v) => !v)}>
+                  {showDiff ? t('Скрыть разницу') : t('Показать разницу')}
+                </button>
+              )}
+              {anyTheirs && (
+                <button className="ghost small-btn" onClick={takeTheirs}>
+                  {t('Взять новые значения')}
+                </button>
+              )}
+              <button
+                className="danger-btn small-btn"
+                onClick={() => void save(true)}
+                disabled={busy}
+              >
+                {t('Перезаписать своими')}
+              </button>
+            </div>
+            {showDiff &&
+              staleRows.map((row) => {
+                const theirs = stale[id(row)].theirs
+                if (theirs === null) return null
+                return (
+                  <div key={id(row)} className="stack-tight">
+                    <p className="mono small">{row.name}</p>
+                    <DiffView lines={lineDiff(theirs, draft[id(row)] ?? '')} />
+                  </div>
+                )
+              })}
+          </div>
+        )}
+
         <div className="row-actions dialog-actions">
           {!refused && (
             <>
@@ -786,13 +1096,16 @@ export function BulkEditModal({
               </button>
             </>
           )}
-          <button className="ghost" onClick={onClose}>
+          <button className="ghost" onClick={leave}>
             {t('Закрыть')}
           </button>
-          {canWrite && !refused && (
-            <button onClick={save} disabled={busy || changed.length === 0}>
+          {canWrite && !refused && !hidden && (
+            <button
+              onClick={() => void save()}
+              disabled={busy || fresh === 0}
+            >
               {t('Сохранить')}
-              {changed.length > 0 && ` (${changed.length})`}
+              {fresh > 0 && ` (${fresh})`}
             </button>
           )}
         </div>

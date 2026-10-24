@@ -1528,36 +1528,96 @@ func signedText(m *manifest) []byte {
 	return []byte(b.String())
 }
 
-// parseVersion разбирает "0.26.0" в числа. Хвост вроде "-rc1" отбрасываем: до
-// сравнения предвыпусков дело здесь не доходит, а гадать о них не нужно.
-func parseVersion(s string) []int {
+// parseVersion разбирает "0.26.0-rc1" на числа основной части и хвост
+// предвыпуска ("rc1"). Метаданные сборки после "+" в сравнении не участвуют.
+// Непонятная основная часть - nil.
+func parseVersion(s string) ([]int, string) {
 	s = strings.TrimSpace(s)
-	if i := strings.IndexAny(s, "-+"); i >= 0 {
+	if i := strings.IndexByte(s, '+'); i >= 0 {
 		s = s[:i]
+	}
+	pre := ""
+	if i := strings.IndexByte(s, '-'); i >= 0 {
+		s, pre = s[:i], s[i+1:]
 	}
 	parts := strings.Split(s, ".")
 	out := make([]int, 0, len(parts))
 	for _, part := range parts {
 		n := 0
 		if part == "" {
-			return nil
+			return nil, ""
 		}
 		for _, c := range part {
 			if c < '0' || c > '9' {
-				return nil
+				return nil, ""
 			}
 			n = n*10 + int(c-'0')
 		}
 		out = append(out, n)
 	}
-	return out
+	return out, pre
+}
+
+// comparePre сравнивает хвосты предвыпусков так же, как sort -V в
+// ops/update.sh: куски цифр - числами, остальное - строками. Иначе "rc10"
+// оказался бы старше "rc9".
+func comparePre(a, b string) int {
+	for a != "" && b != "" {
+		ca, ra := versionChunk(a)
+		cb, rb := versionChunk(b)
+		da, db := ca[0] >= '0' && ca[0] <= '9', cb[0] >= '0' && cb[0] <= '9'
+		switch {
+		case da && db:
+			x, y := strings.TrimLeft(ca, "0"), strings.TrimLeft(cb, "0")
+			if len(x) != len(y) {
+				if len(x) > len(y) {
+					return 1
+				}
+				return -1
+			}
+			if x != y {
+				if x > y {
+					return 1
+				}
+				return -1
+			}
+		case ca != cb:
+			if ca > cb {
+				return 1
+			}
+			return -1
+		}
+		a, b = ra, rb
+	}
+	switch {
+	case a != "":
+		return 1
+	case b != "":
+		return -1
+	}
+	return 0
+}
+
+// versionChunk отрезает от начала строки кусок из одних цифр или из одних
+// нецифр.
+func versionChunk(s string) (string, string) {
+	digit := s[0] >= '0' && s[0] <= '9'
+	i := 1
+	for i < len(s) && (s[i] >= '0' && s[i] <= '9') == digit {
+		i++
+	}
+	return s[:i], s[i:]
 }
 
 // newer - строго ли версия a новее b. Сравниваем числами: как строки "0.9.0"
-// оказалась бы новее "0.10.0". Непонятную версию считаем не новее - агент
-// скорее не обновится, чем поставит неизвестно что.
+// оказалась бы новее "0.10.0". Предвыпуск старше выпуска той же основной
+// версии (1.1.0-rc1 раньше 1.1.0), как в ops/update.sh: иначе нода на rc не
+// обновлялась бы до выпуска сама и предлагала --allow-downgrade. Непонятную
+// версию считаем не новее - агент скорее не обновится, чем поставит
+// неизвестно что.
 func newer(a, b string) bool {
-	x, y := parseVersion(a), parseVersion(b)
+	x, preA := parseVersion(a)
+	y, preB := parseVersion(b)
 	if x == nil || y == nil {
 		return false
 	}
@@ -1573,7 +1633,15 @@ func newer(a, b string) bool {
 			return xi > yi
 		}
 	}
-	return false
+	switch {
+	case preA == preB:
+		return false
+	case preA == "":
+		return true
+	case preB == "":
+		return false
+	}
+	return comparePre(preA, preB) > 0
 }
 
 func fetchManifest(cfg *Config) (*manifest, error) {

@@ -136,6 +136,24 @@ def _check_slug(slug: str, what: str = "проекта") -> None:
         )
 
 
+# Сколько прежних групп помнить. Переезжают проекты редко, а агент со
+# старым адресом, переживший пять переездов, - это уже забытый сервер.
+MOVED_FROM_KEEP = 5
+
+
+def _remember_move(moved_from: str, old: str, new: str) -> str:
+    """Прежние группы проекта после переезда из old в new.
+
+    "-" значит "без группы": агент, подключенный к проекту без группы, помнит
+    адрес без нее. Группа, куда проект вернулся, из списка уходит: ее адрес
+    снова его собственный, и подставлять туда нечего.
+    """
+    old, new = old or "-", new or "-"
+    kept = [slug for slug in moved_from.split() if slug not in (old, new)]
+    kept.append(old)
+    return " ".join(kept[-MOVED_FROM_KEEP:])
+
+
 @router.get("/projects", response_model=list[ProjectOut])
 async def list_projects(user: CurrentUser, session: SessionDep) -> list[ProjectOut]:
     # Показываем только те проекты, куда есть хоть какой-то доступ. Список чужих
@@ -368,6 +386,12 @@ async def update_project(
             )
             if neighbour is not None:
                 group_name = neighbour.group_name
+        if group_slug != project.group_slug:
+            # Прежний адрес запоминаем: агенты на серверах держат его в
+            # конфиге, и без этого перенос отключил бы их все разом.
+            project.moved_from = _remember_move(
+                project.moved_from, project.group_slug, group_slug
+            )
         project.group_name = group_name
         project.group_slug = group_slug
         changes.append("группа")
@@ -935,6 +959,12 @@ async def update_environment(
         env.title = body.title
         changes.append("название")
     if reparent and body.parent_id != env.parent_id:
+        # Смена родителя меняет значения наследника сразу и ждать
+        # подтверждения не умеет: ниже порога проекта она обходила бы его,
+        # как удаление или импорт.
+        from app.api.secrets import refuse_below_threshold
+
+        await refuse_below_threshold(session, user, env)
         parent_id = await _check_parent(session, env.project_id, body.parent_id, env_id)
         old = await session.get(Environment, env.parent_id) if env.parent_id else None
         new = await session.get(Environment, parent_id) if parent_id else None

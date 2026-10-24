@@ -40,6 +40,7 @@ ALLOW_IPS=""
 TZONE="UTC"
 TZ_ARG=""
 DIR=/opt/sekvyr
+DIR_SET=0
 CRON=1
 BUILD=0
 REPO=https://github.com/mihsergeev/Sekvyr.git
@@ -69,7 +70,7 @@ while [ $# -gt 0 ]; do
         --domain) DOMAIN="$2"; shift 2 ;;
         --allow-ips) ALLOW_IPS="$2"; shift 2 ;;
         --timezone) TZONE="$2"; TZ_ARG="$2"; shift 2 ;;
-        --dir) DIR="$2"; shift 2 ;;
+        --dir) DIR="$2"; DIR_SET=1; shift 2 ;;
         --build) BUILD=1; shift ;;
         --no-cron) CRON=0; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -109,6 +110,47 @@ else
     curl -fsSL https://get.docker.com | sh >/dev/null || die "не удалось поставить Docker"
 fi
 docker compose version >/dev/null 2>&1 || die "нужен Docker Compose v2 (плагин compose)"
+
+# -- 2b. Панель, поставленная в другой каталог --------------------------------
+# Каталог по умолчанию /opt/sekvyr, но панель может стоять где угодно (--dir
+# при первом запуске). Запущенный снова без --dir, скрипт увидел бы пустой
+# /opt/sekvyr и поставил вторую панель. docker compose называет проект по
+# каталогу, поэтому второй "sekvyr" забрал бы работающие контейнеры себе с
+# пустой базой, а расписание бэкапов переехало бы на новую установку. Данные
+# остаются на диске, но отвечает пустая панель. Поэтому существующая установка
+# ищется до того, как что-то тронуто: по меткам compose у контейнера бэкенда и
+# по расписанию бэкапов.
+compose_name() {
+    basename "$1" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_-' | sed 's/^[^a-z0-9]*//'
+}
+installs_elsewhere() {
+    {
+        docker ps -a --filter label=com.docker.compose.service=backend \
+            --format '{{.Label "com.docker.compose.project"}}|{{.Label "com.docker.compose.project.working_dir"}}' \
+            2>/dev/null || true
+        if [ -f /etc/cron.d/sekvyr-backup ]; then
+            sed -n 's|^.* root \(/[^ ]*\)/ops/backup\.sh.*$|-\|\1|p' /etc/cron.d/sekvyr-backup
+        fi
+    } | while IFS='|' read -r _proj _wd; do
+        _wd="$(printf '%s' "$_wd" | sed 's:/*$::')"
+        [ -n "$_wd" ] && [ "$_wd" != "$DIR" ] && [ -f "$_wd/.env" ] \
+            && [ -f "$_wd/ops/panel-watchdog.sh" ] && printf '%s|%s\n' "$_proj" "$_wd"
+    done | sort -u
+}
+if [ ! -f "$DIR/.env" ]; then
+    ELSEWHERE="$(installs_elsewhere)"
+    if [ -n "$ELSEWHERE" ]; then
+        OTHER_DIR="$(printf '%s\n' "$ELSEWHERE" | head -n 1 | cut -d'|' -f2)"
+        if [ "$DIR_SET" = "0" ]; then
+            die "панель Sekvyr уже стоит в $OTHER_DIR. Чтобы обновить ее, запустите эту команду с --dir $OTHER_DIR. Вторая панель рядом ставится с --dir в свой каталог"
+        fi
+        NEW_NAME="$(compose_name "$DIR")"
+        if printf '%s\n' "$ELSEWHERE" | cut -d'|' -f1 | grep -qxF "$NEW_NAME"; then
+            die "панель в $OTHER_DIR работает как проект docker compose $NEW_NAME, и у $DIR то же имя: запуск здесь заменил бы ее контейнеры. Выберите каталог с другим именем"
+        fi
+        say "В $OTHER_DIR стоит другая панель: ставлю вторую в $DIR"
+    fi
+fi
 
 # -- 3. Домен ----------------------------------------------------------------
 # То, что просили в командной строке: при повторном запуске главнее .env, и о
@@ -436,11 +478,18 @@ done
 # копии, которая устареет, нет.
 BACKUP_NEW=$BACKUP_PRE
 [ -s "$DIR/secret/backup.pass" ] || BACKUP_NEW=1
+# Обычные файлы расписания может занимать другая панель (вторая, поставленная
+# с --dir): ее бэкапы не должны остановиться оттого, что эта заняла имена.
+CRON_NAME=sekvyr
+OLD_CRON_DIR="$(sed -n 's|^.* root \(/[^ ]*\)/ops/backup\.sh.*$|\1|p' /etc/cron.d/sekvyr-backup 2>/dev/null | head -n 1)"
+if [ -n "$OLD_CRON_DIR" ] && [ "$OLD_CRON_DIR" != "$DIR" ] && [ -f "$OLD_CRON_DIR/.env" ]; then
+    CRON_NAME="sekvyr-$(compose_name "$DIR")"
+fi
 if [ "$CRON" = "1" ] && [ -d /etc/cron.d ]; then
     say "Ставлю ночные бэкапы и сторожа"
-    printf '17 3 * * * root %s/ops/backup.sh\n' "$DIR" > /etc/cron.d/sekvyr-backup
-    printf '*/5 * * * * root %s/ops/panel-watchdog.sh\n' "$DIR" > /etc/cron.d/sekvyr-watchdog
-    chmod 644 /etc/cron.d/sekvyr-backup /etc/cron.d/sekvyr-watchdog
+    printf '17 3 * * * root %s/ops/backup.sh\n' "$DIR" > "/etc/cron.d/$CRON_NAME-backup"
+    printf '*/5 * * * * root %s/ops/panel-watchdog.sh\n' "$DIR" > "/etc/cron.d/$CRON_NAME-watchdog"
+    chmod 644 "/etc/cron.d/$CRON_NAME-backup" "/etc/cron.d/$CRON_NAME-watchdog"
     "$DIR/ops/backup.sh" >/dev/null 2>&1 </dev/null || true
 fi
 if [ "$CRON" = "1" ] && [ ! -d /etc/cron.d ]; then
@@ -463,7 +512,11 @@ else
     printf '  Адрес: https://%s   Проверить: docker compose logs --tail=50\n' "$DOMAIN"
 fi
 printf '  Логин:   \033[1m%s\033[0m\n' "admin"
+# Шаги для начала нужны новой панели. Повторный запуск - это обновление, и
+# совет завести корневой ключ у панели, которая давно работает, только путает.
+SHOW_NEXT=0
 if [ "$FRESH" = "1" ] || [ -f secret/owner-unshown ]; then
+    SHOW_NEXT=1
     [ -n "$ADMIN_PW" ] || ADMIN_PW=$(grep '^SEKVYR_ADMIN_PASSWORD=' .env | cut -d= -f2-)
     printf '  Пароль:  \033[1m%s\033[0m\n' "$ADMIN_PW"
     rm -f secret/owner-unshown
@@ -495,6 +548,12 @@ if [ "$V6_GATEWAY" = "1" ] && ip -6 addr show scope global 2>/dev/null | grep -q
     printf '  Или публикуйте caddy только на IPv4.\033[0m\n'
 fi
 printf '\033[32m════════════════════════════════════════════════════════\033[0m\n\n'
+if [ "$SHOW_NEXT" = "0" ]; then
+    printf 'Панель обновлена: данные, ключи и настройки прежние.\n'
+    printf 'Если сейф открывается долями или своим ключом, откройте его в "Сейфе":\n'
+    printf 'после перезапуска панель ждет запертой.\n\n'
+    return 0
+fi
 printf 'Дальше по порядку:\n'
 printf '  1. Войдите, смените пароль, включите второй фактор.\n'
 printf '  2. Откройте «Сейф» и заведите корневой ключ. До этого панель заперта\n'

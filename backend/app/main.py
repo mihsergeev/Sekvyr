@@ -253,6 +253,16 @@ def create_app() -> FastAPI:
     async def _moved(_request: Request, exc: secrets_store.SecretChanged) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
+    # Значение сменили, пока человек его правил. Действующая версия уходит в
+    # ответ отдельным полем: по нему окно предлагает посмотреть разницу и
+    # перезаписать осознанно, а не разбирает текст ошибки.
+    @app.exception_handler(secrets_store.VersionConflict)
+    async def _conflict(_request: Request, exc: secrets_store.VersionConflict) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": str(exc), "conflict": "version", "current_version": exc.current},
+        )
+
     # Версия зашифрована поколением ключа окружения, которого нет (наследие
     # гонки записи со сменой ключа в версиях до 1.0.0). Значение не открыть;
     # человеку нужно знать, что делать, а не видеть голую 500.

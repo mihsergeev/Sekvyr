@@ -4,6 +4,82 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-10-24
+
+A security and fixes release. Upgrade with `sudo ops/update.sh`; read the
+upgrade notes at the end first.
+
+### Security
+
+- The machine API no longer swaps a project for its namesake. A machine that
+  asked for `group/project` used to get a project with the same name from
+  another group once its own was deleted or its grant ended, and the agent
+  rewrote the application's `.env` with those values. Now the address is taken
+  literally, and only a project that really moved away from that group is
+  found by the old address.
+- The approval threshold can no longer be bypassed by changing an
+  environment's parent, or by a maintainer who resets a developer's password
+  and approves their own change. Only a role at or above the threshold
+  approves, the author's level is fixed when the change is proposed, and
+  pending changes of a disabled or re-roled account are withdrawn.
+- A machine's grants hold only while the person who gave them can still give
+  them. Servers and clusters of a disabled or demoted person stop receiving
+  values; the panel says so before the change, and the owner can take them
+  over.
+- The migration preview no longer tells which keys exist in a folder the user
+  cannot write to.
+- Text from machine requests that are not yet authenticated (host name, client
+  id, report fields) is stripped of control, bidi and zero-width characters
+  before it reaches the audit log.
+- certifi 2026.10.23 drops the compromised emSign roots, and the agent is built
+  with Go 1.27.3 for the same certificate issue and earlier standard library
+  fixes.
+- Running the install command again on a connected server updates the agent
+  through the installed agent, which checks the release signature, instead of
+  trusting the panel for the binary.
+- Images and compose: the panel code belongs to root, root filesystems are
+  read-only, capabilities are dropped, and the database sits on a network with
+  no way out. Release actions are pinned by commit, and a release checks the
+  agent signature before anything is published.
+
+### Fixed
+
+- Migration from Infisical moves keys that come from imports; an odd answer
+  from the source gives a clear error instead of a server error; the preview
+  marks keys the migration will skip and says why.
+- The edit dialog does not save an empty value after the current one failed to
+  load, and an edit made over someone else's change is caught and shown as a
+  diff.
+- Browser tabs share sign-out and idle time: signing out or in as someone else
+  in one tab reaches the others.
+- Revoking a grant, lifting a deny and removing a group member ask first;
+  closing a dialog with unsaved edits asks first; a lost connection says so; a
+  deleted key can be brought back from the notice.
+- An approved change in production is announced; the weekly digest counts
+  approvals, migrations, restored snapshots, inheritance and copies.
+- A refusal by a grant that requires two-factor authentication says so, and
+  the owner can reset another account's second factor.
+- quickstart refuses to install a second panel over a running one in another
+  directory; `update.sh` pulls the release images before the backup and the
+  checkout; maintenance scripts say when they need sudo; the safety dump of
+  `restore.sh` is sealed; the watchdog reports again when the problem changes.
+- The agent treats a release as newer than its own prereleases.
+- Interface texts in Russian and English.
+
+### Upgrade notes
+
+- An agent connected without a group (`sudo sekvyr add api/prod`) now gets a
+  refusal once a project with the same name appears in another group. Add the
+  group: `sudo sekvyr add group/api/prod`.
+- A project moved to another group before 1.0.1 is not found by its old group:
+  the panel remembers moves only from this release on. Connect such
+  applications again with the new group.
+- An account disabled before 1.0.1 can be enabled again only by the owner.
+- Servers and clusters whose creator was disabled or demoted below maintainer
+  stop receiving values after the upgrade. Take them over on the server page.
+- The database is on its own network now. A service of your own that joined
+  the `internal` network to reach the database has to join `db` instead.
+
 ## [1.0.0] - 2026-10-13
 
 First public release.
@@ -80,4 +156,5 @@ First public release.
   the panel from source by itself. The agent image for Kubernetes is built for
   amd64 and arm64.
 
+[1.0.1]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.0.1
 [1.0.0]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.0.0

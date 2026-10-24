@@ -113,14 +113,25 @@ async def sweep_silent(session_factory) -> int:
 
 
 # Действия, которые считаем правками значений: сводка про них, а не про чтения.
+# Предложение (secret_pending) - еще не правка: приложения читают прежнее, и
+# правкой оно станет при подтверждении (secret_approved). Раньше считалось
+# предложение, а подтверждение нет, и неделя с двумя правками прода через
+# подтверждение выглядела как тихая.
 CHANGES = (
     "secret_written",
     "secret_deleted",
     "secret_rolled_back",
     "secret_renamed",
     "env_imported",
-    "secret_pending",
+    "secret_approved",
+    "secrets_migrated",
+    "snapshot_restored",
+    "secret_inherited",
+    "env_copied",
 )
+# Смена родителя окружения меняет все унаследованные значения разом, а в
+# журнале это правка окружения: отличаем ее по подробности.
+REPARENT_MARK = "%родитель: %"
 
 
 async def sweep_digest(session_factory) -> bool:
@@ -145,7 +156,14 @@ async def sweep_digest(session_factory) -> bool:
         rows = (
             await session.execute(
                 select(AuditLog.actor, func.count())
-                .where(AuditLog.ts >= since, AuditLog.action.in_(CHANGES))
+                .where(
+                    AuditLog.ts >= since,
+                    AuditLog.action.in_(CHANGES)
+                    | (
+                        (AuditLog.action == "environment_updated")
+                        & AuditLog.detail.like(REPARENT_MARK)
+                    ),
+                )
                 .group_by(AuditLog.actor)
                 .order_by(func.count().desc())
             )

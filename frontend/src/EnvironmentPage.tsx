@@ -34,6 +34,7 @@ import {
   whoSees,
   rejectSecret,
   renameSecret,
+  rollbackSecret,
   type Machine,
   type PendingRow,
   type Permissions,
@@ -46,6 +47,7 @@ import {
   type MutedNote,
   type SecretNote,
   type SecretRow,
+  versionConflict,
 } from './api'
 import { useAuth } from './auth'
 import {
@@ -57,6 +59,8 @@ import {
   unlockProjectKey,
   type Bytes,
 } from './e2e'
+import { forgetLater } from './clipboard'
+import { holdLeave } from './leave'
 import { useDialogs } from './Dialogs'
 import { ErrorNote } from './Notes'
 import { plural, useI18n } from './i18n'
@@ -66,6 +70,7 @@ import { usePoll } from './usePoll'
 import { absoluteUrl, type View } from './router'
 import {
   BulkEditModal,
+  HIDE_AFTER_MS,
   HistoryModal,
   ImportModal,
   SecretEditor,
@@ -82,8 +87,6 @@ import { ACTIONS } from './auditActions'
  * Значения скрыты и запрашиваются по одному: каждое обращение попадает в
  * журнал, и "кто видел прод-пароль" остается отвечаемым вопросом.
  */
-
-const HIDE_AFTER_MS = 45_000
 
 // i18n
 // Подписи событий: в ленте окружения нужны только те, что здесь и случаются.
@@ -133,7 +136,16 @@ function oldValue(iso: string, days: number): boolean {
  * Разница между ними - единственный признак несохраненной правки, и по нему же
  * решается, можно ли закрывать значение по таймеру. */
 // wide - значение не поместилось в строку и открыто под именем во всю ширину.
-type Opened = { value: string; draft: string; busy: boolean; note: string; wide?: boolean }
+// version - версия своего ключа, от которой идет правка (0 у унаследованного):
+// по ней сервер узнает, что ключ успели изменить, пока строка была открыта.
+type Opened = {
+  value: string
+  draft: string
+  busy: boolean
+  note: string
+  wide?: boolean
+  version: number
+}
 
 const NOTHING: Permissions = {
   list: false,
@@ -146,7 +158,9 @@ const NOTHING: Permissions = {
 
 type Modal =
   | { kind: 'new' }
-  | { kind: 'edit'; secret: SecretRow }
+  // resume - правка из строки списка, которую сервер не принял: ключ успели
+  // изменить. Окно продолжает ее, а не начинает заново.
+  | { kind: 'edit'; secret: SecretRow; resume?: { value: string; version: number; current: number } }
   | { kind: 'history'; secret: SecretRow }
   | { kind: 'import' }
   | { kind: 'bulk' }
@@ -203,6 +217,20 @@ export function EnvironmentPage({
   // Кто забирает это окружение: сервер с агентом или сборка.
   const [servers, setServers] = useState<Machine[]>([])
   const [opened, setOpened] = useState<Record<string, Opened>>({})
+  // Набранное в строке списка переход по разделам тоже не выбрасывает молча,
+  // как и правку в окне.
+  const drafting = Object.values(opened).some((row) => row.draft !== row.value)
+  useEffect(() => {
+    if (!drafting) return
+    return holdLeave(() =>
+      confirm({
+        title: t('Уйти, не сохранив?'),
+        text: t('Набранное не сохранено и пропадет.'),
+        submit: t('Уйти'),
+        danger: true,
+      }),
+    )
+  }, [drafting, confirm, t])
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [bulkMenu, setBulkMenu] = useState(false)
   // Режим выбора: чекбоксы в строках появляются по требованию, а не висят
@@ -585,7 +613,13 @@ export function EnvironmentPage({
       const value = await incoming(res.value)
       setOpened((prev) => ({
         ...prev,
-        [id]: { value, draft: value, busy: false, note: '' },
+        [id]: {
+          value,
+          draft: value,
+          busy: false,
+          note: '',
+          version: secret.inherited_from ? 0 : res.version,
+        },
       }))
       setError('')
       // Значение не висит на экране вечно. Начатую правку таймер не трогает:
@@ -633,7 +667,11 @@ export function EnvironmentPage({
     const id = key(secret)
     try {
       const res = await readSecret(envId, secret.name, secret.path)
-      await copyText(await incoming(res.value))
+      const value = await incoming(res.value)
+      await copyText(value)
+      // Пароль не лежит в буфере до вечера: через время буфер чистится, если
+      // в нем все еще он.
+      forgetLater(value)
       setCopied(id)
       window.setTimeout(() => setCopied((cur) => (cur === id ? null : cur)), 1500)
       toast(`${secret.name} ${t('скопирован')}`)
@@ -682,6 +720,7 @@ export function EnvironmentPage({
         name: secret.name,
         path: secret.path,
         value: await outgoing(cur.draft),
+        expected_version: cur.version,
       })
       // Строка остается открытой с новым значением: так видно, что сохранилось
       // именно то, что набрали, и не нужно открывать ключ заново ради проверки.
@@ -695,13 +734,32 @@ export function EnvironmentPage({
           // Раскладку не меняем: строка, в которой только что правили, не
           // должна прыгать от нажатия "Сохранить".
           wide: prev[id]?.wide,
+          // Предложенная правка версию не двигает: действует прежняя.
+          version: row.pending ? cur.version : row.version,
         },
       }))
       await reload()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
       setOpened((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], busy: false } } : prev))
+      // Ключ успели изменить: в строке не сравнить и не выбрать, поэтому
+      // правка уходит в окно, где видно разницу и можно перезаписать.
+      const clash = versionConflict(e)
+      if (clash) {
+        setModal({
+          kind: 'edit',
+          secret,
+          resume: { value: cur.draft, version: cur.version, current: clash.current },
+        })
+        return
+      }
+      setError(e instanceof Error ? e.message : String(e))
     }
+  }
+
+  /** Значение и версия ключа для окна правки. */
+  async function readCurrent(name: string, path: string) {
+    const res = await readSecret(envId, name, path)
+    return { value: await incoming(res.value), version: res.version }
   }
 
   /** Значение на сервер: в e2e-проекте его запечатывает браузер. */
@@ -797,10 +855,11 @@ export function EnvironmentPage({
       danger: true,
     })
     if (!yes) return
-    await act(async () => {
+    const done = await act(async () => {
       for (const row of rows) await deleteSecret(envId, row.name, row.path)
       unpick()
     })
+    if (done) offerRestore(t('Удалено ключей: {n}', { n: rows.length }), rows)
   }
 
   async function bringBack(note: MutedNote) {
@@ -832,7 +891,7 @@ export function EnvironmentPage({
     })
   }
 
-  async function act(action: () => Promise<unknown>) {
+  async function act(action: () => Promise<unknown>): Promise<boolean> {
     setOpenMenu(null)
     try {
       await action()
@@ -844,9 +903,24 @@ export function EnvironmentPage({
       // сотом ключе шапка страницы далеко за пределами экрана - отказ там
       // просто никто не увидит.
       await notify(t('Не получилось'), e instanceof Error ? e.message : String(e))
-      return
+      return false
     }
     await reload()
+    return true
+  }
+
+  /* Удаленный ключ возвращается откатом к версии, которая действовала до
+   * удаления. Раньше окно обещало "удаление обратимо", а вернуть было нечем:
+   * ключ пропадал из списка вместе с кнопкой истории. */
+  function offerRestore(text: string, rows: SecretRow[]) {
+    const before = rows.map((row) => ({ name: row.name, path: row.path, version: row.version }))
+    toast(text, {
+      label: t('Вернуть'),
+      run: () =>
+        void act(async () => {
+          for (const row of before) await rollbackSecret(envId, row.name, row.path, row.version)
+        }),
+    })
   }
 
   async function review(row: PendingRow, approve: boolean) {
@@ -1861,11 +1935,14 @@ export function EnvironmentPage({
                                         setOpenMenu(null)
                                         const yes = await confirm({
                                           title: t('Удалить ключ?'),
-                                          text: `${s.name} — ${t('историю это не стирает, удаление обратимо')}`,
+                                          text: `${s.name}: ${t('история остается. Сразу после удаления ключ возвращается кнопкой "Вернуть", позже - если завести его заново с тем же именем в той же папке: прежние версии будут в его истории.')}`,
                                           submit: t('Удалить'),
                                           danger: true,
                                         })
-                                        if (yes) void act(() => deleteSecret(envId, s.name, s.path))
+                                        if (!yes) return
+                                        if (await act(() => deleteSecret(envId, s.name, s.path))) {
+                                          offerRestore(t('{name}: ключ удален', { name: s.name }), [s])
+                                        }
                                       }}
                                     >
                                       {t('Удалить')}
@@ -1925,6 +2002,7 @@ export function EnvironmentPage({
       {modal?.kind === 'new' && (
         <SecretEditor
           secret={null}
+          read={can.read ? readCurrent : undefined}
           onClose={() => setModal(null)}
           onSaved={() => {
             setModal(null)
@@ -1939,16 +2017,13 @@ export function EnvironmentPage({
       {modal?.kind === 'edit' && (
         <SecretEditor
           secret={modal.secret}
-          load={
-            can.read
-              ? () =>
-                  readSecret(envId, modal.secret.name, modal.secret.path).then((r) =>
-                    incoming(r.value),
-                  )
-              : undefined
-          }
+          resume={modal.resume}
+          read={can.read ? readCurrent : undefined}
           onClose={() => setModal(null)}
           onSaved={() => {
+            // Правка из строки дописана в окне: строка с прежним черновиком
+            // больше не нужна.
+            if (modal.resume) hide(key(modal.secret))
             setModal(null)
             void reload()
           }}

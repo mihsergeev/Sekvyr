@@ -8,6 +8,7 @@
 #   - пульса нет или он протух - контейнер или база мертвы;
 #   - панель заперта - значения не выдаются никому, включая машины;
 #   - сама панель говорит, что её канал оповещений сломан (alerts_ok=0).
+# Сменилась проблема (запертая панель замолчала) - сообщает снова.
 #
 # Реквизиты берет из того же пульса, поэтому достучится и тогда, когда панель с
 # базой уже не отвечают.
@@ -48,6 +49,21 @@ MAX_AGE="${SEKVYR_HB_MAX_AGE:-600}"
 STRIKES="${SEKVYR_WD_STRIKES:-2}"
 NOW=$(date +%s)
 
+# Пульс - файл 0600 пользователя контейнера, и читается он от root. Без прав на
+# него или на свое состояние сторож видел бы "пульса нет" там, где его просто
+# не прочесть, и мог позвать людей на ровном месте. Это ошибка запуска, а не
+# поломка панели: о ней говорится в вывод, оповещения нет.
+_hb_dir="$(dirname "$HB")"
+_st_dir="$(dirname "$STATE")"
+if { [ -d "$_hb_dir" ] && [ ! -x "$_hb_dir" ]; } \
+    || { [ -e "$HB" ] && [ ! -r "$HB" ]; } \
+    || { [ -e "$STATE" ] && { [ ! -r "$STATE" ] || [ ! -w "$STATE" ]; }; } \
+    || { [ ! -e "$STATE" ] && [ -d "$_st_dir" ] && [ ! -w "$_st_dir" ]; }; then
+    msg "сторожу из-под $(id -un) не прочесть пульс $HB или не записать $STATE: запустите его от root (sudo $APP/ops/panel-watchdog.sh)" \
+        "the watchdog running as $(id -un) cannot read the heartbeat $HB or write $STATE: run it as root (sudo $APP/ops/panel-watchdog.sh)" >&2
+    exit 2
+fi
+
 val() { grep -m1 "^$1=" "$HB" 2>/dev/null | cut -d= -f2-; }
 
 send() {
@@ -67,16 +83,21 @@ send() {
 }
 
 problem=""
+kind=""
 if [ ! -f "$HB" ]; then
+    kind=nohb
     problem="$(msg "пульса нет — панель не запущена или не доходит до базы" "no heartbeat: the panel is not running or cannot reach the database")"
 else
     ts=$(val ts); sealed=$(val sealed); ok=$(val alerts_ok)
     age=$(( NOW - ${ts:-0} ))
     if [ "${ts:-0}" -eq 0 ] || [ "$age" -gt "$MAX_AGE" ]; then
+        kind=silent
         problem="$(msg "панель молчит ${age}с (порог ${MAX_AGE}с) — контейнер или база мертвы" "the panel has been silent for ${age}s (limit ${MAX_AGE}s): the container or the database is dead")"
     elif [ "$sealed" = "1" ]; then
+        kind=sealed
         problem="$(msg "панель ЗАПЕРТА — значения не выдаются никому, включая серверы и кластеры" "the panel is SEALED: values are served to no one, servers and clusters included")"
     elif [ "$ok" = "0" ]; then
+        kind=channel
         problem="$(msg "панель жива, но её канал оповещений сломан: последняя отправка не дошла или Telegram не отвечает" "the panel is alive but its alert channel is broken: the last delivery failed or Telegram does not answer")"
     fi
 fi
@@ -84,19 +105,42 @@ fi
 panel=$(val panel); [ -z "$panel" ] && panel="$(hostname)"
 tag="🚑 Sekvyr [$panel]"
 
-# Состояние: первая строка - сообщали ли уже (ok|problem), вторая - счетчик.
+# Состояние: первая строка - сообщали ли уже (ok|problem), вторая - счетчик,
+# третья - вид проблемы на прошлой проверке, четвертая - вид, о котором
+# сообщили. Без вида сторож, раз сообщив о проблеме, молчал до возврата в
+# норму: панель, о которой сказали "заперта", могла потом умереть совсем, и
+# об этом не узнавал никто.
 alerted=$(sed -n 1p "$STATE" 2>/dev/null); [ -z "$alerted" ] && alerted=ok
 strikes=$(sed -n 2p "$STATE" 2>/dev/null)
 case "$strikes" in ''|*[!0-9]*) strikes=0 ;; esac
+seen=$(sed -n 3p "$STATE" 2>/dev/null)
+told=$(sed -n 4p "$STATE" 2>/dev/null)
 
 if [ -n "$problem" ]; then
-    strikes=$((strikes + 1))
-    if [ "$alerted" != "problem" ] && [ "$strikes" -ge "$STRIKES" ]; then
+    # Состояние от прежней версии сторожа: о проблеме сообщили, а вид не
+    # записан. Считаем, что сообщали о нынешней: иначе сразу после обновления
+    # пришло бы второе сообщение о том же.
+    if [ "$alerted" = "problem" ] && [ -z "$told" ]; then
+        told="$kind"
+        seen="$kind"
+    fi
+    # Новая беда после сообщения считается заново: о ней тоже сообщают, когда
+    # она продержалась STRIKES проверок подряд, а не мелькнула на одной.
+    if [ "$alerted" = "problem" ] && [ "$kind" != "$seen" ]; then
+        strikes=1
+    else
+        strikes=$((strikes + 1))
+    fi
+    seen="$kind"
+    if [ "$strikes" -ge "$STRIKES" ] && { [ "$alerted" != "problem" ] || [ "$kind" != "$told" ]; }; then
         send "$tag: $problem"
         alerted=problem
+        told="$kind"
     fi
 else
     strikes=0
+    seen=""
+    told=""
     if [ "$alerted" = "problem" ]; then
         send "$(msg "✅ Sekvyr [$panel]: панель снова в норме" "✅ Sekvyr [$panel]: the panel is back to normal")"
         alerted=ok
@@ -104,4 +148,4 @@ else
 fi
 
 mkdir -p "$(dirname "$STATE")"
-printf '%s\n%s\n' "$alerted" "$strikes" > "$STATE"
+printf '%s\n%s\n%s\n%s\n' "$alerted" "$strikes" "$seen" "$told" > "$STATE"

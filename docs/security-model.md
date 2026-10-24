@@ -89,7 +89,8 @@ how that rule is kept. Who can attack the panel and what stops them is in the
   the first action could lock the owner out.
 - A deny beats an allow, an expired grant does nothing, and a grant can require
   two-factor authentication to be on. That is a condition of access, not a
-  reminder.
+  reminder. A refusal under such a grant says so: two-factor is needed, not
+  "no right".
 - The role sets the hierarchy and the approval threshold, and for a viewer also a
   ceiling: a viewer sees keys and reads values even if a group hands them a write
   permission.
@@ -97,10 +98,18 @@ how that rule is kept. Who can attack the panel and what stops them is in the
   strictly below their own. Likewise only a role strictly below one's own can be
   granted, so nobody can promote themselves or touch an equal. The last active
   owner can be neither disabled nor demoted.
+- A disabled account is turned back on only by a role at or above the one that
+  disabled it: otherwise a maintainer would bring back someone the owner had
+  removed. Accounts disabled before 1.0.1 count as disabled by the owner.
 - Setting someone else's password means signing in under that name with all its
   permissions, so it takes being able to do everything that account can, or
   being the owner. Otherwise a maintainer without access to production would
-  get there through a developer.
+  get there through a developer. Setting someone else's password sends an
+  alert, not just a log line.
+- Two-factor authentication of another account (someone lost their phone) is
+  reset only by the owner and only for a role below the owner. Existing sessions
+  end, and the event goes into the log and the alerts. The owner's own second
+  factor is reset only by the emergency reset from `.env`.
 - Servers are managed by maintainers too, but a maintainer can give a machine
   only an environment they can read themselves, whether by connecting it or with
   a server enrollment token, and for no longer than they can read it: a
@@ -109,11 +118,28 @@ how that rule is kept. Who can attack the panel and what stops them is in the
   machine, or changing its addresses or expiry date. Otherwise the role that
   sets up servers would bypass the policies: connect your own machine to someone
   else's environment and read the values through the machine API.
+- Machine access rests on people and is checked on every request, not only when
+  it is granted. A machine grant works while whoever gave it could still give it
+  now: the account is enabled, the role is maintainer or above, and they read
+  everything they granted. If whoever created the machine (they hold its
+  secret) or, for a pod, whoever created its cluster (they control the cluster
+  keys) is disabled or demoted, the machine gets neither a token nor values.
+  Otherwise a person who has left would keep reading production through their
+  server.
+- Disabling an account or demoting it below maintainer tells beforehand how many
+  servers and clusters will stop receiving values. The owner, or someone who
+  reads everything they receive, can bring them back by taking the server or
+  cluster over: from then on the machine and its grants rest on them.
 - The same holds for environments: a child serves its parent's values to
   everyone who reads the child, and a copy takes them for good. So a parent can
   be set, and an environment copied, only by someone who reads it in full, every
   folder included, and the environment itself is changed only with the `write`
   right on it.
+- `write` without `list` in a folder is a blind write, not a hidden one: from
+  the outcome of a write, an import or a migration without overwrite, the
+  writer learns whether a key with the name they chose was already there. They
+  never see the other names or any values, and since they can already overwrite
+  any key whose name they guess, this tells them little more.
 - Maintainers and above see the audit log and the account list in full,
   including the names of projects, environments and keys where they hold no
   policy: this is the role that manages accounts and servers, and incidents are
@@ -131,11 +157,23 @@ how that rule is kept. Who can attack the panel and what stops them is in the
   pending version that is not served until it is approved: applications keep
   reading the previous value all that time.
 - What cannot wait for approval is refused below the threshold with 403:
-  deleting and renaming a key, import, migration, returning to inheritance and
-  restoring a snapshot. Otherwise these would get around the threshold.
+  deleting and renaming a key, import, migration, returning to inheritance,
+  restoring a snapshot and changing the parent of an environment. Otherwise
+  these would get around the threshold: a new parent changes every inherited
+  value at once.
 - The approver must rank above the author and must not be the author. Both rules
   are needed: without the first it is a formality between equals, without the
   second an "apply" button.
+- The approver must also be at or above the threshold. Otherwise, with the
+  threshold at owner, a maintainer would set a developer's password, propose a
+  change as that developer and approve it themselves. Rejecting is open below
+  the threshold too: a rejection changes no values.
+- The author's level is stored with the change when it is proposed. When the
+  author is disabled or their role changes, their pending changes are withdrawn:
+  rejected, with a log entry. The change was waiting for someone above the old
+  role, and approving it against the new one would be a different rule.
+- An approved change in a watched environment is alerted the same way as a
+  direct one: that is the moment the value in production changes.
 - Only the panel owner changes the threshold. Otherwise the person whose edits
   need approval would turn approval off first thing.
 
@@ -189,6 +227,12 @@ how that rule is kept. Who can attack the panel and what stops them is in the
   key is built into the binary, the panel does not know the private one, and a
   forged description is rejected: the agent stays on its version and never goes
   back on its own.
+- Re-running the installer on a connected node does not download the binary:
+  the installed agent replaces it (`sekvyr update`) with the same signature
+  check and no rollback. The installer script itself is not covered by the
+  signature: it comes from the panel and runs as root. So on a connected node
+  the agent is updated with `sudo sekvyr update`, and the script is run for a
+  new node or a new unit after reading it.
 - The values file is written with mode 0400 and replaced as a whole rather than
   appended to: an application never sees a half-written `.env`. Values in it are
   written so that docker compose and systemd read them literally. It is not a
@@ -278,7 +322,8 @@ how that rule is kept. Who can attack the panel and what stops them is in the
 - `ops/panel-watchdog.sh` runs outside the containers and reads the panel's
   heartbeat. It reports when the panel is silent, when it is sealed and when its
   own alert channel is broken, and it gets through even when the panel and the
-  database no longer answer.
+  database no longer answer. When the problem changes (a sealed panel goes
+  silent), it reports again.
 
 ## Deployment
 

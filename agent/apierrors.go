@@ -12,6 +12,7 @@ var apiErrors = map[string]string{
 	"Адрес не в белом списке личности":                                                                                       "the address is not on the identity's allow-list",
 	"Слишком много попыток — повторите позже":                                                                                "too many attempts, try again later",
 	"Неверная пара идентификатор и секрет":                                                                                   "wrong client id or secret",
+	"Тот, кто завел машину или ее кластер, больше не может выдавать ей доступ":                                               "whoever created this machine or its cluster can no longer grant it access",
 	"Этой машине окружение не выдано":                                                                                        "this machine has not been granted the environment",
 	"Проект с таким именем есть в нескольких группах — укажите group":                                                        "several groups have a project with this name: set the group",
 	"Проект или окружение не найдено":                                                                                        "project or environment not found",

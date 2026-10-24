@@ -1,0 +1,77 @@
+name: Audit
+
+# Раз в неделю: известные уязвимости в зависимостях и в опубликованных образах.
+# Находки появляются и без единого коммита, а CI запускается только на правку.
+# В CI те же проверки только сообщают, здесь задание падает, и о сбое приходит
+# письмо владельцу репозитория.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Те же версии, что в образе: constraints.txt полный, поэтому pip-audit
+  # проверяет его как есть, ничего не ставя.
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: pip-audit
+        run: |
+          pip install pip-audit==2.10.1
+          pip-audit --no-deps --disable-pip -r backend/constraints.txt
+
+  # Только то, что попадает в сборку: инструменты разработки в образ не идут.
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: npm audit
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
+  # Зависимостей у агента нет, но стандартная библиотека Go - тоже код, и
+  # govulncheck смотрит, вызывается ли уязвимое место на деле.
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+      - name: govulncheck
+        working-directory: agent
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  # Образы, которые ставят люди: :latest из GHCR, тот же адрес, что в
+  # compose.ghcr.yml.
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [backend, frontend, agent]
+    steps:
+      - name: Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/mihsergeev/sekvyr-${{ matrix.image }}:latest
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

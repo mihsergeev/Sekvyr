@@ -6,6 +6,7 @@ import {
   getToken,
   me,
   setToken,
+  watchToken,
   type Me,
 } from './api'
 import { AboutModal } from './AboutModal'
@@ -48,6 +49,10 @@ const THEME_KEY = 'sekvyr_theme'
 // открывают с любой раскладкой, и переключать её ради перехода - издевательство.
 // Через сколько минут бездействия закрывать сессию: ключ в хранилище браузера.
 const IDLE_KEY = 'sekvyr_idle_minutes'
+// Когда человек последний раз что-то делал в любой из вкладок панели. Без
+// общей отметки вкладка, забытая в фоне, выходила по бездействию и уносила
+// сессию у той, в которой работали: токен у них один.
+const ACTIVE_KEY = 'sekvyr_active_at'
 
 const HOTKEYS: Record<string, View['kind']> = {
   p: 'projects',
@@ -91,6 +96,9 @@ export default function App() {
   const { dismiss } = useDialogs()
   const lastUser = useRef<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // Панель не ответила при загрузке. Это не конец сессии: токен цел, и экран
+  // входа здесь соврал бы. null - отвечает.
+  const [unreachable, setUnreachable] = useState<string | null>(null)
   // Состояние страницы живет в адресе: ссылкой на проект или окружение можно
   // поделиться, работают "назад" и "вперед", а обновление страницы не бросает
   // человека на главную.
@@ -240,13 +248,21 @@ export default function App() {
       // не наследует ключи e2e прежнего.
       if (lastUser.current !== next.username) forgetAllKeys()
       lastUser.current = next.username
+      setUnreachable(null)
       setUser(next)
     } catch (err) {
       // Токен мог протухнуть, пережить смену пароля или отключение учетки - во
-      // всех случаях это "показать вход", а не пустая страница.
-      if (err instanceof ApiError && err.status === 401) setToken(null)
+      // всех случаях это "показать вход", а не пустая страница. Отказ любого
+      // другого рода - панель лежит или сеть пропала: вход тут не поможет, а
+      // токен еще пригодится, когда панель вернется.
       forgetAllKeys()
       setUser(null)
+      if (err instanceof ApiError && err.status === 401) {
+        setToken(null)
+        setUnreachable(null)
+      } else {
+        setUnreachable(err instanceof Error ? err.message : String(err))
+      }
     } finally {
       setLoading(false)
     }
@@ -268,6 +284,41 @@ export default function App() {
     window.addEventListener(SESSION_GONE, gone)
     return () => window.removeEventListener(SESSION_GONE, gone)
   }, [dismiss])
+
+  // Токен общий на все вкладки. Вышли в соседней - здесь тоже вход, и открытые
+  // значения с ключами e2e уходят вместе со страницей. Вошли там другим
+  // человеком - эта вкладка уже ходит с его токеном, а на экране права и
+  // значения прежнего: перезагрузка начинает с чистого листа.
+  const signedIn = useRef(false)
+  signedIn.current = Boolean(user)
+  useEffect(
+    () =>
+      watchToken((token) => {
+        if (!token) {
+          setLeaveGuard(null)
+          dismiss()
+          forgetAllKeys()
+          setUser(null)
+          return
+        }
+        if (!signedIn.current) {
+          void load()
+          return
+        }
+        const restart = () => {
+          forgetAllKeys()
+          window.location.reload()
+        }
+        // Тот же человек вошел заново (сессия кончилась и в соседней вкладке
+        // он вошел снова): набранное здесь не выбрасываем.
+        me()
+          .then((next) => {
+            if (next.username !== lastUser.current) restart()
+          })
+          .catch(restart)
+      }),
+    [dismiss, load],
+  )
 
   useEffect(() => {
     if (!user) return
@@ -312,22 +363,46 @@ export default function App() {
   // Через сколько минут бездействия закрывать сессию. 0 - не закрывать; это
   // состояние по умолчанию, потому что на своем компьютере такой выход только
   // мешает.
+  // Бездействие считается по всем вкладкам сразу: отметка о последнем
+  // действии общая (ACTIVE_KEY), и фоновая вкладка не выходит, пока в соседней
+  // работают.
+  const logoutRef = useRef(() => {})
+  logoutRef.current = logout
   useEffect(() => {
     if (!user || !idleMinutes) return
     let last = Date.now()
+    let shared = 0
+    const share = () => {
+      // Не на каждое движение: запись в хранилище будит все вкладки.
+      if (last - shared < 5_000) return
+      shared = last
+      try {
+        localStorage.setItem(ACTIVE_KEY, String(last))
+      } catch {
+        // Хранилище закрыто: считаем по своей вкладке, как раньше.
+      }
+    }
     const touch = () => {
       last = Date.now()
+      share()
     }
+    share()
     const events = ['mousedown', 'keydown', 'wheel', 'touchstart', 'visibilitychange']
     for (const name of events) window.addEventListener(name, touch, { passive: true })
     const timer = window.setInterval(() => {
-      if (Date.now() - last >= idleMinutes * 60_000) logout()
+      let other = 0
+      try {
+        other = Number(localStorage.getItem(ACTIVE_KEY) ?? 0) || 0
+      } catch {
+        other = 0
+      }
+      if (Date.now() - Math.max(last, other) >= idleMinutes * 60_000) logoutRef.current()
     }, 30_000)
     return () => {
       for (const name of events) window.removeEventListener(name, touch)
       window.clearInterval(timer)
     }
-  })
+  }, [user, idleMinutes])
 
   // "Выйти" из меню: с несохраненными долями на экране сначала спросить.
   async function askLogout() {
@@ -354,6 +429,30 @@ export default function App() {
   // номер, когда проект уже загружен: до этого показывать "не найдено" рано.
 
   if (loading) return null
+  if (!user && unreachable !== null) {
+    return (
+      <div className="login-wrap">
+        <div className="card login-card stack">
+          <div className="login-brand">
+            <BrandLogo where="login" branding={branding} />
+          </div>
+          <h2>{t('Нет связи с панелью')}</h2>
+          <p className="muted small">{unreachable}</p>
+          <p className="muted small">
+            {t('Сессия при этом не закончилась: когда панель ответит, работа продолжится с того же места.')}
+          </p>
+          <button
+            onClick={() => {
+              setLoading(true)
+              void load()
+            }}
+          >
+            {t('Повторить')}
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (!user) return <LoginPage onLogin={load} branding={branding} />
 
   const auth = toAuth(user)

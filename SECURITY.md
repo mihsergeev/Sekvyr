@@ -5,8 +5,10 @@ security reports are very welcome.
 
 ## Reporting a vulnerability
 
-Please report privately through GitHub Security Advisories ("Report a
-vulnerability" on the repository's Security tab) rather than in a public issue.
+Please report privately through GitHub's private vulnerability reporting: the
+"Report a vulnerability" button on the repository's Security tab, or directly at
+https://github.com/mihsergeev/Sekvyr/security/advisories/new. Please do not open
+a public issue for it.
 Include what you did, what happened, and the version (the gear menu, "About"
 shows it). Reports are usually acknowledged within a few days.
 

@@ -187,6 +187,14 @@ Without `-o` the agent refuses: two applications in one file would overwrite it
 every minute. An application from another group is named with its group, the
 same way `sekvyr list` shows it: `sudo sekvyr rm initech/frontend/prod`.
 
+The agent keeps the project address together with its group. If a project is
+moved to another group, connected servers keep getting it by the old address.
+A project with the same name in another group never takes that address over,
+though: if the project is deleted or the server's grant runs out, the agent gets
+a refusal and leaves the application its last values instead of picking up the
+namesake's. Without a group (`sekvyr add frontend/prod`) a project is found only
+while its name is unique in the panel.
+
 ## Why `up -d` and not `restart`
 
 `docker compose restart` restarts the process inside the **same** container, while
