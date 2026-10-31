@@ -6,7 +6,7 @@
 # -buildid= обязателен: build ID считается от содержимого исходников, и без
 # него правка одного комментария давала другой бинарь, а с ним и 500 вместо
 # агента, пока сборку не подпишут заново.
-FROM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS agent
+FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS agent
 WORKDIR /src
 COPY agent/ ./
 RUN set -eu; \
@@ -16,7 +16,7 @@ RUN set -eu; \
             -o /out/sekvyr-linux-$arch .; \
     done
 
-FROM python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704
+FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
 
 # Панель работает не от root. gosu нужен entrypoint'у: он стартует от root ровно
 # затем, чтобы выровнять владельца смонтированного тома, и сразу сбрасывает
