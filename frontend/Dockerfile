@@ -11,6 +11,11 @@ RUN npm run build
 # собран под работу от uid 101 и порт 8080.
 FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
 
+# The pinned base predates fixes for the bundled Brotli and curl libraries.
+USER root
+RUN apk upgrade --no-cache brotli-libs curl libcurl
+USER 101
+
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /build/dist /usr/share/nginx/html
 EXPOSE 8080

@@ -228,29 +228,26 @@ jobs:
       # не повод держать правку, которая к нему отношения не имеет. Падает на
       # находках еженедельный audit.yml, по опубликованным образам.
       - name: Trivy scan (backend image)
-        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: sekvyr-backend
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: "0"
+          exit-code: "1"
       - name: Trivy scan (frontend image)
-        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: sekvyr-frontend
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: "0"
+          exit-code: "1"
       - name: Trivy scan (agent image)
-        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: sekvyr-agent
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: "0"
+          exit-code: "1"
       # Заголовки безопасности нужны самой странице панели, а не только /api/:
       # nginx молча отбрасывает их в location со своим add_header, и главная
       # страница так однажды жила без CSP и без запрета фрейма.

@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format is based on
 
 ### Security
 
+- Upgrade Brotli and curl packages in the frontend image for CVE-2026-111497
+  and CVE-2026-92392. Image scans now block CI on fixable HIGH or CRITICAL issues.
 - Exclude local notes, environment files and key files from Docker build contexts.
 - Refresh the pinned Python, Go and Alpine base images. All agent build paths
   use the same pinned Go image.
