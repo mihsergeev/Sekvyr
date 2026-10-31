@@ -1,16 +1,16 @@
 {
-  "version": "1.0.2",
+  "version": "1.0.3",
   "files": {
     "amd64": {
-      "sha256": "c2a6f3297f363992dda1be6ea7ef5d3c0753d2e8588bf81ac298ebde4181d11e",
+      "sha256": "45372dc47c45e007bfdf80516a845cbf604e7821848c9fbf9c4d923c487a9507",
       "size": 7389308
     },
     "arm64": {
-      "sha256": "9fb27386f786542d76d1a34a706bffdd5306615920a8c39862275b694c988fd9",
+      "sha256": "c789cdf39a8ad421f73a515f85ca23a5f58b3e1523fc1ece64c83e26d9890060",
       "size": 6815868
     }
   },
-  "signature": "prP91O7gI6nNwpcDfGajFJUVuK0J4ceBU+25UhUZlmHD25jrAseOnUQ9yjewFTIhJ51eupraRrwXUOZJhPNtCA==",
-  "signed_at": "2026-10-24T18:02:36.490513+00:00",
-  "signature_v2": "rUy2EKhKkxAyMc/xMlADn/f7jtV5dgrE5gBv16Ak7fQt2ET65RFbukwsRaF3KLoUaylJ+Uj/MZxWeBxxBLIOBQ=="
+  "signature": "SlmXNC3OX4xq7WlbwyFpLcj9zQLD15YCicfhhp3k5fruK7a0vwkURJy1S2V8hJk5FluwmVD7OcEuIWqVeqhZCQ==",
+  "signed_at": "2026-10-31T18:17:04.269400+00:00",
+  "signature_v2": "6E+jRgljG8EOz0NkG8ejvBW5uRvuhJjfyyFLYkW3N2WYEnRMFTF6BCcXgH5Je2Vu9RpR1MQSW7rjmoGPPPmaAw=="
 }

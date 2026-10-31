@@ -2,3 +2,6 @@ build/
 *_test.go
 Dockerfile
 .dockerignore
+.env
+.env.*
+*.key

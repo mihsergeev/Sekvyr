@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-10-31
+
+### Security
+
+- Exclude local notes, environment files and key files from Docker build contexts.
+- Refresh the pinned Python, Go and Alpine base images. All agent build paths
+  use the same pinned Go image.
+
+### Changed
+
+- Update FastAPI to 0.162.0, Starlette to 1.10.0, Alembic to 1.20.1,
+  pydantic-settings to 2.16.2, pycparser to 3.12 and oxlint to 1.90.0.
+- Rebuild and sign agent 1.0.3 with the refreshed build image.
+
 ## [1.0.2] - 2026-10-24
 
 Dependency updates and two hardening changes. Upgrade with
@@ -184,6 +198,7 @@ First public release.
   the panel from source by itself. The agent image for Kubernetes is built for
   amd64 and arm64.
 
+[1.0.3]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.0.3
 [1.0.2]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.0.2
 [1.0.1]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.0.1
 [1.0.0]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.0.0

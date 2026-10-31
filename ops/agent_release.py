@@ -74,7 +74,7 @@ ROOT = Path(__file__).resolve().parent.parent
 AGENT = ROOT / "agent"
 MANIFEST = AGENT / "manifest.json"
 PUBKEY = AGENT / "pubkey.txt"
-GO_IMAGE = "golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c"
+GO_IMAGE = "golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb"
 ARCHES = ("amd64", "arm64")
 
 

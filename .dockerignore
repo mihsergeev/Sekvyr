@@ -21,3 +21,13 @@ backups/
 agent-signing-key.txt
 agent-out/
 agent/build/
+.claude/
+CLAUDE.local.md
+PLAN.ru.md
+CHANGELOG.internal.ru.md
+.ruff_cache/
+.env.*
+!.env.example
+**/*.key
+**/*.unseal
+**/*.sealed

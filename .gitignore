@@ -49,3 +49,4 @@ backups/
 # Закрытый ключ подписи агента: он живет в менеджере паролей, а не здесь
 agent-signing-key.txt
 agent/build/
+agent-out/
