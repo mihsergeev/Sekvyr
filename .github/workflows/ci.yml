@@ -224,9 +224,8 @@ jobs:
               echo "$image: labels of the base image"; exit 1
             fi
           done
-      # Отчет по уязвимостям в образах, не блокирует: находка в базовом образе
-      # не повод держать правку, которая к нему отношения не имеет. Падает на
-      # находках еженедельный audit.yml, по опубликованным образам.
+      # Исправляемые HIGH и CRITICAL блокируют выпуск. Еженедельный audit.yml
+      # дополнительно проверяет уже опубликованные образы.
       - name: Trivy scan (backend image)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
