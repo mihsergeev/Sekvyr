@@ -33,11 +33,11 @@ jobs:
       FRONTEND_ASSET: ${{ inputs.frontend_asset }}
       OPERATOR_ASSET: ${{ inputs.operator_asset }}
     steps:
-      - name: Require both successful main CI runs for this commit
+      - name: Require both successful staging CI runs for this commit
         run: |
           set -euo pipefail
           for workflow in ci.yml operator.yml; do
-            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$GITHUB_SHA&branch=main&event=push&status=success" \
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$GITHUB_SHA&branch=rc%2Fpanel-1.1.0-operator-0.1.0&event=push&status=success" \
               --jq '.workflow_runs | length' | awk '$1 > 0 { ok=1 } END { exit !ok }'
           done
       - name: Verify reviewed archives

@@ -15,10 +15,11 @@ import re
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
-from application import require, wait, write_values_once
+from application import require, wait
 from fixture import canonical, write_private
 from process_control import ProcessControl
 
@@ -137,11 +138,19 @@ def marker(path, suffix, expected):
     return True
 
 
+def publish_marker(path, raw):
+    """Expose complete bytes under the final name without replacing a marker."""
+    with tempfile.TemporaryDirectory(prefix='.watchdog-', dir=path.parent) as directory:
+        staged = Path(directory) / 'marker'
+        write_private(staged, raw)
+        os.link(staged, path)
+
+
 def drive_watchdog(path, plan, raw):
     """Sole pause issuer: parent can never pause after this worker has exited."""
     receipt = canonical({'planHash': hashlib.sha256(raw).hexdigest()})
     inspect_runtime(plan)
-    write_private(path.with_suffix('.ready'), receipt)
+    publish_marker(path.with_suffix('.ready'), receipt)
     while time.monotonic() < plan['deadline']:
         if marker(path, '.done', receipt):
             return
@@ -159,7 +168,7 @@ def drive_watchdog(path, plan, raw):
         command('tasks', 'pause', plan['cid'])
         require(inspect_runtime(plan)['state'] == 'PAUSED', 'Runtime pause not confirmed')
         deadline = time.monotonic() + plan['maxPauseSeconds']
-        write_private(path.with_suffix('.paused'), canonical({'planHash': hashlib.sha256(raw).hexdigest(), 'deadline': deadline}))
+        publish_marker(path.with_suffix('.paused'), canonical({'planHash': hashlib.sha256(raw).hexdigest(), 'deadline': deadline}))
         while time.monotonic() < deadline and not marker(path, '.done', receipt):
             time.sleep(0.05)
     finally:
@@ -256,7 +265,7 @@ class RuntimeTaskControl:
             require(self._inspect()['state'] == 'RUNNING', 'Runtime changed before pause')
             require(self.plan['deadline'] > time.monotonic() and self.child.poll() is None,
                 'Runtime watchdog request deadline already elapsed')
-            write_private(self.path.with_suffix('.request'), self.receipt)
+            publish_marker(self.path.with_suffix('.request'), self.receipt)
 
             def paused():
                 require(self.child.poll() is None, 'Runtime watchdog exited before pause confirmation')
@@ -284,7 +293,10 @@ class RuntimeTaskControl:
 
     def resume(self):
         require(self.attempted, 'Runtime resume lacks prior pause authorization')
-        write_values_once(self.path.with_suffix('.done'), self.receipt)
+        try:
+            publish_marker(self.path.with_suffix('.done'), self.receipt)
+        except FileExistsError:
+            require(marker(self.path, '.done', self.receipt), 'Runtime completion marker disappeared')
         self._inspect()
         resume_exact(self.plan)
         if self.child is not None:

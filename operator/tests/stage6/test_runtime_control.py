@@ -97,6 +97,22 @@ class RuntimeGuards(unittest.TestCase):
     def mutations(self):
         return [v for v in self.commands if v[:2] in (('tasks', 'pause'), ('tasks', 'resume'))]
 
+    def test_watchdog_marker_is_invisible_during_write_and_cannot_be_replaced(self):
+        marker_path = self.cluster.task / 'private' / 'runtime.request'
+        original = runtime.write_private
+
+        def write(staged, raw):
+            self.assertFalse(marker_path.exists())
+            original(staged, raw)
+            self.assertFalse(marker_path.exists())
+
+        with patch.object(runtime, 'write_private', side_effect=write):
+            runtime.publish_marker(marker_path, b'complete')
+        with self.assertRaises(FileExistsError):
+            runtime.publish_marker(marker_path, b'replacement')
+        self.assertEqual(marker_path.read_bytes(), b'complete')
+        self.assertEqual(list(marker_path.parent.iterdir()), [marker_path])
+
     def test_exact_runtime_pause_has_independent_watchdog_and_finally_resumes(self):
         control = self.control()
         with self.assertRaisesRegex(ValueError, 'Caller fault'):
