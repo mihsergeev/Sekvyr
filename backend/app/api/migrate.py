@@ -16,11 +16,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from app import access, audit, importers, secrets_store, urlguard
 from app.api.secrets import refuse_below_threshold
 from app.deps import MaintainerUser, SessionDep, UnsealedBox, peer_ip
-from app.models import Environment
+from app.models import E2E2View, Environment
 
 router = APIRouter(prefix="/migrate", tags=["migrate"])
 
@@ -113,6 +114,9 @@ async def _guard(session: SessionDep, user, environment_id: int) -> Environment:
         access.WRITE,
         access.Scope(project_id=env.project_id, environment_id=env.id, path="/"),
     )
+    if await session.scalar(select(E2E2View.id).where(E2E2View.environment_id == env.id).limit(1)):
+        from app.e2e2 import Rejected
+        raise Rejected("UpgradeRequired", 409)
     if await secrets_store.is_e2e(session, env.id):
         # Проверка до похода в источник: иначе панель сначала вытянула бы
         # открытые значения к себе и только потом отказалась бы их класть.

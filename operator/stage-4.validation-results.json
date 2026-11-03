@@ -1,0 +1,71 @@
+{
+  "stage": 4,
+  "status": "passed",
+  "nextStageStarted": false,
+  "published": false,
+  "productionDeployment": false,
+  "backend": {
+    "runtime": "Linux, Python 3.12.3, hash-locked backend dependencies",
+    "fullSuite": {"passed": 609, "skipped": 15, "exitCode": 0},
+    "postgresqlOnly": {"passed": 15, "schema": "alembic head 0028", "exitCode": 0},
+    "distinctTestsPassed": 624,
+    "selfcheck": "passed on Windows and Linux",
+    "newE2E2AndEmergencyTests": 11
+  },
+  "operator": {
+    "compiler": "go1.27.3 linux/amd64",
+    "format": "passed",
+    "moduleIntegrity": "all modules verified",
+    "unitTests": "go test -count=1 ./... passed",
+    "vet": "passed",
+    "race": {"status": "passed", "packages": ["e2e2", "witness", "verification", "witnessservice", "transport", "syncer", "controller", "panelauth"]},
+    "fuzz": {"target": "FuzzCanonicalRestricted", "requestedSeconds": 10, "executions": 28286, "status": "passed"},
+    "govulncheck": {"version": "v1.9.0", "result": "No vulnerabilities found"}
+  },
+  "helmAndSchema": {"testsPassed": 9, "helm": "v4.3.1", "crdGenerationCheck": "passed", "liveAdmission": "passed"},
+  "harnessDeletionGuards": {"testsPassed": 5, "status": "passed", "scope": "Capture namespace UIDs at creation, UID-preconditioned delete, no retry after UID conflict, refuse missing bootstrap pins, close port-forward after startup failure"},
+  "liveE2E": {
+    "environment": "Authorized isolated test namespaces, actual panel/PostgreSQL, independently running TLS development witness, operator and application pod",
+    "kubernetes": "v1.34.1+k0s",
+    "freshInstallation": true,
+    "exitCode": 0,
+    "checksPassed": 15,
+    "applicationEvidence": {"bootIDAndPIDUnchanged": true, "pid": 1, "reloadCount": 1, "configReadErrors": 0, "containerRestarts": 0, "durableCheckpointSequence": "3"},
+    "checks": [
+      "Foreign existing target is never adopted or changed",
+      "Initial full E2E2 view reaches mounted Kubernetes Secret and running application",
+      "v1 to v2 changes reload the application with unchanged boot ID and PID",
+      "Equal plaintext advances canonical checkpoint without data revision or reload",
+      "Witness CAS rejects a same-sequence fork",
+      "Corrupted publisher signature fails closed and recovers",
+      "Corrupted ciphertext with valid publisher signature fails closed and recovers",
+      "Old signed envelope replayed at current hash fails closed and recovers",
+      "Stale panel index and old bootstrap floor cannot override fresh witness head",
+      "Panel outage retains target, marks data stale and recovers after explicit unseal",
+      "Witness outage retains target and recovers after durable journal replay",
+      "Operator restart retains identity, checkpoint and application process",
+      "RBAC denies Secret list/watch/patch/delete and workload rollout",
+      "Missing and replaced state fail closed without target overwrite or implicit bootstrap",
+      "Logs and public CR status contain no generated credentials, read keys or demo plaintext"
+    ],
+    "localUnpublishedImages": {
+      "panel": "sha256:37f8f9db1992fb159f8fd968758dfe029718787a9ed0357e7ba7a61ff43503b6",
+      "operator": "sha256:3eb87f4966a96dd411a4e560e2e124927a1f8ba5d7fccf9087f9d383853712ed",
+      "witness": "sha256:87f21f98f6b45b1a6aa391bd3d02d0494f8a7e157ed6b0ccea9fb9e7677a6dc5"
+    },
+    "fixtureCorrection": "Persist the actual vault-init returned root key in a private file; retain the product unseal guard. Repeat all acceptance scenarios on a fresh installation and journal",
+    "finalNegativeCase": "Ready/DataCurrent false after intentional state UID replacement; expected fail-closed result, not a production installation"
+  },
+  "privacy": {"status": "passed", "confirmedSecretsOrInternalData": 0, "secretsInFixtures": "Generated outside repository; never public artifacts"},
+  "cleanup": {"remote": "Verified both test runs removed: eight namespaces, two exact test CRDs and their persistent volumes absent; all nodes and baseline workloads Ready. Private builder and port forwards stopped; generated private credentials and copied admin kubeconfigs removed", "local": "Initial local kind remains inaccessible because WSL is unresponsive; no global WSL restart or shared cleanup performed"},
+  "limitations": [
+    "Development filesystem journal is not WORM and does not prove production restore-domain independence",
+    "No stage-5 application rollout is implemented or authorized",
+    "No cross-object atomic authorization transaction or instantaneous revocation guarantee",
+    "HA fencing, authority rotation and production recovery remain for stage 6",
+    "Only the stated Kubernetes version and test storage combination were exercised",
+    "No broad Plain/E2E1 operator runtime or migration/UI compatibility claim",
+    "A concurrent rollback of all independent trust roots cannot be detected by this protocol",
+    "Existing application memory and restored preexisting Secrets are outside a reconcile-only startup freshness guarantee"
+  ]
+}

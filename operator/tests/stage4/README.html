@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sekvyr operator: живой E2E этапа 4</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#17212b;--line:#d8e0e8;--code:#f0f4f7}body{max-width:920px;margin:auto;padding:28px 20px 48px;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,sans-serif}h1{font-size:1.6rem;line-height:1.3}h2{font-size:1.15rem;margin-top:1.6rem}pre{padding:16px;overflow:auto;border:1px solid var(--line);background:var(--code);font-size:13px}code{overflow-wrap:anywhere}li{margin:.3rem 0}@media(prefers-color-scheme:dark){:root{--bg:#101923;--fg:#e2eaf1;--line:#344455;--code:#192633}}@media(max-width:540px){body{padding:18px 14px}h1{font-size:1.3rem}}@media print{:root{--bg:#fff;--fg:#000;--line:#aaa;--code:#fff}body{max-width:none;padding:0;font-size:11pt}pre{white-space:pre-wrap;break-inside:avoid}}
+</style>
+<h1>Живой E2E этапа 4</h1>
+<p>Изолированный локальный kind <code>sekvyr-stage4</code>, Kubernetes 1.37.0. В нем запускаются настоящие панель и PostgreSQL, отдельный TLS witness с development filesystem journal, оператор и Python pod с смонтированным Secret. Production и существующие данные не используются.</p>
+<p>Поддерживается также driver <code>k0s</code> на заранее разрешенном тестовом сервере. Весь harness запускается на сервере из закрытого каталога <code>/opt/sekvyr-trial/sekvyr-stage4-YYYYMMDD-xxxxxxxx</code>; namespaces получают тот же уникальный префикс. Транспорт выполняет только <code>sudo -n k0s kubectl</code> и не меняет cluster configuration. Перед установкой он отказывается заменять существующие Sekvyr CRD. Адрес сервера и настоящее имя ноды передаются отдельно и не сохраняются в исходниках.</p>
+<p>Панель и witness имеют разные сгенерированные корни TLS. Все ключи, пароли, service bearer и доверенные пакеты создаются во временном каталоге с закрытыми правами вне репозитория. Helm получает только ссылки, UID и разрешенные origins. Оператор входит по настоящему projected ServiceAccount JWT с audience <code>sekvyr</code>; панель проверяет его ключами JWKS кластера.</p>
+<p>Одноразовый root key из ответа vault init сохраняется только в private с правами 0600. После запланированного перезапуска панели harness явно открывает vault через owner API по TLS. Штатный sealed gate остается включенным; его отказ не обходится настройками оператора или продукта.</p>
+<h2>Последовательность</h2>
+<ol>
+<li><code>prepare.sh</code> проверяет pinned kind binary/node image и создает только названный тестовый кластер. Повторное использование требует явного <code>--reuse</code>. Он выводит TASK_DIR с kubeconfig.</li>
+<li>Соберите свежие образы из текущих исходников: панель из корня через backend/Dockerfile, witness из operator/ через cmd/witness/Dockerfile, оператор из operator/. Образы и зависимости передаются тесту только по digest; локальная загрузка в kind не публикует их в registry.</li>
+<li>Фаза infrastructure загружает образы, создает ключи, namespaces и PVC, запускает PostgreSQL/панель, отдельно выполняет signed genesis Job и запускает witness без повторной инициализации журнала.</li>
+<li>Фаза bootstrap использует реальные owner API, регистрирует JWKS, машинную личность и полный view grant, публикует первую ревизию и создает независимо закрепленный bootstrap оператора.</li>
+<li>Фаза exercise устанавливает Helm с явным sync opt-in и проверяет Secret, живое приложение, отказы и восстановление. Последняя проверка намеренно оставляет оператор с замененным state и ложным Ready; это ожидаемый fail-closed результат, а не рабочая установка.</li>
+</ol>
+<pre>bash operator/tests/stage4/prepare.sh
+# TASK_DIR берется только из вывода prepare.sh.
+python3 operator/tests/stage4/run.py --task-dir "$TASK_DIR" --phase infrastructure \
+  --panel-image "$PANEL_IMAGE_BY_DIGEST" --witness-image "$WITNESS_IMAGE_BY_DIGEST" \
+  --database-image "$POSTGRES_IMAGE_BY_DIGEST" --python-image "$PYTHON_IMAGE_BY_DIGEST"
+python3 operator/tests/stage4/run.py --task-dir "$TASK_DIR" --phase bootstrap
+python3 operator/tests/stage4/run.py --task-dir "$TASK_DIR" --phase exercise \
+  --operator-image "$OPERATOR_IMAGE_BY_DIGEST"</pre>
+<p>Для k0s каталог и source upload подготавливает администратор, затем к каждой фазе добавляются <code>--driver k0s --expected-kubernetes "$EXPECTED_VERSION" --node-name "$APPROVED_NODE_LABEL"</code>. Образы собираются и импортируются отдельным проверенным процессом; harness не ставит Docker и не чистит общий containerd. При отсутствии Helm его приватный путь задается переменной <code>HELM_BIN</code>. Локальный cleanup.sh относится только к kind; серверную уборку выполняют отдельно по точному префиксу созданных namespaces и каталогу задачи.</p>
+<h2>Критерии</h2>
+<ul>
+<li>Существующий чужой Secret не принимается под управление и не меняется.</li>
+<li>Полный подписанный view проходит панель, независимый witness и оператор, после чего приложение читает две canary keys из смонтированного Secret.</li>
+<li>Новая ревизия меняет значения и перезагружает конфигурацию приложения при прежних boot ID и PID. Приложение разрешает AtomicWriter ..data один раз на чтение пары файлов.</li>
+<li>Свежий ciphertext с прежним plaintext двигает accepted checkpoint, сохраняя data revision и состояние приложения.</li>
+<li>Реальный witness CAS отвергает competing fork. Поврежденная подпись, ciphertext и старый signed blob на адресе нового hash не приводят к применению.</li>
+<li>Старый panel index не заменяет свежий nonce-bound canonical head. Остановка панели или witness сохраняет target, дает ложный DataCurrent и восстанавливается после возврата сервиса.</li>
+<li>Перезапуск оператора сохраняет node identity и checkpoint. Отсутствующий или замененный state не восстанавливается автоматически.</li>
+<li>Runtime не имеет Secret list/watch/patch/delete и права менять Deployment. Логи и CR status не содержат credentials, read keys или demo plaintext.</li>
+</ul>
+<p>Fault injection выполняется только через административный exec в тестовую панель и ее собственную PostgreSQL-таблицу staged ciphertext/index. Это намеренный обход owner validation для имитации скомпрометированного source storage, а не дополнительный product API. Не используйте такие приемы на рабочей панели.</p>
+<h2>Границы результата и уборка</h2>
+<p>Development filesystem journal доказывает только проверяемые CAS, replay, persistence и fail-closed свойства этого локального стенда. Обычный PVC не доказывает WORM или независимость производственного хранилища от общего restore. Production storage gate, ротации и аудит относятся к следующим этапам. Существующий Kubernetes Secret и память приложения могут сохранять старые значения при недоступном источнике; Ready/DataCurrent сообщают об этом отдельно.</p>
+<p>Машинный итог сохраняется в <code>$TASK_DIR/results.json</code> без значений секретов. Закрытый подкаталог private содержит только временные тестовые учетные данные и не переносится в отчет или репозиторий. После просмотра результата:</p>
+<pre>bash operator/tests/stage4/cleanup.sh "$TASK_DIR"</pre>
+<p>Уборка проверяет точный префикс и resolved path, удаляет только этот кластер, его сгенерированные приватные материалы и kubeconfig. Другие Docker-контейнеры, кеши, образы и временные каталоги не затрагиваются.</p>
+<p>Для серверного k0s используется отдельный <code>cleanup_cluster.py</code>. UID четырех namespace и двух CRD сохраняются из ответов создания в private bootstrap metadata. Проверяются Store UID, эти UID, точная схема и отсутствие CR вне namespace прогона. Каждое удаление передает серверу <code>DeleteOptions.preconditions.uid</code>; отсутствие creation-time pins блокирует уборку. Удаление требует явного <code>--execute</code> и согласования завершения всех тестов с PostgreSQL. Сначала удаляются четыре namespace вместе с оператором, затем повторно проверяются и удаляются закрепленные тестовые CRD. Образы, исходники и приватный каталог скрипт не удаляет.</p>
+</html>

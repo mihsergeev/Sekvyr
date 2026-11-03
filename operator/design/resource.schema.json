@@ -1,0 +1,565 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sekvyr.ru/spec/operator/v1alpha1/design.schema.json",
+  "title": "Sekvyr Operator stage 1 request contract",
+  "description": "Stage1 E2E2 review schema, no installed CRDs. E2E bindings require full-view trust and WitnessCurrent; runtime cryptographic/cross-resource validation remains mandatory.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/SekvyrStore"
+    },
+    {
+      "$ref": "#/$defs/SekvyrSecret"
+    }
+  ],
+  "$defs": {
+    "SekvyrStore": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "const": "secrets.sekvyr.ru/v1alpha1"
+        },
+        "kind": {
+          "const": "SekvyrStore"
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253,
+              "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+            },
+            "namespace": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63,
+              "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+            },
+            "labels": {
+              "type": "object"
+            },
+            "annotations": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "name",
+            "namespace"
+          ],
+          "additionalProperties": false
+        },
+        "spec": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "minLength": 9,
+                  "maxLength": 2048,
+                  "pattern": "^https://[^/?#@]+/?$"
+                },
+                "caConfigMapRef": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 253,
+                      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 253
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "key"
+                  ]
+                }
+              },
+              "required": [
+                "url"
+              ]
+            },
+            "bindings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+                  },
+                  "resourceName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253,
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                  },
+                  "source": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "group": {
+                        "type": "string",
+                        "minLength": 0,
+                        "maxLength": 63,
+                        "pattern": "^$|^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+                      },
+                      "project": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 63,
+                        "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+                      },
+                      "environment": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 63,
+                        "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+                      },
+                      "pathPrefix": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 400,
+                        "pattern": "^/"
+                      },
+                      "viewId": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      }
+                    },
+                    "required": [
+                      "group",
+                      "project",
+                      "environment",
+                      "pathPrefix"
+                    ]
+                  },
+                  "selection": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "mode": {
+                            "const": "All"
+                          }
+                        },
+                        "required": [
+                          "mode"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "mode": {
+                            "const": "Keys"
+                          },
+                          "keys": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "path": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 400,
+                                  "pattern": "^/"
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 120
+                                },
+                                "targetKey": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253,
+                                  "pattern": "^[A-Za-z0-9._-]+$"
+                                },
+                                "required": {
+                                  "type": "boolean",
+                                  "default": true
+                                }
+                              },
+                              "required": [
+                                "path",
+                                "name",
+                                "targetKey"
+                              ]
+                            },
+                            "minItems": 1,
+                            "maxItems": 1024,
+                            "uniqueItems": true
+                          }
+                        },
+                        "required": [
+                          "mode",
+                          "keys"
+                        ]
+                      }
+                    ]
+                  },
+                  "encryption": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "mode": {
+                            "const": "Plain"
+                          }
+                        },
+                        "required": [
+                          "mode"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "mode": {
+                            "const": "E2E"
+                          },
+                          "protocol": {
+                            "const": "e2e2"
+                          },
+                          "trustKey": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9][a-z0-9.-]{0,62}$"
+                          },
+                          "freshness": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "mode": {
+                                "const": "WitnessCurrent"
+                              }
+                            },
+                            "required": [
+                              "mode"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "mode",
+                          "protocol",
+                          "trustKey",
+                          "freshness"
+                        ]
+                      }
+                    ]
+                  },
+                  "target": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 253,
+                        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                      },
+                      "type": {
+                        "const": "Opaque"
+                      },
+                      "deletionPolicy": {
+                        "enum": [
+                          "Retain",
+                          "Delete"
+                        ],
+                        "default": "Retain"
+                      },
+                      "allowEmpty": {
+                        "type": "boolean",
+                        "default": false
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ]
+                  },
+                  "rollout": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "allowedDeployments": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253,
+                          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                        },
+                        "minItems": 0,
+                        "maxItems": 32,
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "allowedDeployments"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "resourceName",
+                  "source",
+                  "selection",
+                  "encryption",
+                  "target",
+                  "rollout"
+                ],
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "encryption": {
+                          "properties": {
+                            "mode": {
+                              "const": "E2E"
+                            }
+                          },
+                          "required": [
+                            "mode"
+                          ]
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "source": {
+                          "required": [
+                            "viewId"
+                          ]
+                        }
+                      }
+                    },
+                    "else": {
+                      "properties": {
+                        "source": {
+                          "not": {
+                            "required": [
+                              "viewId"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 64,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "endpoint",
+            "bindings"
+          ]
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ]
+    },
+    "SekvyrSecret": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "const": "secrets.sekvyr.ru/v1alpha1"
+        },
+        "kind": {
+          "const": "SekvyrSecret"
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253,
+              "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+            },
+            "namespace": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63,
+              "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+            },
+            "labels": {
+              "type": "object"
+            },
+            "annotations": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "name",
+            "namespace"
+          ],
+          "additionalProperties": false
+        },
+        "spec": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "storeRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 253,
+                  "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                },
+                "uid": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                }
+              },
+              "required": [
+                "name",
+                "uid"
+              ]
+            },
+            "binding": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63,
+              "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+            },
+            "refreshIntervalSeconds": {
+              "type": "integer",
+              "minimum": 30,
+              "maximum": 86400,
+              "default": 60
+            },
+            "suspend": {
+              "type": "boolean",
+              "default": false
+            },
+            "rollout": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "deployments": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253,
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                  },
+                  "minItems": 0,
+                  "maxItems": 32,
+                  "uniqueItems": true
+                }
+              },
+              "required": [],
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "enabled": {
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "enabled"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "deployments"
+                    ],
+                    "properties": {
+                      "deployments": {
+                        "minItems": 1
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "enabled": {
+                        "const": false
+                      }
+                    },
+                    "required": [
+                      "enabled"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "deployments": {
+                        "maxItems": 0
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "not": {
+                      "required": [
+                        "enabled"
+                      ]
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "deployments": {
+                        "maxItems": 0
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "required": [
+            "storeRef",
+            "binding"
+          ]
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ]
+    }
+  }
+}

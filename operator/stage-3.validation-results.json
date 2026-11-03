@@ -1,0 +1,62 @@
+{
+  "date": "2026-11-01",
+  "stage": 3,
+  "scope": "In-process E2E2 codec, signed envelopes and reader wraps, independently pinned witness proofs, bootstrap parsing and double-head reader; no deployed panel or durable ledger",
+  "stage4Started": false,
+  "releasePublished": false,
+  "go": {
+    "compiler": "1.27.3",
+    "moduleDirective": "1.26.0",
+    "moduleIntegrity": "passed",
+    "format": "passed",
+    "vet": "passed",
+    "allPackageTests": "passed",
+    "linuxBuild": "passed",
+    "raceDetector": {
+      "packages": ["internal/e2e2", "internal/witness", "internal/verification"],
+      "result": "passed"
+    },
+    "statementCoveragePercent": {"e2e2": 82.9, "verification": 84.7, "witness": 90.8},
+    "parserFuzz": {"durationSeconds": 30, "executions": 47009, "result": "passed"},
+    "govulncheckVersion": "1.9.0",
+    "govulncheck": "No vulnerabilities found"
+  },
+  "independentFixtures": {
+    "snapshotCases": {"positive": 5, "negative": 40},
+    "readerWrapCases": {"positive": 1, "negative": 19},
+    "signaturesVerifiedBeforeSemanticExpectations": true,
+    "pythonNodeGoParity": "passed",
+    "nodeReaderWrapChecks": 15,
+    "hkdfRFC5869": "passed",
+    "nodeBuiltinHKDFParity": "passed for info up to 1024 bytes",
+    "maximumParentReferencesChecked": 16,
+    "maximumHKDFInfoBytesChecked": 6418,
+    "productionCredentials": false
+  },
+  "reader": {
+    "proofsPerStableRead": 2,
+    "maximumHeadChangeAttempts": 3,
+    "concurrentReadsChecked": 8,
+    "rollbackForkAndReplay": "rejected",
+    "unavailablePanelOrWitness": "no accepted values",
+    "callerSuppliedHeadIsFreshnessAuthority": false,
+    "checkpointPersistence": false,
+    "kubernetesMutation": false
+  },
+  "designChecks": {
+    "positiveRequests": 5,
+    "negativeRequestsRejected": 22,
+    "pythonReferenceChecks": 40,
+    "originalNodeReferenceChecks": 8
+  },
+  "publicationHygiene": {"scanner": "passed", "newCommits": 0, "push": false},
+  "limitations": [
+    "Existing controller still has stage2 fail-closed integration and unchanged restricted RBAC",
+    "No real E2E2 panel API, witness service, durable canonical ledger adapter or live workload synchronization",
+    "Local checkpoint must be bound to installation, bootstrap generation and trust identity by the future state adapter",
+    "SealSnapshot and WrapReader are explicit cryptographic building blocks, not a publisher UI, approval service or commit workflow",
+    "Single independently trusted honest witness is an assumption; malicious witness or rollback of all trust roots is not solved by signatures",
+    "Mutable buffers are cleared where practical; guaranteed total memory zeroization is not claimed",
+    "Remote CI has not been executed because changes are unpublished"
+  ]
+}

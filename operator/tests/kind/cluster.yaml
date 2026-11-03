@@ -1,0 +1,7 @@
+# Local WSL compatibility only; no host cgroup or Docker configuration changes.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    failCgroupV1: false

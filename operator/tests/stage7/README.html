@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Этап 7 — режимы приложения и lifecycle Helm</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#182230;--muted:#536171;--line:#ced7e0;--code:#f1f5f8}*{box-sizing:border-box}body{max-width:960px;margin:auto;padding:28px 22px 60px;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,sans-serif}h1{font-size:1.7rem;line-height:1.25}h2{font-size:1.2rem;margin-top:1.7em}code,pre{background:var(--code);overflow-wrap:anywhere}pre{padding:16px;white-space:pre-wrap;border:1px solid var(--line)}table{border-collapse:collapse;width:100%}td,th{text-align:left;vertical-align:top;border:1px solid var(--line);padding:10px}small{color:var(--muted)}@media(prefers-color-scheme:dark){:root{--bg:#111a24;--fg:#e2eaf2;--muted:#a9bacb;--line:#354657;--code:#1a2836}}@media(max-width:600px){body{padding:20px 12px}table{font-size:13px}td,th{padding:7px}h1{font-size:1.4rem}}@media print{:root{--bg:#fff;--fg:#000;--line:#aaa;--code:#fff}body{max-width:none;padding:0;font-size:11pt}pre,tr{break-inside:avoid}}
+</style>
+<h1>Этап 7: приложение, Helm и проверяемые границы</h1>
+<p>Это исходники испытаний, а не отчет об успешном живом прогоне. Фактический результат, версии API, образы и завершенный cleanup фиксирует координатор после выполнения. Рендер для Kubernetes 1.34.1 и 1.37.0 не доказывает совместимость runtime. Подготовка и изменения инфраструктуры выполняются только отдельным Cluster provider в выделенных namespace.</p>
+<h2>Три режима приложения</h2>
+<table><tr><th>Режим</th><th>Изменение секрета</th><th>Доказательство</th></tr>
+<tr><td>envFrom Secret</td><td>Разрешенный rollout меняет только собственную аннотацию Pod template</td><td>Один новый ReplicaSet UID, новый Pod и boot_id, новые значения внутри процесса</td></tr>
+<tr><td>Secret volume</td><td>Rollout выключен, приложение перечитывает стандартную проекцию kubelet без subPath</td><td>Тот же Pod, boot_id, template и набор ReplicaSet; счетчик reload вырос</td></tr>
+<tr><td>Опубликованный init + agent sidecar</td><td>Исходный агент пишет .env через штатный render/agent; приложение перечитывает файл</td><td>Те же Pod и процесс приложения; файл содержит новые canary, без изменения SDK или бинарника агента</td></tr></table>
+<p>Все тестовые Deployment явно отключают внешний reloader тремя аннотациями со значением <code>false</code>. Глобальный контроллер не меняется. Синтетическое приложение выводит только безопасные поля состояния; plaintext canary не входит в HTTP или журнал. Хеш значения нужен только для приватного сравнения и не переносится в публичный отчет. Парсер .env предназначен для canary, не выполняет shell и не объявляется универсальным shell-интерпретатором.</p>
+<p>Для Secret volume каталог <code>..data</code> разрешается один раз на чтение набора ключей: смена проекции между чтениями не должна смешивать поколения. Ошибка чтения сохраняет последнее рабочее состояние и увеличивает errors. Файл агента читается одним open и ограничен по размеру. Одинаковые canary не увеличивают reload_count.</p>
+<h2>Интерфейс app_modes.py</h2>
+<pre>apps = Stage7Applications(cluster, apps_namespace, python_digest, agent_digest)
+apps.owned.create_service_account("legacy-reader")
+route = panel.prepare_plain("legacy-reader", namespace=apps_namespace)
+apps.create_agent("legacy", route["source_config"], "legacy-reader", ca_ref)
+
+# Цель может еще не существовать: приложение пока не запускается.
+apps.create_env("env-consumer", "managed-env", replicas=0)
+# После fresh DataCurrent provider возвращает name/UID из protected state.
+target_ref = {"name": "managed-env", "uid": provider_target_uid}
+apps.target(target_ref)  # только GET, без adoption или cleanup pin
+# UID/RV test добавляются перед явным изменением своего Deployment.
+apps.owned.patch("Deployment", "env-consumer", [
+    {"op": "replace", "path": "/spec/replicas", "value": 1}])
+before = apps.capture("env-consumer")
+# После публикации и точного checkpoint/статуса из provider:
+apps.assert_env_changed("env-consumer", before, generation, demo, target_ref)</pre>
+<p><code>create_volume</code> и <code>assert_reloaded_without_restart</code> дают вторую пару. <code>capture</code>, <code>frozen</code> и <code>footprint</code> проверяют цепь Deployment UID → ReplicaSet UID → Pod UID. Вспомогательный Forward слушает только loopback и закрывается при исключении. В режиме agent token и CA монтируются только в init/sidecar, приложение получает только read-only файл. Отдельный SA создается до регистрации machine policy.</p>
+<p>Агент закреплен на опубликованном <code>ghcr.io/mihsergeev/sekvyr-agent@sha256:efa4b55850a1e0ea5b31907991dae8fa163bb7218c648dc8d8b609b90d96d884</code>, версия 1.0.3. Для amd64 проверен manifest <code>sha256:f6961c3fdd6c5f485b8c81debb013a0fad9077c67c9fe178709a044474b07735</code> и бинарник SHA256 <code>45372dc47c45e007bfdf80516a845cbf604e7821848c9fbf9c4d923c487a9507</code> по agent/manifest.json. Это исходный образ, без пересборки SDK. Этот regression использует Plain; поддержку E2E2 старым агентом не заявляет.</p>
+<h2>Настоящий lifecycle Helm</h2>
+<pre>lifecycle = HelmLifecycle(cluster, helm_binary, chart_path,
+    release_name, apps_namespace, external_pins)
+lifecycle.install(reviewed_values)
+lifecycle.upgrade(reviewed_next_values)
+lifecycle.uninstall()</pre>
+<p>Каждая команда получает точный kubeconfig и namespace. До install проверяются отсутствие release и всех новых имен. Cluster сохраняет preflight с namespace UID, hash manifest и списком отсутствующих объектов до запуска Helm. После Helm читает созданные объекты, сверяет release metadata и manifest с server defaults, сохраняет UID с честным provenance post-create-read. При ошибке Helm сохраняются найденные частичные ресурсы; автоматического повторного install или принятия существующих объектов нет.</p>
+<p>Внешние SA/Lease используют <code>create=false</code> и заранее известные UID. Они не появляются в render и не получают метаданные release. Перед upgrade/uninstall проверяются UID собственных объектов и неизменность внешних. При upgrade разрешено убирать из manifest только сохраняемые immutable ConfigMap; новые hash revisions проходят отдельный preflight. Повторное принятие старой сохраненной ревизии запрещено. Uninstall проверяет исчезновение managed workload/RBAC и сохранение всех известных конфигурационных ревизий и внешних UID. Окончательный cleanup этих ConfigMap выполняет Cluster по pins после проверки отсутствия ссылок.</p>
+<p>Cluster-scoped HA объекты требуют отдельного manifest approval до первого создания. Изменять существующие webhook или ClusterRole через этот helper нельзя: для этого нужен отдельный guarded review. Helm lifecycle не ставит и не удаляет CRD (<code>--skip-crds</code>); проверка административного обновления схемы проводится отдельно с сохранением существующих CR. Native Helm не является транзакцией с UID/RV CAS на каждом запросе: испытание требует эксклюзивного административного владения fixture. После ошибки или потери контекста требуется явный разбор сохраненных receipts, автоматического восстановления с новым контекстом нет.</p>
+<h2>Панель, проекции JWT и изоляция</h2>
+<p><code>PlainInstallation(coordinator, provider, image, helm, chart)</code> использует отдельный namespace isolation. <code>prepare()</code> создает SA/Lease и bootstrap с creation UID pins, затем готовит Plain source через PanelCases. <code>prepare_store(target, selection, rollout_deployments)</code> проверяет структуру CRD до CREATE и возвращает values. Приложения с нулем реплик создаются отдельно до передачи rollout allowlist. Только явный <code>install()</code> запускает настоящий Helm. <code>current(after_success)</code> требует актуальные поколения CR и Store и успешную попытку чтения, а <code>target_ref(generation, demo_value, after_success)</code> сопоставляет Plain record защищенного state с реальным target UID и статусной ревизией; он не принимает цель под управление cleanup и не меняет ее.</p>
+<p>Machine policy панели сопоставляет namespace и имя SA. Harness отдельно закрепляет creation UID SA, а runtime проверяет административный pin прямым GET. Эти проверки не означают, что backend регистрирует SA UID или немедленно отзывает offline JWKS token после удаления Pod. Для Plain DataCurrent означает успешное авторизованное чтение панели, без signed witness или независимой canonical freshness.</p>
+<p>Plain fixture использует отдельные project/environment/machine, pinned identity и immutable trust schemaVersion=1 с protocol=plain-v1. State содержит bindings с mode=Plain и head=null; witness checkpoint для Plain неприменим. E2E2 использует независимый существующий provider. Путь selection в обоих случаях согласуется с <code>/runtime</code>. Target UID для проверки приложения передается только после fresh DataCurrent и сопоставления protected state с реальным Secret.</p>
+<p>В projected tokens запрашивается TTL 600 секунд. Проверка ротации ждет фактической замены token-файла kubelet в том же Pod, сопоставляет bound Pod UID и успешную авторизацию обоих токенов. Это отличается от смены JWKS signer KID. Принудительная смена clock, запись токена руками и новая pod не заменяют такой тест. Смена signer допускается только в выделенном control plane по отдельной процедуре координатора.</p>
+<p>Роли namespace: apps, isolation, panel, witness, gateway, storage. Helpers не выбирают реальные имена и адреса. Namespace и все изменяемые ресурсы закреплены по creation UID, JSONPatch содержит UID/resourceVersion tests. Приложение не получает AWS credentials, ключи journal или приватные key из другой роли. Наличие policy manifest без фактической CNI enforcement не считается доказательством сетевой изоляции.</p>
+<h2>Локальные проверки</h2>
+<p>Порядок ниже задает вызовы координатора, а не сообщает об уже завершенной живой приемке. Каждый сценарий должен сохранить собственное фактическое доказательство; локальный guard этого не заменяет.</p>
+<p><code>cases.initial()</code> без hook сохраняет прежнее поведение и требует уже подготовленных сетевых путей. То же ограничение относится к generic runner Plain: он не устанавливает дополнительные NetworkPolicy автоматически. Для свежего remote-kind с default-deny используйте явный interactive flow ниже перед первой публикацией; успешность старого профиля не доказывает отсутствие сетевой фильтрации в новом.</p>
+<pre>cases.initial()
+cases.changed_rollout_off()
+cases.opt_in()
+cases.changed_rollout_on()
+cases.agent()
+cases.equal()
+
+from plain_soak import run as soak
+soak(cases)  # настоящий ограниченный интервал 600 секунд и четыре отказа
+
+from plain_secondary_store import run as secondary
+secondary(cases)  # второй Store: sealed и transport outage ДО первой цели
+
+# Только созданный для испытания kind; signer/JWKS выполняется последним.
+from panel_cases import observe_jwt
+from kind_jwks import KindJWKS
+sample = cases.token()
+cases.agent_provider.exchange(sample["token"])
+observed = observe_jwt(sample["token"])
+KindJWKS(cluster, native_creator_receipt, native_backup_dir).run(
+    cases.agent_provider, sample["token"],
+    {"name": observed["pod_name"], "uid": observed["pod_uid"]},
+    after_control_plane_ready=reviewed_owned_panel_transport_reconnect)</pre>
+<p>Secondary case использует уже разрешенные Plain project/path и ту же установку. Helm расширяет только <code>allowedTargetSecrets</code> на одно новое имя; остальные gates и pins сохраняются. Новый Store, binding и CR получают отдельные creation UID. Отказ засчитывается только как <code>DataCurrent=False / PanelUnavailable</code> при <code>BootstrapReady=True</code> текущего поколения и отсутствии какого-либо успешного получения. Неправильный ключ, невалидный state или пустой source не заменяют проверку sealed panel до первой цели. После unseal новый UID сопоставляется с новой записью защищенного state; прежние binding, данные, revision и процессы приложения остаются прежними.</p>
+<p>Sealed 503 и transport outage доказываются отдельно. Пока vault еще sealed и новой цели нет, координатор останавливает только свой закрепленный Deployment панели. Требуются наблюдаемое поколение scale=0, отсутствие Pod и готовых Service endpoints, затем новая попытка CR после этой проверки. Внутренний finally возвращает тот же UID в scale=1/Ready, переподключает приватный forward, выполняет login и подтверждает initialized + sealed. Только после этого внешний контекст делает явный unseal. Неудачное восстановление, чужой UID, старый timestamp или только запрос scale без фактической остановки не дают успешного доказательства.</p>
+<p>Ротация API-server signer допускается только у creator-pinned kind и после остальных операторных сценариев. Если им еще нужно работать во время ротации, администратор отдельно согласует overlap JWKS для каждого собственного зарегистрированного потребителя; чужие registrations не меняются. Иначе новый projected token может временно не приниматься потребителем со старым offline JWKS. Возвращается старый signer с временным overlap verifier до удаления всего своего kind; точное восстановление исходного manifest не заявляется. Немедленный отзыв уже выданной machine session не проверяется этим сценарием.</p>
+<p>При использовании kubectl port-forward к панели рестарт API server может оставить старый forward непригодным. Координатор передает необязательный callback <code>after_control_plane_ready(phase)</code> для переподключения только своего panel forward по уже рассмотренным UID/scope guards. Закрытые фазы: <code>rotated</code> после Ready, независимой проверки overlap и нового подписанного bound token, непосредственно перед проверкой retirement; <code>restored</code> после восстановления signer и проверки verifier, перед owner update JWKS. Callback не меняет issuer/JWKS trust, не обходит TTL, не делает автоматический retry или новую авторизацию. Его исключение распространяется; finally сохраняет восстановление исходного signer. Без callback прежний порядок сохраняется. Этот источник исправляет будущую воспроизводимость: фактическая прерванная попытка с устаревшим forward остается отдельной историей ручного продолжения, а не доказательством живого выполнения callback.</p>
+<p>Случай прерванного наблюдения во время удаления прежнего Pod продолжают с тем же сохраненным <code>before</code> и уже опубликованным поколением. Повторная публикация, новый intent или новый baseline не заменяют доказательство единственного ожидаемого rollout. Ошибки чужого owner/namespace остаются жесткими отказами. Созданные вторичные Store и CR с недоказанной outage phase не переигрываются автоматически после ошибки: нужен разбор сохраненных receipts.</p>
+<pre>HELM_BIN=/explicit/path/helm python -m unittest discover -s operator/tests/chart -p test_chart.py
+HELM_BIN=/explicit/path/helm python -m unittest discover -s operator/tests/stage7 -p 'test_*.py'</pre>
+<p>Локальные guards проверяют ограничения scope, UID, порядок preflight/capture, запрещенный adoption, retention, credential isolation и чтение canary. Они не заменяют живые проверки rollout, kubelet projection, реального агента, отказов, смены лидера, API admission, Helm upgrade/uninstall или другого minor Kubernetes. Результаты этих сценариев до выполнения остаются pending. Выпуск и этап 8 не выполняются.</p>
+<h2>Отдельный kind на удаленном Linux-host</h2>
+<p>Это профиль приемки этапа 7, не выпуск и не production deployment. Он не использует Windows receipt и не расширяет WSL cleanup. Координатор заранее фиксирует независимый baseline существующих Docker-ресурсов. RootTask должен иметь собственную квитанцию CREATE <code>receipts/root-task-create.json</code>; rootTask и новый runtime принадлежат UID/GID 0 с mode 0700. Root SSH не нужен: подготовленные команды запускаются через разрешенный <code>sudo -n</code>. Python должен поддерживать setns и pidfd, host должен быть Linux amd64.</p>
+<p>Три приватных инструмента проверяются по независимо рассмотренным SHA-256 и версиям: kind 0.33.0, Helm 4.3.1, kubectl 1.37.0. Официальный digest-pinned node image должен уже разрешаться по точному имени и RepoDigest. Создатель не выполняет pull, tag, Docker load, настройку daemon, sysctl, часов или существующих workloads. Неудачная предварительная проверка не дает разрешения принимать найденный по имени контейнер.</p>
+<p>Отсутствие прямых команд sysctl/firewall в creator не гарантирует отсутствия побочных изменений Docker на общем хосте. До создания первой сети независимый preflight должен сохранить IPv4/IPv6 forwarding (all/default/per-interface), RA и bridge sysctl, IPv6 address flags/anycast, firewall/routes и полный image inventory, включая скрытые images. В выполненном trial исходные sysctl не были сняты: после cleanup сохранены дополнительные пустые IPv6 объекты и локальный kernel anycast; точный исходный global state не восстановим по одному маршруту. Пользователь отдельно выбрал сохранить текущие глобальные настройки. Это известное ограничение приемки, не доказательство отсутствия изменений хоста. Автоматический откат неизвестных sysctl, счетчиков и маршрутов запрещен.</p>
+<pre>trial_root=/opt/sekvyr-trial/sekvyr-stage7-20260101-abcdef01
+trial_runtime=/var/tmp/sekvyr-stage7.abcdef01
+# Значения SHA-256 берутся из отдельно проверенных квитанций, не из live lookup.
+sudo -n /explicit/private-python prepare_remote_kind.py --execute \
+  --root-task "$trial_root" --runtime-task "$trial_runtime" \
+  --kind-bin "$trial_root/tools/kind" --kind-sha256 "$REVIEWED_KIND_SHA256" \
+  --helm-bin "$trial_root/tools/helm" --helm-sha256 "$REVIEWED_HELM_SHA256" \
+  --kubectl-bin "$trial_root/tools/kubectl" --kubectl-sha256 "$REVIEWED_KUBECTL_SHA256" \
+  --crd-dir /explicit/reviewed/chart/crds</pre>
+<p>Перед kind create сохраняются отсутствие имени, полные хеши чужих Config/Env/HostConfig/Args/Networks и состояния запуска. Только порядок Mounts нормализуется; все поля сохраняются. CREATE-происхождение CID и независимая квитанция <code>rootTask/private/creator/creation.json</code> сохраняются до caps и CRD. Runtime marker <code>private/remote-kind-capability.json</code> связывает эти записи с boot/daemon, точными image/CID/labels, PID/starttime, ресурсами 4 CPU / 8 GiB RAM / 8 GiB memory+swap, volume и network ID. Все обращения exec и root-child setns повторно проверяют этот capability. Служебный recovery CLI ограничен рассмотренными digest d328 и SHA-256 641c; прежний профиль 960d остается прежним.</p>
+<p>Cleanup сохраняет строгий network hash со всеми полями Docker inspect, кроме Containers. В Docker 29 после отключения последнего своего endpoint меняются счетчики IPsInUse и DynamicIPsAvailable в Status.IPAM.Subnets; hash gate может остановиться уже после удаления своего CID и volume. Повторять cleanup в таком состоянии нельзя. Отдельное удаление exact network ID допустимо только после рассмотрения creation receipt, отсутствия сети в preflight, пустых attachments и неизменности host/daemon, а также точного воспроизведения исходного hash заменой только доказанных счетчиков в памяти. Все остальные поля должны совпасть, чужой baseline должен сохраниться. При любом другом изменении сеть сохраняют для разбора; исключение Status целиком, удаление по имени и global prune запрещены. Этот порядок описывает отдельное контролируемое продолжение, а не автоматический retry.</p>
+<h2>Сетевые пути до первой публикации Plain</h2>
+<p>После подготовки инфраструктуры, witness и панели создается Plain установка с приложениями в scale=0. Hook вызывается строго после настоящего Helm install и capture UID, до owner publish и запуска этих приложений. Его ошибка оставляет созданные ресурсы для разбора и не запускает publish. Нельзя повторять initial для уже опубликованного поколения: прерванное наблюдение продолжают только по отдельно проверенному сохраненному контексту.</p>
+<pre>import json
+from plain_cases import PlainCases
+from network_paths import install as install_product_paths
+
+# Координатор заранее проверяет полный public-dummy HA render:
+# release stage6, собственный apps namespace, только публичные bootstrap pins.
+# Этот render нужен для точных селекторов, он не устанавливается.
+ha_rendered = json.loads(reviewed_ha_render_path.read_bytes())
+endpoints = json.loads(private_endpoint_plan_path.read_bytes())
+cases = PlainCases(coordinator, reviewed_image, helm_binary, chart_path)
+cases.initial(before_first_publish=lambda same_cases: install_product_paths(
+    same_cases, ha_rendered=ha_rendered,
+    reviewed_ha_sha256=REVIEWED_HA_RENDER_SHA256,
+    api_endpoints=endpoints["apiEndpoints"],
+    admission_sources=endpoints["admissionSources"]))</pre>
+<p>API tuples содержат только отдельно проверенные фактические IP и порты 443/6443; admission tuples закрепляют IP источника API server и порт 9443. Они хранятся в приватной fixture, не в исходниках. Helper проверяет шесть namespace по creation UID, берет Plain selector из захваченного Helm Deployment, а HA selectors из явно рассмотренного render. Он создает только дополнительные узкие политики и сохраняет immutable plan и receipts каждого CREATE. Default-deny, DNS, database и существующие witness/journal правила не изменяются; доступ isolation к upstream S3 не добавляется. Положительные пути и запрет S3 требуют отдельных реальных packet probes. App status через port-forward не требует общего ingress на 8080/8081.</p>
+<pre>from pathlib import Path
+from remote_kind_capability import Capability
+from remote_kind_jwks import RemoteKindJWKS
+from prepare_remote_kind import cleanup
+
+# cluster — тот же объект с точным creation-pinned runtime и kubeconfig.
+capability_path = cluster.task / "private" / "remote-kind-capability.json"
+jwks = RemoteKindJWKS(cluster, capability_path)
+# jwks.run(...) вызывается координатором по прежнему рассмотренному контракту.
+# Backup остается в rootTask/private/creator, вне контейнера и watched manifests.
+owner = Capability(cluster)
+cleanup(owner, execute=False)  # Только проверка; удаления здесь нет.
+# После приемки и удаления своих Kubernetes-ресурсов по сохраненным UID:
+# cleanup(owner, execute=True)</pre>
+<p>Cleanup адресует точный CID и отдельно закрепленные anonymous volumes. Сеть удаляется только если именно этот creator создал ее, ID/config совпадают и сеть больше никем не используется. Ранее существовавшая пустая kind-сеть сохраняется с исходным полным хешем. Непустая сеть блокирует создание или cleanup; disconnect, name-only kind delete и глобальный prune отсутствуют. Подтверждение завершения включает независимое сравнение исходного baseline; автоматическое восстановление контекста прерванного creator не выполняется.</p>
+</html>

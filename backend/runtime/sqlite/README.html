@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SQLite 3.54.1 - контракт сборки runtime APK</title>
+<style>:root{color-scheme:light dark;font:16px/1.55 system-ui,sans-serif}body{max-width:980px;margin:2rem auto;padding:0 1rem}pre{padding:1rem;overflow:auto;background:#eee;color:#161616}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:.5rem;text-align:left;vertical-align:top}a{color:#1466ba}.note{border-left:4px solid #b77b00;padding:.5rem 1rem}@media(prefers-color-scheme:dark){body{background:#171a20;color:#e8e9ed}pre{background:#252a34;color:#eee}a{color:#83bcff}}@media print{body{max-width:none;margin:0;font-size:11pt}pre{white-space:pre-wrap}a{color:inherit}}</style></head><body>
+<h1>SQLite 3.54.1 как управляемый APK</h1>
+<p>Этот каталог заменяет пакет <code>sqlite-libs</code> в поддерживаемом Alpine 3.24. Он не меняет Python, протокол приложения или расположение системной библиотеки. APKBUILD сохраняет флаги Alpine, SONAME <code>libsqlite3.so.0</code>, лицензию blessing и автоматическое вычисление зависимостей. Дополнение split-пакета libraries - копия upstream LICENSE.md, поскольку остальные split-пакеты не попадают в runtime.</p>
+<p class="note">Статус: подготовлен исходный контракт. Реальная сборка, установка, обе архитектуры, скан образа и E2E должны пройти отдельно. <code>options="!check"</code> соответствует Alpine: autoconf-архив не содержит полного upstream test suite. Это не результат успешного запуска тестов.</p>
+<h2>Входы и артефакты</h2>
+<p>База - выбранный интегратором официальный Python 3.12.16 / Alpine 3.24 с полным digest. Builder и runtime обязаны иметь один target platform. Запускать независимо для linux/amd64 (APK x86_64) и linux/arm64 (APK aarch64); не собирать библиотеку в BUILDPLATFORM и не переносить между архитектурами. Один APKBUILD и одинаковые исходники используются для обеих архитектур.</p>
+<table><tr><th>Вход</th><th>Закрепленное значение</th></tr>
+<tr><td>Пакет</td><td>sqlite-libs 3.54.1-r0</td></tr>
+<tr><td>Autoconf tar.gz SHA-256</td><td><code>926ef8d3eab93fbf6e06011901273eec076b25594a4e1cdadd50c987f4f6d64e</code></td></tr>
+<tr><td>Source zip SHA-256</td><td><code>387e7f6cad4797b17848c07d453dc6606917bb356a6cfe5a3abafd38c240c71b</code></td></tr>
+<tr><td>Source ID</td><td><code>2026-10-16 14:45:20 555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6ca76</code></td></tr></table>
+<p>Оба полных SHA-512 находятся непосредственно в APKBUILD и проверяются штатным abuild. SQLite source zip нужен для исходной лицензии. Подлинность публичных исходных pin подтверждается отдельно по <a href="https://sqlite.org/download.html">SQLite download</a> и <a href="https://sqlite.org/releaselog/3_54_1.html">release 3.54.1</a>; контрольная сумма сама по себе не доказывает происхождение.</p>
+<h2>Контракт Docker stage</h2>
+<p>Фрагмент для интеграции в основной Dockerfile, не самостоятельный Dockerfile. Build context - корень репозитория. Базовый image digest и числовой SOURCE_DATE_EPOCH задаются интегратором. Флаг <code>-d</code> отключает проверку/установку build dependencies; все они установлены предыдущим RUN. Он не отключает проверку source SHA-512. Abuild 3.17.0 соответствует Alpine 3.24.</p>
+<pre><code># Existing pinned Python 3.12 / Alpine 3.24 stage, target platform.
+RUN apk add --no-cache alpine-sdk abuild=3.17.0-r0 readline-dev unzip
+COPY backend/runtime/sqlite/ /build/sqlite/
+ARG SOURCE_DATE_EPOCH
+RUN --mount=type=tmpfs,target=/tmp/signing \
+    SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" sh /build/sqlite/build-apk.sh
+
+# Only these public files are eligible for copying from the builder:
+# /out/sqlite-libs-3.54.1-r0.apk
+# /out/sekvyr-sqlite-build.rsa.pub
+# /out/build-info.txt and /out/SHA256SUMS</code></pre>
+<p>Builder содержит компилятор, readline headers и abuild. В runtime переносится только libraries APK; CLI, static/dev/doc APK, компилятор, readline и build tree не переносятся. Фактическая runtime closure должна подтверждаться APK metadata и ELF NEEDED: ожидается musl, без зависимости библиотеки от readline.</p>
+<p>Скрипт отказывается работать без настоящего отдельного tmpfs mount в <code>/tmp/signing</code>, непустой signing/output каталог не переиспользует. RSA private key, HOME и пользовательский abuild.conf существуют только на tmpfs в одном RUN. Не добавлять <code>abuild-keygen -i</code>, копирование private key, tracing оболочки, cache mount на signing path или секреты в ARG/ENV/COPY. Abuild подписывает APK и индекс штатным способом; наружу выходит только публичный ключ. Созданный индекс не нужен runtime.</p>
+<p>Перед экспортом скрипт обязательно проверяет исходный APK правильным публичным ключом. Затем он требует отказ с другим ключом под тем же basename и отказ для копии APK с измененным байтом. Дополнительный private key, каталог неверного публичного ключа и поврежденная копия находятся только на signing tmpfs. Если хотя бы один отрицательный случай проходит verification, сборка останавливается до экспорта APK. Эти проверки станут actual evidence только после успешного выполнения реальной сборки.</p>
+<h2>Установка с временным доверием</h2>
+<p>Этот RUN выполняется после обычного Alpine upgrade. Временный ключ доверяет только локальному APK; каталог доверия не устанавливается в /etc/apk/keys. Предварительно существующие runtime зависимости должны уже удовлетворяться без сети. Выходной каталог builder монтируется read-only из stage sqlite-build: APK и публичный ключ не копируются в постоянные runtime layers.</p>
+<pre><code>RUN --network=none \
+    --mount=type=bind,from=sqlite-build,source=/out,target=/tmp/sqlite-artifacts,ro \
+    --mount=type=tmpfs,target=/tmp/sqlite-keys \
+    cd /tmp/sqlite-artifacts &amp;&amp; \
+    sha256sum -c SHA256SUMS &amp;&amp; \
+    cp sekvyr-sqlite-build.rsa.pub /tmp/sqlite-keys/ &amp;&amp; \
+    apk --no-network --keys-dir /tmp/sqlite-keys verify sqlite-libs-3.54.1-r0.apk &amp;&amp; \
+    apk --no-network --keys-dir /tmp/sqlite-keys add /tmp/sqlite-artifacts/sqlite-libs-3.54.1-r0.apk
+</code></pre>
+<p>Сохранять APK database, package ownership, SONAME и исходную лицензию. Не использовать untrusted install, force-overwrite, ручное удаление .so, shadow в /usr/local или очистку package metadata. Оба mount исчезают после RUN, а установленная библиотека и ее APK metadata остаются. Ошибка dependency resolution должна останавливать сборку.</p>
+<h2>Воспроизводимость и проверка</h2>
+<p>Закреплены исходники, версия, флаги и SOURCE_DATE_EPOCH. Для воспроизводимости payload также нужны digest builder и точные версии всех toolchain packages; build-info.txt фиксирует архитектуру и основные версии, но не заменяет полный builder inventory. Эфемерный случайный signing key меняет подпись и SHA подписанного APK между независимыми сборками. Не называть эти signed artifacts побайтово воспроизводимыми.</p>
+<ol><li>Проверить подпись правильным ключом и отказ с чужим ключом/поврежденным APK, оба target platform; inventory должен показывать ровно sqlite-libs 3.54.1-r0.</li>
+<li>В финальном image запустить <code>python /build/sqlite/verify-runtime.py</code> (тестовый файл можно смонтировать read-only): exact SQLite version/source ID, стандартные compile options, FTS5 prefix query с минимальным отрицательным rowid, foreign keys, фактически загруженная /usr/lib библиотека и ее APK owner. Скрипт выводит только безопасные результаты, использует :memory:.</li>
+<li>Проверить scanelf/readelf у CPython _sqlite3: NEEDED libsqlite3.so.0; исключить другие загружаемые SQLite .so и private signing material во всех слоях, экспортах cache и build context.</li>
+<li>Прогнать SQLite migrations, CRUD/transaction/backup/restore, полный backend suite и PostgreSQL locking/migration suite. Затем реальные TLS/auth/Plain/E2E2 Kubernetes сценарии и UID/GID/drop-privileges/signal/shutdown проверки нового entrypoint.</li>
+<li>Повторить полный image scan, включая unfixed, Python dependency audit, SBOM и provenance. Отсутствие записи в Alpine secdb не считается исправлением SQLite. Нельзя заменять реальную CVE проверку только тестом SQL без ASAN: regression здесь функциональный.</li></ol>
+<h2>Первичные основания</h2><ul>
+<li><a href="https://raw.githubusercontent.com/alpinelinux/aports/3.24-stable/main/sqlite/APKBUILD">Alpine 3.24 SQLite APKBUILD</a> - флаги, split packages, ABI.</li>
+<li><a href="https://raw.githubusercontent.com/alpinelinux/abuild/3.17.0/functions.sh.in">abuild readconfig</a>, <a href="https://raw.githubusercontent.com/alpinelinux/abuild/3.17.0/abuild.in">abuild commands and split library</a>, <a href="https://raw.githubusercontent.com/alpinelinux/abuild/3.17.0/abuild-sign.in">signing API</a>.</li>
+<li><a href="https://raw.githubusercontent.com/alpinelinux/apk-tools/v3.0.0/doc/apk.8.scd">apk global options</a>, <a href="https://raw.githubusercontent.com/alpinelinux/apk-tools/v3.0.0/doc/apk-verify.8.scd">signature verification</a>.</li>
+<li><a href="https://github.com/sqlite/sqlite/commit/e1c9934f9f11a499029abb020ea715a08970da80">Upstream FTS5 fix and regression</a>.</li></ul>
+<p><a href="cve-research.html">Исследование девяти HIGH CVE старого Debian runtime</a>.</p>
+</body></html>

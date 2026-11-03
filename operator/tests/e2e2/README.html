@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>E2E2: межъязыковые и adversarial проверки</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#17212b;--line:#d5dde5;--code:#f0f4f7}body{max-width:880px;margin:auto;padding:28px 20px;font:16px/1.6 system-ui,sans-serif;background:var(--bg);color:var(--fg)}h1{font-size:1.6rem;line-height:1.25}h2{font-size:1.15rem;margin-top:1.6rem}pre{padding:16px;overflow:auto;border:1px solid var(--line);background:var(--code);font-size:13px}code{overflow-wrap:anywhere}a{color:inherit}@media(prefers-color-scheme:dark){:root{--bg:#101923;--fg:#e2eaf1;--line:#344455;--code:#192633}}@media(max-width:540px){body{padding:18px 14px}h1{font-size:1.3rem}}@media print{:root{--bg:#fff;--fg:#000;--line:#aaa;--code:#fff}body{padding:0;max-width:none;font-size:11pt}pre{white-space:pre-wrap;break-inside:avoid}}
+</style>
+<h1>E2E2: независимые тестовые векторы</h1>
+<p>Все данные синтетические и публичные. Scalar ноды и ключ чтения намеренно известны всем участникам теста. Они не являются учетными данными и не предназначены для установки в кластер.</p>
+<p>Python reference использует Ed25519, P-256 ECDH, HKDF-SHA256 и AES-GCM из cryptography. Node отдельно повторяет проверки через WebCrypto. Go потребляет те же байты через production API кодека. Тестовые программы не подключаются к панели или witness.</p>
+<h2>Что проверяется</h2>
+<ul>
+<li>Точные canonical bytes, подпись, fingerprint, ECDH shared secret, HKDF key, AES-GCM plaintext reader wrapper.</li>
+<li>Контрольные символы в значениях, U+2028/U+2029, HTML-sensitive символы, astral Unicode и сохранение decomposed Unicode без нормализации.</li>
+<li>Полный снимок, сортировка UTF-8 вместо UTF-16, уникальность tuples и parent contexts, NFC и запрет управляющих символов только в metadata.</li>
+<li>Подписанные и зашифрованные некорректные payload: неизвестные/пропущенные/null поля, чужой context, неверный формат и размер ключа, дубли escaped имен, malformed UTF-8, lone surrogates.</li>
+<li>Дубли JSON, числа 1.0/1e0, глубина, byte bounds, uint64 overflow, неканонический Base64url, подмена checkpoint hash, неподходящая кривая и некорректные Ed25519 public keys.</li>
+</ul>
+<p>Для 45 snapshot и 20 wrapper cases перед семантической проверкой независимо проверяется настоящая Ed25519-подпись. WebCrypto теперь проверяет каждый расшифрованный payload, включая отрицательные случаи, через отдельный bounded UTF-8/JSON parser с запретом дубликатов и неканонических значений.</p>
+<h2>Ожидаемая матрица слоев</h2>
+<table><thead><tr><th>Публичный корпус</th><th>Всего</th><th>Opaque panel принимает</th><th>Полный reader принимает</th></tr></thead><tbody>
+<tr><td>Snapshot</td><td>45</td><td>29</td><td>5</td></tr>
+<tr><td>Reader wrap</td><td>20</td><td>14</td><td>1</td></tr>
+<tr><td>Authority proof v2</td><td>36</td><td>5</td><td>6</td></tr>
+</tbody></table>
+<p>Панель проверяет подпись и внешние metadata, но не получает AES read key. Поэтому 24 некорректных encrypted snapshot payload и 13 wrapper payload остаются непрозрачными для нее и отклоняются reader после расшифрования. Эта граница закреплена в <code>public-layer-matrix.json</code> и тестах production Python validator.</p>
+<p>Authority corpus отдельно проверяет pinned witness, scope/genesis, nonce, floor/cursor, digest, роли ключей, точную JSON shape и границы чисел. Входящий witness key не становится pin. Новый publisher в подписи уже независимо закрепленного witness допустим; его административная история проверяется Go journal при полном replay. Genesis без опубликованного snapshot допустим для Go authority, но не становится публикуемой projection панели. Проверку prime subgroup для доверенных Ed25519 keys выполняет production Go; публичные WebCrypto pins созданы из заведомо публичных тестовых seeds.</p>
+<h2>Запуск из каталога operator</h2>
+<pre>python tests/e2e2/reference.py
+node tests/e2e2/check_webcrypto.cjs
+GOWORK=off go test -count=1 ./internal/e2e2 -run Adversarial
+GOWORK=off go test -count=1 ./internal/journal -run TestPublicPythonAuthorityProofV2Interoperability</pre>
+<p>Production Python boundary проверяется в <code>backend/tests/test_e2e2_parity.py</code>. Эти offline тесты не заменяют живую приемку панели, storage и Kubernetes и не заявляют независимость испытательного storage от администратора стенда.</p>
+<p><code>reference.py --patch</code> выводит patch обновления публичных fixtures, а обычный запуск проверяет отсутствие расхождений. Изменение fixtures требует отдельного просмотра, это не команда принятия новых значений по сети.</p>
+<h2>Граница канонизации</h2>
+<p>Используется ограниченный профиль с фиксированными ASCII property names и целыми счетчиками в строках, а не универсальная JCS-библиотека. <a href="https://www.rfc-editor.org/rfc/rfc8785">RFC 8785</a> требует сохранять Unicode scalar strings и отклонять lone surrogates. <a href="https://pkg.go.dev/encoding/json#Marshal">Обычный encoding/json</a> имеет другие правила escaping и обработки некорректного Unicode, поэтому одной успешной JSON-десериализации для проверки протокола недостаточно.</p>
+<h2>Ограничение Node 24 HKDF</h2>
+<p>При проверке обнаружено: встроенный HKDF в Node 24.15 отклоняет info длиннее 1024 байт. Заголовок корректного снимка с parent references может превышать этот размер. Это ограничение реализации, а не изменение согласованного протокола: domain и полный JCS(header) не сокращаются и не хешируются вместо исходных байтов.</p>
+<p>Тестовый Node reference выполняет HKDF-SHA256 через WebCrypto HMAC: Extract и один Expand block, L=32. Проверяется официальный PRK и первый блок OKM из <a href="https://www.rfc-editor.org/rfc/rfc5869#appendix-A.1">RFC 5869 Appendix A.1</a>, совпадение со встроенным HKDF на info длиной до 1024 байт и совместимость с Python и Go на полном заголовке с 16 parent references. <a href="https://nodejs.org/download/release/v24.15.0/docs/api/crypto.html#cryptohkdfdigest-ikm-salt-info-keylen-callback">Ограничение info в документации Node 24.15</a>.</p>
+<p>Это проверочный reference, а не production JavaScript или тест браузерного интерфейса. Ограничение нельзя скрывать подменой входа KDF или неявным изменением wire format.</p>
+<p>Эти проверки не подтверждают работу durable witness ledger, сетевого сервиса, реальной панели или независимый аудит безопасности. Они проверяют кодек, cryptographic binding и совместимость фиксированных публичных векторов.</p>
+</html>

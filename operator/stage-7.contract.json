@@ -1,0 +1,50 @@
+{
+  "stage": 7,
+  "profile": "isolated-two-minor-acceptance-v1",
+  "production": false,
+  "nextStageRequiresUserApproval": true,
+  "implementation": {
+    "plain": {
+      "authorization": "explicit Plain binding; fresh authenticated fixed-origin TLS read; independently provisioned installation and node identity",
+      "response": "complete strict bounded response; exact requested project, environment and group; no E2E fallback; encrypted projects rejected",
+      "state": "explicit protected mode Plain, head null, no witness checkpoint annotation or status claim",
+      "rollout": "fresh authenticated Plain read plus protected state, exact target/deployment UIDs, opt-in and resourceVersion CAS",
+      "outage": "retain last target and application; no new or resumed rollout until a fresh successful authorized read",
+      "ha": false,
+      "cryptographicFreshnessOrRollbackProtection": false,
+      "trust": "strict plain-v1 schemaVersion 1, or fully validated independently pinned E2E2 schemaVersion 2 for mixed non-HA installation"
+    },
+    "e2e2": "existing signed envelopes, encrypted key wraps, independent witness proofs and canonical journal/fencing gates remain mandatory",
+    "externalHelmObjects": "explicit create=false and administrator-delivered exact ServiceAccount and Lease UID pins; no lookup/adoption",
+    "immutableConfiguration": "retain prior immutable ConfigMap revisions by default; reviewed cleanup only after consumers are removed"
+  },
+  "acceptance": [
+    "real Helm install, Store, Plain/E2E2 target Secret, envFrom application, changed values and optional rollout",
+    "Secret volume reload in same process, rollout disabled, and unchanged published agent init plus sidecar",
+    "panel unavailable before first target and after working target, sealed panel, revoked access, incorrect E2E key",
+    "leader process interruption between Secret commit and rollout, two replicas and controlled E2E2 node-key rotation with new encrypted reader wrap and old-key denial",
+    "actual same-Pod projected JWT file rotation, separate real signer/JWKS overlap and retirement on disposable control plane",
+    "two namespace and administrative Store isolation, forbidden sources and targets, current logs, Events and status privacy",
+    "real install, upgrade and uninstall on two exact Kubernetes minor versions; bounded repeated-fault soak",
+    "full independent cryptographic corpus parity across Go, Python and WebCrypto, including AuthorityProof v2",
+    "meaningful unit negatives, race, static analysis, dependency vulnerabilities and full changed-source privacy review",
+    "UID-pinned cleanup of owned resources and verification that background workloads and foreign local containers are unchanged"
+  ],
+  "evidence": {
+    "renderOrUnitTestsAreLiveAcceptance": false,
+    "tokenRotationIsSignerRotation": false,
+    "manualTokenWriteCountsAsKubeletRefresh": false,
+    "secondMinorRequiresRealAPIServer": true,
+    "incompleteOrInterruptedCasesArePassed": false,
+    "safeReport": "versions, public digests, scenario outcomes and counts only; no private endpoints, real names, credentials or secret hashes"
+  },
+  "nonClaims": [
+    "Trial storage does not establish independent production fault domains or physical WORM guarantees",
+    "Plain trusts the authorized panel and provides no publisher/witness cryptographic authenticity or monotonic freshness",
+    "A kind cluster without an enforcing CNI does not prove NetworkPolicy packet isolation",
+    "Two replicas on one physical host do not prove independent host-failure resilience",
+    "No cross-object transaction or exactly-once workload restart guarantee",
+    "Existing cluster control plane, global Docker/WSL configuration and production applications are outside the mutation scope",
+    "No stage 8, release, commit, push or production deployment is authorized by this acceptance stage"
+  ]
+}

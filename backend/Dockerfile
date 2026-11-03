@@ -6,7 +6,7 @@
 # -buildid= обязателен: build ID считается от содержимого исходников, и без
 # него правка одного комментария давала другой бинарь, а с ним и 500 вместо
 # агента, пока сборку не подпишут заново.
-FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS agent
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS agent
 WORKDIR /src
 COPY agent/ ./
 RUN set -eu; \
@@ -16,19 +16,42 @@ RUN set -eu; \
             -o /out/sekvyr-linux-$arch .; \
     done
 
-FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
+# Build the fixed SQLite as an APK with the target architecture and stable ABI.
+FROM python:3.12.16-alpine3.24@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8 AS sqlite-build
+RUN apk upgrade --no-cache && \
+    apk add --no-cache alpine-sdk abuild=3.17.0-r0 readline-dev unzip
+COPY backend/runtime/sqlite/ /build/sqlite/
+ARG SOURCE_DATE_EPOCH=1792161920
+# The private package-signing key is created only on this RUN's tmpfs.
+RUN --mount=type=tmpfs,target=/tmp/signing \
+    SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" sh /build/sqlite/build-apk.sh
 
-# Панель работает не от root. gosu нужен entrypoint'у: он стартует от root ровно
+FROM python:3.12.16-alpine3.24@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8 AS runtime
+
+# Панель работает не от root. su-exec нужен entrypoint'у: он стартует от root ровно
 # затем, чтобы выровнять владельца смонтированного тома, и сразу сбрасывает
 # привилегии. su/sudo для этого не годятся - они плодят промежуточный процесс и
 # ломают доставку сигналов первому процессу контейнера.
 RUN set -eu; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends gosu; \
-    rm -rf /var/lib/apt/lists/*; \
-    groupadd -r -g 10001 sekvyr; \
-    useradd -r -u 10001 -g sekvyr -d /srv -s /usr/sbin/nologin sekvyr; \
-    gosu nobody true      # проверяем на сборке, а не в три часа ночи на проде
+    apk upgrade --no-cache; \
+    apk add --no-cache su-exec=0.3-r0; \
+    addgroup -S -g 10001 sekvyr; \
+    adduser -S -D -H -u 10001 -G sekvyr -h /srv -s /sbin/nologin sekvyr; \
+    su-exec nobody true
+
+# Trust the locally built APK only for this offline install. Public APK/key and
+# verifier are read-only build mounts; none are copied into runtime layers.
+RUN --network=none \
+    --mount=type=bind,from=sqlite-build,source=/out,target=/tmp/sqlite-artifacts,ro \
+    --mount=type=tmpfs,target=/tmp/sqlite-keys \
+    --mount=type=bind,source=backend/runtime/sqlite/verify-runtime.py,target=/tmp/verify-sqlite.py,ro \
+    set -eu; \
+    cd /tmp/sqlite-artifacts; \
+    sha256sum -c SHA256SUMS; \
+    cp sekvyr-sqlite-build.rsa.pub /tmp/sqlite-keys/; \
+    apk --no-network --keys-dir /tmp/sqlite-keys verify sqlite-libs-3.54.1-r0.apk; \
+    apk --no-network --keys-dir /tmp/sqlite-keys add /tmp/sqlite-artifacts/sqlite-libs-3.54.1-r0.apk; \
+    python /tmp/verify-sqlite.py
 
 WORKDIR /srv
 
@@ -57,7 +80,8 @@ RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml
 COPY backend/app ./app
 COPY backend/alembic.ini ./
 COPY backend/alembic ./alembic
-RUN python -m compileall -q app alembic
+# Normalize access even when the source was staged inside a private directory.
+RUN chmod -R a+rX,go-w app alembic && python -m compileall -q app alembic
 # Пакет app находится из любого каталога: alembic, uvicorn и разовые python -c
 # из ops/*.sh.
 ENV PYTHONPATH=/srv

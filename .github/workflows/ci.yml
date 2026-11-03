@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  workflow_call:
   push:
-    branches: [main]
+    branches: [main, "rc/**"]
   pull_request:
 
 permissions:
@@ -205,9 +206,10 @@ jobs:
         run: |
           docker run --rm --entrypoint sh sekvyr-backend -c '
             set -eu
+            command -v su-exec >/dev/null
             test "$(stat -c %u /srv /srv/app /srv/app/main.py /srv/alembic | sort -u)" = 0
-            ! gosu sekvyr test -w /srv/app || exit 1
-            ! gosu sekvyr test -w /srv/app/main.py || exit 1
+            ! su-exec sekvyr test -w /srv/app || exit 1
+            ! su-exec sekvyr test -w /srv/app/main.py || exit 1
             test "$(cd / && python -c "import app; print(app.__file__)")" = /srv/app/__init__.py
             ! ls -d /usr/local/lib/python3.12/site-packages/app /usr/local/lib/python3.12/site-packages/sekvyr_backend* 2>/dev/null || exit 1
             test ! -e /root/.cache
@@ -224,28 +226,38 @@ jobs:
               echo "$image: labels of the base image"; exit 1
             fi
           done
-      # Исправляемые HIGH и CRITICAL блокируют выпуск. Еженедельный audit.yml
+      - name: Exact SQLite build, unprivileged API and migrations, and entrypoint signals
+        run: |
+          for verifier in backend/runtime/sqlite/verify-runtime.py backend/runtime/verify-entrypoint.py; do
+            docker run --rm --network none --entrypoint python \
+              --mount "type=bind,src=$PWD/$verifier,dst=/tmp/runtime-verifier.py,readonly" \
+              sekvyr-backend /tmp/runtime-verifier.py
+          done
+      # Все HIGH и CRITICAL, включая пока неисправленные, блокируют выпуск. audit.yml
       # дополнительно проверяет уже опубликованные образы.
       - name: Trivy scan (backend image)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: sekvyr-backend
           severity: HIGH,CRITICAL
-          ignore-unfixed: true
+          version: v0.76.1
+          ignore-unfixed: false
           exit-code: "1"
       - name: Trivy scan (frontend image)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: sekvyr-frontend
           severity: HIGH,CRITICAL
-          ignore-unfixed: true
+          version: v0.76.1
+          ignore-unfixed: false
           exit-code: "1"
       - name: Trivy scan (agent image)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: sekvyr-agent
           severity: HIGH,CRITICAL
-          ignore-unfixed: true
+          version: v0.76.1
+          ignore-unfixed: false
           exit-code: "1"
       # Заголовки безопасности нужны самой странице панели, а не только /api/:
       # nginx молча отбрасывает их в location со своим add_header, и главная

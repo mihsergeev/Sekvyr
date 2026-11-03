@@ -1,0 +1,79 @@
+name: Promote reviewed RC images
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_asset:
+        required: true
+        type: string
+      frontend_asset:
+        required: true
+        type: string
+      operator_asset:
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: reviewed-rc-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BACKEND_ASSET: ${{ inputs.backend_asset }}
+      FRONTEND_ASSET: ${{ inputs.frontend_asset }}
+      OPERATOR_ASSET: ${{ inputs.operator_asset }}
+    steps:
+      - name: Require both successful main CI runs for this commit
+        run: |
+          set -euo pipefail
+          for workflow in ci.yml operator.yml; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$GITHUB_SHA&branch=main&event=push&status=success" \
+              --jq '.workflow_runs | length' | awk '$1 > 0 { ok=1 } END { exit !ok }'
+          done
+      - name: Verify reviewed archives
+        run: |
+          set -euo pipefail
+          command -v skopeo >/dev/null || (sudo apt-get update && sudo apt-get install -y skopeo)
+          for role in backend frontend operator; do
+            key="${role^^}_ASSET"
+            id="${!key}"
+            [[ "$id" =~ ^[0-9]+$ ]]
+            gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$id" > "$role.tar"
+          done
+          sha256sum --check <<'SUMS'
+          a8be92e556a071fcc372f2e7e63be4ab9c9988a8d682a8443cd6811194e75617  backend.tar
+          ad74c5bc906ff54e1dbda4ff32f936e8d97a9fbdc7a9ad0e78a88284e58b51c6  frontend.tar
+          afc26b14d997241a24103bf77b377f74996431d78d71da448c2e85f8b85d0eb3  operator.tar
+          SUMS
+          verify_manifest() {
+            local archive="$1" expected="$2" actual
+            actual=$(skopeo inspect --raw "oci-archive:$archive.tar" | sha256sum | cut -d' ' -f1)
+            test "$actual" = "$expected"
+          }
+          verify_manifest backend 6597c522d140a884080438b1bb1e9920d280ea24275826c17772186b583f5962
+          verify_manifest frontend 7e079378aa699a0109711d05d71abaeed016ca79a433c019e6ccbce936579e8d
+          verify_manifest operator eb787ef9ceef7b330dda93dd3480b302f9a81b5d91a602732f745451214a5e11
+      - name: Promote by digest and verify the RC tags
+        run: |
+          set -euo pipefail
+          registry="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          printf '%s' "$GH_TOKEN" | skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
+          promote() {
+            local archive="$1" name="$2" version="$3" expected="$4" actual
+            skopeo copy --all --preserve-digests "oci-archive:$archive.tar" "docker://$registry/$name:$version"
+            actual=$(skopeo inspect --raw "docker://$registry/$name:$version" | sha256sum | cut -d' ' -f1)
+            test "$actual" = "$expected"
+          }
+          promote backend sekvyr-backend 1.1.0-rc.1 6597c522d140a884080438b1bb1e9920d280ea24275826c17772186b583f5962
+          promote frontend sekvyr-frontend 1.1.0-rc.1 7e079378aa699a0109711d05d71abaeed016ca79a433c019e6ccbce936579e8d
+          promote operator sekvyr-operator 0.1.0-rc.1 eb787ef9ceef7b330dda93dd3480b302f9a81b5d91a602732f745451214a5e11

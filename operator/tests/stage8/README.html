@@ -1,0 +1,78 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Этап 8: закрытые native kind profiles</title>
+<style>:root{color-scheme:light dark;font:16px/1.55 system-ui,sans-serif}body{max-width:1000px;margin:2rem auto;padding:0 1rem}pre{padding:1rem;background:#eef2f5;color:#182533;white-space:pre-wrap;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}td,th{border:1px solid #8996a3;padding:.6rem;text-align:left;vertical-align:top}@media(prefers-color-scheme:dark){body{background:#131d26;color:#e4edf5}pre{background:#243443;color:#e4edf5}}@media(max-width:600px){body{margin:1rem auto;font-size:14px}}@media print{body{max-width:none;margin:0;font-size:10pt}pre{background:white;color:black}tr,pre{break-inside:avoid}}</style>
+<h1>Этап 8: приемка RC на двух версиях Kubernetes</h1>
+<p>Этот каталог готовит отдельный свежий trial. Успешные unit guards не объявляют Kubernetes, RC image или production HA проверенными. Код не создает Docker/Kubernetes resources при import. Stage 7 evidence не меняется и не переносится на новый RC.</p>
+<table><tr><th>Закрытый profile</th><th>Node</th></tr>
+<tr><td>kind-1.37.0 / v1.37.0</td><td>kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5</td></tr>
+<tr><td>kind-1.34.11 / v1.34.11</td><td>kindest/node:v1.34.11@sha256:44e222ee2132dab25ff87301682f89eb82c7880ea3a1bf543bfe9708fd08d67d</td></tr></table>
+<p>kind 0.33.0, Helm 4.3.1 и kubectl точно выбранной версии. Доступ только к Linux amd64 Docker host с исходными resource/clock/network checks, без правок host clock, daemon, sysctl или чужих ресурсов. Ограничения node: 4 CPU / 8 GiB memory / 8 GiB memory+swap. ARM native coverage не заявляется.</p>
+<h2>Источник полномочий</h2>
+<p>Используются только новые exclusive каталоги старого формата: rootTask=/opt/sekvyr-trial/sekvyr-stage7-YYYYMMDD-8hex и runtimeTask=/var/tmp/sekvyr-stage7.8hex, ROOT-owned 0700. Это формат общего harness, а не статус или повторный запуск этапа 7. Независимый root-task CREATE receipt должен существовать заранее. Старые runtime, creator directory, partial outputs или старые receipts не принимаются. Source не ищет task по имени или mtime.</p>
+<p>Перед kind create исключительно создается rootTask/receipts/stage8-profile.json, связывающий закрытый profile, reviewed RC artifacts, root/runtime и hash исходного root CREATE receipt. Его raw hash включен в preflight.stage8ProfileSHA256 до CREATE: позднее добавленный profile не разрешает принять старый preflight. Stage8 Capability требует этот дополнительный pin до Docker checks, затем проверяет его при каждом guard. Общие marker/schema names, CID/image/labels, host boot/daemon, directory inode, PID/starttime, caps, полные Config.Env/Mounts hashes и network ownership остаются прежними.</p>
+<h2>Build pins и API</h2>
+<p>В <code>profiles.py</code> закрепляются проверенные дайджесты образов оператора и панели и SHA-256 двух CLI. В <code>assets.py</code> отдельно закрепляется тестовый образ PostgreSQL Job. Пока нужные значения не заданы, действия прекращаются. <code>assets.run</code> проверяет все архивы и CLI до первого импорта, затем импортирует проверенные байты только в containerd созданного узла. В Docker хоста эти образы не загружаются.</p>
+<pre>from stage8.prepare_kind import create, cleanup
+from stage8.capability import Capability
+from stage8.recovery import bind
+from stage8.jwks import RemoteKindJWKS
+from stage8.infrastructure import prepare, ready
+from stage8.assets import run as import_assets
+from stage8.entry import prepare_inputs, run as run_e2e
+from coordinator import BudgetCluster, phase
+
+# Все пути, tool hashes и CRD source заранее проверены coordinator.
+# Один новый root/runtime на каждый profile, без повторного create.
+task = create(
+    "kind-1.37.0", ROOT_TASK, RUNTIME_TASK,
+    KIND_BINARY, HELM_BINARY, KUBECTL_BINARY,
+    KIND_SHA256, HELM_SHA256, KUBECTL_SHA256, CRD_DIRECTORY)
+cluster = BudgetCluster(task)
+import_assets(cluster, profile="kind-1.37.0")
+prepare(task, profile="kind-1.37.0")
+ready(task, profile="kind-1.37.0")
+phase(task, "storage-bootstrap", OPERATOR_REF, BACKEND_REF)
+phase(task, "gateway", OPERATOR_REF, BACKEND_REF)
+prepare_inputs(task, profile="kind-1.37.0",
+    chart_archive=CHART_ARCHIVE, chart_sha256=CHART_SHA256,
+    public_base_values=BASE_VALUES, base_values_sha256=BASE_SHA256,
+    public_ha_values=HA_VALUES, ha_values_sha256=HA_SHA256)
+# Отдельно проверить полный ha-render.json и план адресов API/admission.
+run_e2e(task, profile="kind-1.37.0", chart_sha256=CHART_SHA256,
+    reviewed_ha_sha256=REVIEWED_HA_RENDER_SHA256, acceptance="full")
+
+# cluster/panel: текущие exact-UID scoped объекты общего harness.
+owner = Capability(cluster, profile="kind-1.37.0")
+recover = bind(panel, "kind-1.37.0")
+recover(signed_plan, envelope, reader_wrap, installation)
+signer = RemoteKindJWKS(cluster, owner.marker, profile="kind-1.37.0")
+# signer.run(..., after_control_plane_ready=OWN_REVIEWED_PANEL_FORWARD_RECONNECT)
+
+# После приемки и удаления своих Kubernetes-ресурсов по сохраненным UID:
+cleanup(owner, execute=True)</pre>
+<p>Recovery принимает только новый reviewed static ELF и proof с точным image ref. Root child сверяет extra profile receipt перед каждым исходным ownership guard. NET_JOIN, FD identity checks, pidfd nonce/parent supervision, timeout, chroot и правило сохранения inputs при неподтвержденном завершении не ослаблены. Stage 7 driver не изменяется: FunctionType получает отдельную копию globals только с фиксированным driver_source.</p>
+<p>JWKS сохраняет проверенный two-flag/backup/crypto/restore алгоритм. Reconnect callback касается только собственного panel transport после control-plane Ready; не меняет issuer, trust, TTL или scopes. Provider должен подтвердить old/new JWT validity при retirement. Не считать отложенный тест выполненным.</p>
+<p>Infrastructure сохраняет шесть namespace ролей, budgets, default deny, CREATE UID receipts и shared storage/database preparation. Изменен только закрытый actual-version gate на выбранные v1.34.11/v1.37.0. Исходные свежие protocol fixture keys допустимы как явно заданные inputs production CLI; новые snapshot/wrap/enrollment/recovery signatures делает provision adapter. Это не автоподписание Python fixture вместо CLI.</p>
+<p>Сценарий записывает начало и завершение каждой фазы. Если фаза прервана, повторное применение на том же стенде запрещено. Сокращенный профиль проверяет доставку и изменение, отсутствие лишнего перезапуска, отказ панели и сохранение Secret после удаления Helm. Полный добавляет PostgreSQL, изоляцию по namespace и audience, обновление файла токена в том же pod за десять минут, отказы зависимостей, подмену, откат, перезапуск лидера и JWKS. Само наличие NetworkPolicy не доказывает изоляцию пакетов; перезапуск лидера не доказывает split-brain. Этот сценарий не повторяет живую ротацию ключа узла или ключа чтения E2E2.</p>
+<h2>Запуск приемки</h2>
+<p>После подготовки инфраструктуры, хранилища и шлюза передайте <code>stage8.entry.prepare_inputs</code> точный архив чарта, оба публичных файла values и <code>operator/design/resource.schema.json</code>. Все входные файлы задаются абсолютными путями с независимо проверенными SHA-256. Runner сохраняет байты чарта в <code>private/stage8-entry/charts/sekvyr-operator</code>, схему в соседнем каталоге <code>design</code>, а полный рендер для проверки в <code>private/stage8-entry/ha-render.json</code>.</p>
+<pre>from stage8.entry import prepare_inputs, run
+
+prepare_inputs(task, profile=profile, chart_archive=archive,
+    chart_sha256=chart_sha256, public_base_values=base_values,
+    base_values_sha256=base_sha256, public_ha_values=ha_values,
+    ha_values_sha256=ha_sha256, resource_schema=resource_schema,
+    resource_schema_sha256=schema_sha256)
+
+# После отдельной проверки полного рендера.
+run(task, profile=profile, chart_sha256=chart_sha256,
+    resource_schema_sha256=schema_sha256,
+    reviewed_ha_sha256=reviewed_full_render_sha256, acceptance="full")</pre>
+<p>После уже подтвержденных проверок полного прогона вариант <code>ha-final</code> на новом кластере 1.37.0 повторяет подготовку, доставку и равенство E2E2, затем проверяет отложенный rollout при смене лидера, удаление Helm с сохранением Secret и смену JWKS. Он не возобновляет прежний журнал и не выдает пропущенные проверки за выполненные в этом запуске.</p>
+<p>Перед изменениями runner еще раз сверяет архив, распакованные файлы, схему и сетевые адреса. Plain читает закрепленную копию схемы по относительному пути <code>chart.parents[1]/design/resource.schema.json</code>.</p>
+<h2>Локальные guards</h2>
+<pre># PYTHONPATH включает operator/tests, stage7, stage6 и stage4.
+# Stage 8 импортируется только как package stage8.*, без stage8 в PYTHONPATH.
+python -m unittest discover -s operator/tests/stage8 -t operator/tests -p test_profiles.py -v
+python -m unittest discover -s operator/tests/stage8 -t operator/tests -p test_recovery.py -v</pre>
+<p>Проверяются оба profile, неверный node/alias/caps/PID/network, root/profile/RC receipt mismatch, отсутствие повторного adoption, unchanged legacy globals и AST algorithms, static CLI/image proof, exact root template hashes, классификация до Docker guard, безопасное завершение/удержание inputs. Это offline tests с synthetic metadata и mocked processes; реальный setns, native restart, image import и E2E ими не доказываются.</p>
+</html>

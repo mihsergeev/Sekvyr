@@ -71,6 +71,11 @@ checks that it stays that way.
 and the panel verifies the signature against the cluster keys. For those who
 already run External Secrets Operator, that path works too.
 
+**Unreleased operator RC.** Operator/chart `0.1.0-rc.1` requires matching panel
+`1.1.0-rc.1` for the new E2E2 API; published panel `1.0.3` does not provide it.
+See [installation](operator/docs/install.en.html) and
+[operations](operator/docs/operations.en.html). Agent `1.0.3` is unchanged.
+
 **Operations.** Encrypted backups with a freshness check, one-command restore,
 emergency access to values without the panel, Telegram and webhook alerts, a
 copy of the audit log on an external receiver, and a watchdog outside the

@@ -1,0 +1,96 @@
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.installation.serviceAccount }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sekvyr-operator.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "sekvyr-operator.name" . }}
+  namespace: {{ .Release.Namespace }}
+rules:
+  {{- if (include "sekvyr-operator.serviceAccountUID" .) }}
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    resourceNames: [{{ .Values.installation.serviceAccount | quote }}]
+    verbs: [get]
+  {{- end }}
+  - apiGroups: [secrets.sekvyr.ru]
+    resources: [sekvyrstores, sekvyrsecrets]
+    verbs: [get, list, watch]
+  - apiGroups: [secrets.sekvyr.ru]
+    resources: [sekvyrstores/status, sekvyrsecrets/status]
+    verbs: [get, update, patch]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames:
+      - {{ .Values.installation.identityKeySecret.name | quote }}
+      - {{ .Values.installation.trustBundleSecret.name | quote }}
+      - {{ .Values.installation.stateSecret.name | quote }}
+      {{- if .Values.ha.enabled }}
+      - {{ .Values.ha.config.gatewayClientSecret.name | quote }}
+      {{- end }}
+    verbs: [get]
+  {{- if .Values.sync.enabled }}
+  # Create cannot be constrained by resourceNames. Runtime must validate the
+  # trusted administrative allowlist, protected names and ownership first.
+  {{- if not .Values.ha.enabled }}
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  {{- end }}
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames:
+      - {{ .Values.installation.stateSecret.name | quote }}
+    verbs: [get, update]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames:
+      {{- range .Values.installation.allowedTargetSecrets }}
+      - {{ . | quote }}
+      {{- end }}
+    verbs: [get, update]
+  {{- end }}
+  {{- if and .Values.sync.enabled .Values.rollout.enabled }}
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames:
+      {{- range .Values.rollout.allowedDeployments }}
+      - {{ . | quote }}
+      {{- end }}
+    verbs: [get, patch]
+  {{- end }}
+  {{- if .Values.installation.caConfigMaps }}
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames:
+      {{- range .Values.installation.caConfigMaps }}
+      - {{ .name | quote }}
+      {{- end }}
+    verbs: [get]
+  {{- end }}
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [{{ .Values.leaderElection.id | quote }}]
+    verbs: [get, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "sekvyr-operator.name" . }}
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "sekvyr-operator.name" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.installation.serviceAccount }}
+    namespace: {{ .Release.Namespace }}

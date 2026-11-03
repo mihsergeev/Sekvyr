@@ -1,0 +1,67 @@
+{
+  "date": "2026-11-01",
+  "stage": 2,
+  "scope": "Operator scaffold, resource schema, Helm, bootstrap metadata and isolated authentication client; no E2E2 data synchronization",
+  "releasePublished": false,
+  "stage3Started": false,
+  "toolchain": {
+    "compiler": "go1.27.3",
+    "goDirective": "1.26.0",
+    "controllerRuntime": "v0.25.2",
+    "kubernetesModules": "v0.37.0",
+    "xNet": "v0.62.0",
+    "xText": "v0.43.0"
+  },
+  "go": {
+    "format": "passed",
+    "moduleIntegrity": "passed",
+    "vet": "passed",
+    "unitTests": "passed",
+    "linuxBuild": "passed",
+    "govulncheckVersion": "v1.9.0",
+    "govulncheck": "No vulnerabilities found"
+  },
+  "image": {
+    "digest": "sha256:3e639484d006076c7efedbb4830d23a17b7e37f49434a77f64aba0cb4464dc3c",
+    "trivyVersion": "0.76.0",
+    "fixableHighCritical": 0,
+    "registryPush": false
+  },
+  "kubernetes": {
+    "version": "1.37.0",
+    "environment": "isolated local kind",
+    "passed": 36,
+    "proof": "tests/kind/last-local-results.json",
+    "clusterRemoved": true,
+    "temporaryKubeconfigRemoved": true,
+    "targetSecretChanged": false,
+    "applicationPodTemplateChanged": false,
+    "bootstrapOrJWTInControllerLogsOrStatus": false
+  },
+  "design": {
+    "acceptedRequests": 5,
+    "negativeRequestsRejected": 22,
+    "pythonCryptoAndInMemoryWitnessChecks": 40,
+    "nodeWebCryptoChecks": 8,
+    "productionRuntimeProof": false
+  },
+  "helm": {
+    "lint": "passed",
+    "schemaAndRenderTestsPassed": 7,
+    "crdGeneratorConsistency": "passed",
+    "renderTargetKubernetesVersion": "1.37.0"
+  },
+  "publicationHygiene": {
+    "sourceAndReportScanner": "passed",
+    "newCommits": 0,
+    "push": false
+  },
+  "limitations": [
+    "Authentication HTTP tests use local TLS mocks, not a deployed panel with real JWT verification",
+    "Real mounted projected JWT claims and renewable projections checked; timed kubelet token rotation not awaited",
+    "Cryptographic node-key and trust-bundle parsing, signed snapshots and reader wrappers are not implemented",
+    "Witness service, proof verification and durable canonical ledger adapter are not implemented",
+    "Target UID ownership registry, checkpoint persistence, Secret synchronization and rollout are not implemented",
+    "Remote CI workflow added but not executed or published"
+  ]
+}

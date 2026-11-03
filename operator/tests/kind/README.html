@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Локальные проверки каркаса оператора</title>
+<style>body{font:16px/1.55 system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#18222c;background:#fff}pre{overflow:auto;padding:1rem;background:#edf1f4}code{font-family:monospace}@media(prefers-color-scheme:dark){body{color:#e6edf3;background:#111820}pre{background:#202c38}}@media print{body{color:#000;background:#fff;margin:0;max-width:none}pre{white-space:pre-wrap;overflow:visible}}</style>
+<h1>Проверки этапа 2 в отдельном kind</h1>
+<p>Проверяются настоящие Kubernetes API admission/CEL, Helm-установка, RBAC, projected ServiceAccount tokens и безопасный отказ каркаса. Реальные E2E2 sync, witness, durable ledger, обновление Secret и rollout не реализованы и этими проверками не подтверждаются.</p>
+<p>Нужны Linux/WSL, Docker через sudo без пароля, Helm, Python 3 и PyYAML. Все kubectl-команды направлены только внутрь node <code>sekvyr-stage2-control-plane</code> с его собственным admin.conf. Текущий пользовательский Kubernetes context не используется. kind 0.33.0 скачивается с проверкой официальной checksum, node 1.37.0 закреплен digest.</p>
+<pre>bash operator/tests/kind/prepare.sh
+# Сохранить напечатанный TASK_DIR.
+python3 operator/tests/kind/admission.py --chart operator/charts/sekvyr-operator
+# Загрузить собранный для проверки образ в sekvyr-stage2, сохранив digest reference.
+python3 operator/tests/kind/run.py \
+  --chart operator/charts/sekvyr-operator \
+  --task-dir /tmp/sekvyr-stage2.REPLACE \
+  --image-repository example.invalid/sekvyr-operator \
+  --image-digest sha256:REPLACE
+bash operator/tests/kind/cleanup.sh /tmp/sekvyr-stage2.REPLACE</pre>
+<p>В WSL с cgroup v1 только тестовый kubelet получает <code>failCgroupV1: false</code>. Системные настройки WSL/Docker не меняются. Это проверка API/оператора, а не приемка конфигурации production node.</p>
+<p>Bootstrap fixtures создаются динамически в тестовом namespace. Поля node/trust удовлетворяют только проверке метаданных этапа 2 и не являются доверенным криптографическим bootstrap. Значения ключей и JWT в репозиторий и вывод не попадают. Проверяются claims и наличие обновляемой проекции, но часовая ротация kubelet не ожидается и не объявляется пройденной.</p>
+<p>Результат сохраняется в <code>TASK_DIR/results.json</code> без секретов. Cleanup удаляет только этот кластер и его временный kubeconfig, оставляя образы и чужие контейнеры. При остановке теста выполнить cleanup вручную. Повтор полного run требует чистых тестовых namespaces.</p>
+</html>

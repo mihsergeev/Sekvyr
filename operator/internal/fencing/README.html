@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trial fencing: граница API</title>
+<style>:root{color-scheme:light dark;--bg:#fff;--fg:#17212b;--line:#ccd5de;--code:#f1f4f7}body{margin:0 auto;max-width:900px;padding:28px 20px;font:16px/1.6 system-ui,sans-serif;background:var(--bg);color:var(--fg)}h1{font-size:1.7rem}h2{font-size:1.2rem}pre{padding:16px;background:var(--code);border:1px solid var(--line);overflow:auto}code{overflow-wrap:anywhere}@media(prefers-color-scheme:dark){:root{--bg:#101923;--fg:#e2eaf1;--line:#344455;--code:#192633}}@media(max-width:540px){body{padding:18px 14px}h1{font-size:1.4rem}}@media print{body{max-width:none;padding:0;font-size:11pt}pre{white-space:pre-wrap;break-inside:avoid}}</style>
+<h1>Trial fencing: граница API</h1>
+<p>Пакет разрешает явно включенный HA trial для одной установки и одной journal log/view. Lease выбирает кандидата; запись разрешают подписанный актуальный grant, все объектные барьеры и независимая подписанная activation. Ни Lease, ни локальная память fencer не заменяют онлайн canonical journal.</p>
+<h2>HTTPS и аутентификация</h2>
+<p>Команда <code>/sekvyr-fencer</code> запускается только с <code>--allow-trial-fencing=true</code>. По умолчанию слушает TLS на 9443. Флаг <code>--config</code> читает административный JSON, <code>--journal-config</code> читает <code>sekvyr-journal-client-config-v1</code> SDK с фиксированным gateway origin, CA и путями mTLS certificate/key. Прямые S3 credentials и ключи данных клиенту не передаются. <code>--signing-key</code> принимает Ed25519 PKCS8 PEM; <code>--tls-cert</code> и <code>--tls-key</code> задают TLS identity.</p>
+<pre>POST /v1/installations/{installation_id}/acquire
+Authorization: Bearer &lt;bound projected JWT, audience sekvyr-fence&gt;
+{"bootstrap_generation":1,"expected_lease_holder_identity":"&lt;pod-name&gt;_&lt;fixed-process-uuid&gt;"}
+
+POST /v1/installations/{installation_id}/barriers
+POST /v1/installations/{installation_id}/ready
+{"grant_hash":"&lt;lowercase SHA-256 hex&gt;"}
+
+Response: {"grant":&lt;signed journal grant&gt;,"grant_hash":"...","active":false}</pre>
+<p>Acquire повторно проверяет TokenReview, bound Pod/SA/namespace UID и точный Lease holder. При CASConflict новая попытка заново читает Lease. Term монотонен; grant содержит exact enrollment objects, authority digest и canonical snapshot. Barriers меняет только public fence-аннотацию каждого закрепленного объекта с UID/resourceVersion CAS, повторно проверяет все барьеры и записывает activation. Ready сверяет активный онлайн grant, текущего владельца и все барьеры. Неуспех не активирует частичную установку барьеров.</p>
+<p><code>GET /healthz</code> проверяет процесс. <code>GET /readyz</code> проверяет доступность актуального journal/enrollment; это не обещание завершения всех барьеров или синхронизации данных. Bearer перечитывается клиентом из файла для каждого запроса. Redirect и proxy отключены, origin фиксирован, TLS validation обязательна.</p>
+<h2>Admission и неизменяемая writer session</h2>
+<p><code>POST /admit</code> принимает Kubernetes AdmissionReview v1. Решение использует только old/new версии одного объекта и онлайн canonical journal. Kubernetes GET, Lease GET и побочные записи в admission отсутствуют. Оператору нужны exact SA UID, bound Pod identity, актуальная activation, неизменный fence, UID/resourceVersion и аннотация <code>secrets.sekvyr.ru/write-session</code> с fixed session grant hash. Старый процесс не может обновить сессию, скопировав fence из GET. Fencer SA разрешено только строгое увеличение fence; data/spec/прочие аннотации сохраняются.</p>
+<p>Writer декорирует client.Client для конкретной неизменяемой сессии. Разрешены Update и проверенные CAS Patch закрепленных Secret/Deployment. Create, Delete, DeleteAllOf, Apply и все mutating subresource methods отвергаются. Изменение canonical snapshot инвалидирует grant и требует нового term, барьеров и activation; барьеры сами не меняют Secret data, data revision или Deployment pod template.</p>
+<h2>Предположения и проверки</h2>
+<p>Admin config и enrollment закрепляют namespace/SA/Lease/object UID. Три immutable Opaque material Secret проверяются при старте; материал не перечитывается admission. Signer должен оставаться разрешенным текущей независимой authority. Явный bootstrap/recovery субъект сопоставляется по точным username и UID; это доверенная административная граница.</p>
+<p>Unit tests включают fresh Lease на CAS retry, повторный процесс в том же Pod, snapshot advance, неполные барьеры, точную Pod identity, недоступный journal, metadata-only барьеры, zero cross-object reads в admission, реальный HTTPS round trip, token rotation, отказ redirect и запрещенные writer API. In-memory ledger в unit tests не доказывает WORM или независимость storage.</p>
+<p>Гарантия задержанной записи предполагает честный API server с монотонными resourceVersion и storage CAS. Raw etcd rollback с откатом RV и сохранением уже одобренного запроса, компрометация действующего SA/администратора, Byzantine gateway и потеря единственного trial узла не покрыты. Production HA/WORM требуют самостоятельного deployment и storage аудита.</p>
+</html>

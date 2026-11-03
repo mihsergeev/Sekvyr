@@ -1,0 +1,52 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Witness: файловый профиль для разработки</title>
+<style>:root{color-scheme:light dark;--bg:#fafbfc;--fg:#202733;--box:#edf1f6;--border:#c7ced8}body{background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,sans-serif;max-width:1040px;margin:32px auto;padding:0 20px}h1,h2{line-height:1.2}h2{margin-top:2em}pre{background:var(--box);border:1px solid var(--border);padding:16px;overflow:auto;font-size:13px}code{font-family:ui-monospace,monospace}.notice{border-left:5px solid #c77b12;background:var(--box);padding:12px 18px}td,th{text-align:left;vertical-align:top;padding:8px;border:1px solid var(--border)}table{border-collapse:collapse;width:100%}a{color:#2676bc}@media(prefers-color-scheme:dark){:root{--bg:#141921;--fg:#e1e7ef;--box:#202833;--border:#435168}a{color:#91caff}}@media(max-width:640px){body{margin:18px auto;padding:0 12px}pre{font-size:12px}table{font-size:13px}}@media print{body{color:#000;background:#fff;max-width:none;margin:0}pre,.notice{background:#fff;color:#000;white-space:pre-wrap;word-break:break-word}a{color:#000}}</style>
+<h1>Witness: файловый профиль для разработки</h1>
+<p>Этап 4. Реальный HTTPS-процесс с долговечным журналом, подписанным независимым genesis, проверкой staged envelope и файловым CAS. Это отдельный процесс и отдельный том: панель и оператор не получают доступ к каталогу журнала или ключу подписи witness.</p>
+<div class="notice"><strong>Только разработка и локальный E2E.</strong> Для запуска обязателен <code>--allow-development-filesystem-ledger</code>. Обычная файловая система не становится WORM из-за этого флага. Защита тома от удаления, перезаписи и физического отката относится к независимому администрированию хранилища. Такой профиль не дает production readiness, Byzantine tolerance, HA или доказательства сохранности после потери всех независимых корней доверия.</div>
+<h2>Граница доверия</h2>
+<p>Администратор отдельно создает Ed25519-ключ регистрации и подписывает полный genesis. Runtime-конфигурация независимо закрепляет публичный ключ администратора, hash полного genesis и минимальный checkpoint. Genesis содержит все UUID источника, origin панели, ключ и эпоху witness, разрешенные ключи publisher, policy epoch и read-key epoch. Runtime выводит полномочия из подписанного genesis и заново проверенной истории. Панель не может зарегистрировать или сбросить журнал сетевым запросом.</p>
+<p>Формат genesis — <code>Genesis</code> в <code>types.go</code>. Подпись: Ed25519 над <code>UTF8("sekvyr-e2e2/witness-genesis/v1") || 0x00 || JCS(body)</code>. Независимый pin: SHA-256 над <code>UTF8("sekvyr-e2e2/witness-genesis-hash/v1") || 0x00 || JCS(genesis)</code>. Публичный ключ администратора не изучается из входящего genesis.</p>
+<p>В профиле фиксированы publisher policy, read-key epoch, witness key и epoch. Записи смены полномочий, восстановление, reset, удаление и ротации не реализованы и отвергаются. Новую конфигурацию нельзя использовать как скрытую замену истории.</p>
+<h2>Запись и проверка</h2>
+<ol><li>Каждый head и commit получает эксклюзивный межпроцессный <code>flock</code> конкретного журнала.</li><li>Полный replay начинается с независимо закрепленного подписанного genesis. Проверяются непрерывные номера записей, подпись и контекст каждого envelope, hash chain, неизменные эпохи и минимальный checkpoint.</li><li>Commit сравнивает точный expected head и скачивает staged ciphertext по фиксированному origin, UUID view и hash. Чужие URL, redirects, environment proxy и неподписанные значения не принимаются.</li><li>Новая запись создается через <code>O_EXCL</code>. Сначала выполняется запись и <code>fsync(file)</code>, затем <code>fsync(directory)</code>. Ответ об успехе следует после этих операций.</li><li>Head подписывается под тем же lock после replay и синхронизации существующих файлов и каталога. Проверяется точное наличие запрошенного исторического floor.</li></ol>
+<p>Сбой посреди append оставляет журнал заблокированным, если получилась неполная запись. Автоматического truncate, пересоздания, пропуска поврежденной записи или отката к старому head нет. Полная запись, сохранившаяся после потерянного ответа commit, может уже быть канонической: клиент обязан запросить новый подписанный head, а не предполагать отсутствие commit.</p>
+<p>Локальные тесты проверяют вызовы реальной файловой системы, replay после создания нового экземпляра сервиса, конкурирующий CAS, повреждение, пропуски, подмену genesis и независимый checkpoint. Они не имитируют потерю питания оборудования и не доказывают инфраструктурную неизменяемость тома. Отдельный root, способный откатить том и все независимые checkpoints, остается за пределами этой гарантии.</p>
+<h2>Запуск</h2>
+<p>Рабочая платформа профиля — Linux с файловой системой, поддерживающей требуемые <code>flock</code> и <code>fsync</code>. Каталог тома должен существовать заранее. Init — только отдельная офлайн-операция администратора, никогда не initContainer оператора и не автозапуск после потери данных. Секретные fixtures для E2E создаются во временном локальном каталоге и не добавляются в репозиторий.</p>
+<pre>docker build -f cmd/witness/Dockerfile -t sekvyr-witness-development:local .
+
+/sekvyr-witness init \
+  --ledger-root /ledger \
+  --registration /fixture/genesis.json \
+  --admin-public-key /fixture/admin.pub.b64 \
+  --allow-development-filesystem-ledger
+
+/sekvyr-witness serve \
+  --ledger-root /ledger \
+  --config /trust/witness.json \
+  --signing-key /trust/witness.pkcs8.pem \
+  --tls-cert /tls/tls.crt --tls-key /tls/tls.key \
+  --listen :8443 \
+  --allow-development-filesystem-ledger</pre>
+<p>Сборка запускается из каталога <code>operator</code>. Образ работает от UID/GID 65532. Том заранее выдается этому пользователю; ключи и конфигурация монтируются только для чтения. Serve не создает отсутствующий журнал. Init отказывается менять уже существующий каталог log.</p>
+<p>Схематическая runtime-конфигурация ниже требует настоящих независимо подготовленных pins. Пустой <code>panel_ca_file</code> означает системные CA. Свой CA заменяет их, а не отключает TLS-проверку.</p>
+<pre>{
+  "format": "sekvyr-witness-config-v1",
+  "registrations": [{
+    "log_id": "10000000-0000-4000-8000-000000000005",
+    "genesis_hash": "&lt;independently pinned lowercase hex64&gt;",
+    "admin_public_key": "&lt;independent public key, base64url32&gt;",
+    "minimum_checkpoint": {"sequence": "0", "envelope_hash": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "staging_token_file": "/trust/staging-fetch-token",
+    "panel_ca_file": "/trust/panel-ca.pem"
+  }]
+}</pre>
+<p>Genesis seq0/hash0 допустим только для регистрации. Его read/policy epochs в head равны 0; первый commit сравнивает expected policy 0 и публикует envelope с эпохами, разрешенными genesis. Bootstrap оператора получает положительный checkpoint первого принятого snapshot: genesis не является готовыми значениями и не заменяет независимое подтверждение.</p>
+<h2>HTTP-контракт</h2>
+<table><tr><th>Маршрут</th><th>Назначение</th></tr><tr><td><code>GET /v1/capabilities</code></td><td>Диагностика: <code>profile=development-filesystem-not-worm</code>, <code>production_ready=false</code>. Не доказательство доверия и не checkpoint.</td></tr><tr><td><code>POST /v1/logs/{logUUID}/head-challenge</code></td><td>Точный JSON <code>{request_nonce,floor_sequence,floor_hash}</code>. Ответ — подписанный E2E2 HeadProof. Клиент проверяет независимые pins, nonce, scope и свой floor.</td></tr><tr><td><code>POST /v1/logs/{logUUID}/commits</code></td><td>Точный JSON <code>{envelope_hash,expected:{witness_epoch,sequence,envelope_hash,publisher_policy_epoch}}</code>. Ответ <code>{sequence,envelope_hash}</code> информационный: он не заменяет свежую подписанную проверку.</td></tr></table>
+<p>Авторизация публикации — подпись разрешенного publisher над полным envelope с intent publish плюс точный CAS. Staged envelope с такой подписью уже содержит полномочие на публикацию; знание его hash не дает возможности подписать новые значения. Для публичного развертывания дополнительно нужны сетевые ограничения и эксплуатационные лимиты; этот dev-профиль не обещает доступность под атакой.</p>
+<p>Witness скачивает только <code>GET {registeredPanelOrigin}/api/e2e2/witness/views/{registeredViewUUID}/envelopes/{hash}</code>. Выделенный Bearer из <code>staging_token_file</code> разрешает лишь чтение staged ciphertext для заранее разрешенных views. Он не является пользовательской или машинной сессией панели, не дает stage/index/reader-wrap/value доступа. Файл перечитывается при каждом запросе. AES read keys и приватные ключи publisher witness не получает.</p>
+<h2>Ограничения и отказ</h2>
+<p>Не более 4096 записей на log, включая genesis, и 512 MiB суммарного replay. При исчерпании лимита сервис отказывает; небезопасной компактации нет. Envelope ограничен 16 MiB, входные запросы — 2 KiB, одновременно выполняются максимум четыре HTTP-операции. Ошибки содержат фиксированные reason-коды, не upstream bodies, credentials или TLS-пути. Журнал хранит публичную authority metadata и подписанный ciphertext, не plaintext.</p>
+<p>Перед production нужны отдельно проверенные внешний неизменяемый журнал, его независимость от restore-domain, администрирование pins/ключей и полноценные процедуры ротации, восстановления и эксплуатации. Успешный локальный E2E не закрывает эти требования.</p>
+</html>

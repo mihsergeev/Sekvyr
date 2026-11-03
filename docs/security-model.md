@@ -258,10 +258,15 @@ how that rule is kept. Who can attack the panel and what stops them is in the
   see a pod being deleted: its token works until it expires. That is why a token
   living longer than a day is refused: kubelet issues projected tokens for an
   hour and renews them itself, while a year-long `kubectl create token` would be
-  a static secret again. One ServiceAccount maps to one machine.
-- A cluster identity has no secret at all, so nothing that could be stolen and
-  used elsewhere is left in the cluster. Cluster keys are updated in place, and
-  pod identities keep their grants.
+  a static secret again. Backend identity mapping uses namespace and
+  ServiceAccount name, not ServiceAccount UID.
+- Avoiding a permanent machine password does not eliminate stealable credentials.
+  A projected JWT is a bearer token and can be stolen and reused until expiry,
+  subject to policy checks. The backend verifies issuer/audience and signature
+  using offline JWKS; it does not immediately revoke a token when a Pod is deleted.
+  Operator runtime UID pins are a separate boundary, not backend UID-bound auth.
+  E2E2 node private keys, unwrapped AES material and plaintext target Secrets are
+  sensitive too. Cluster public-key updates retain the configured machine grants.
 - Compatibility with External Secrets Operator is kept on purpose and with an
   honest caveat: there a static pair lives in the cluster, because ESO makes a
   single request and cannot exchange a secret for a short-lived token.
@@ -345,8 +350,10 @@ how that rule is kept. Who can attack the panel and what stops them is in the
 
 ## Not there yet
 
-- **A Kubernetes operator of its own** with a `SekvyrSecret` resource. Clusters
-  currently work through the sidecar agent and External Secrets Operator.
+- **A production operator release is not announced.** Unreleased operator/chart
+  `0.1.0-rc.1` with `SekvyrSecret` and matching panel `1.1.0-rc.1` are described in
+  the [RC installation guide](../operator/docs/install.en.html). Published panel
+  `1.0.3` has no new E2E2 API; agent `1.0.3` remains unchanged.
 - **Switching an existing project to browser-side encryption.** For now it can
   be turned on only for an empty project: re-encrypting live values in the
   browser is not done yet.

@@ -1,0 +1,465 @@
+{
+  "stage": 7,
+  "status": "completed-with-known-security-findings-and-accepted-global-network-differences",
+  "production": false,
+  "releasePublished": false,
+  "nextStageStarted": false,
+  "images": {
+    "initialOperator": "sha256:960d66695ae8faf3f020a83e183e3b17a3efde9091f393c525351e2ebe4ef881",
+    "currentLocalDiagnosticOperator": "sha256:d328c35df0557ace446628172658d463e05eae0afeb2c11d283f090a80b21652",
+    "backend": "sha256:3e25b4aa6b85e5b1b1b828a6e5ff38f721d824a493f421f95566d4ba2eb5aa59",
+    "diagnosticChange": "Bounded closed error reasons only; no TTL, grant policy, timeout, crypto or cache relaxation. Availability fix not claimed."
+  },
+  "sourceChecks": {
+    "go": "1.27.3 linux/amd64",
+    "allGoTestsVetModVerifyFormatting": "passed",
+    "racePackages": 13,
+    "race": "passed",
+    "boundedFuzzExecutions": 37059,
+    "boundedFuzzObservedSeconds": 11,
+    "govulncheckVersion": "1.9.0",
+    "govulncheck": "no vulnerabilities found",
+    "productionSourceFilesMatched": 150,
+    "chartTests": 29,
+    "stage4Guards": 5,
+    "stage5Guards": 6,
+    "stage6Guards": 131,
+    "stage7Guards": 315,
+    "chartAndHarnessTotal": 486,
+    "skipped": 0,
+    "webCryptoEncryptedCases": 65,
+    "authorityProofV2Cases": 36,
+    "backendParityTests": 38,
+    "githubCIRunClaimed": false,
+    "postControlPlaneTransportCallback": "source-and-offline-guards-only-not-used-to-reclassify-live-JWKS-attempt"
+  },
+  "live": {
+    "v1.34.1+k0s": {
+      "operatorImage": "initialOperator",
+      "plainSixCases": "passed",
+      "e2e2SignedBootstrapInitialChangedEqual": "passed",
+      "nativeHelmInstallUpgradeUninstallBothReleases": "passed",
+      "runtimePrivacy": {
+        "complete": true,
+        "logs": 20,
+        "crStatus": 4,
+        "events": 141,
+        "leaks": 0,
+        "incomplete": 0,
+        "truncated": 0
+      },
+      "ownNamespacesAbsent": 6,
+      "ownPVsAbsent": 3,
+      "ownClusterResourcesAbsent": 5,
+      "copiedCredentialsRemoved": true,
+      "independentBaseline": {
+        "unchangedReadyWorkloads": 53,
+        "unchangedInitiallyReadyPods": 60,
+        "sameReadyNode": true
+      },
+      "finalReadinessTimeout10ProfileTestedHere": false
+    },
+    "v1.37.0-kind": {
+      "plainSixCases": "passed",
+      "e2e2SignedBootstrapInitialChangedEqual": "passed",
+      "nativeHelmInstallAndUpgrade": "passed",
+      "nodeAndReadKeyRotationSignedGeneration2Recovery": "passed-initial-operator-image",
+      "historicalApplicationRestartDuringRecovery": false,
+      "postRotationChangedDataNewReplicaSets": 1,
+      "freshStoreBeforeFirstTargetSealedAndPhysicalPanelOutage": "passed",
+      "earlierIncompleteSecondStoreHistoryPreserved": true,
+      "sourceAndNamespaceHTTPAuthorizationNegatives": "passed",
+      "liveRBACChecks": 18,
+      "projectedFileJWTSoak": {
+        "seconds": 645,
+        "faults": 4,
+        "healthChecks": 23,
+        "samePodAndContainer": true,
+        "actualFileRefreshAuthenticatedBeforeOldExpiry": true,
+        "extraApplicationRestarts": 0
+      },
+      "nativeReadinessTimeoutUpgradeApplied": true,
+      "initial120SecondStabilityAttempt": "failed-after-two-samples-not-replayed",
+      "statusDiagnostic": {
+        "seconds": 300,
+        "samples": 151,
+        "podsAndReplicasHealthyAllSamples": true,
+        "verifiedCurrentFalseSamples": 131,
+        "oldReason": "FenceExpired"
+      },
+      "imageOnlyDiagnosticNativeUpgrade": "passed-with-fresh-post-upgrade-sync-and-unchanged-application",
+      "typedRuntimeFailure": "FenceLeaseExpired",
+      "actualProjectedFileJWTReadyBothPodIPsAndConfiguredService": "HTTP-200",
+      "signerJWKSRotation": "not-completed-on-old-WSL-profile-completed-on-new-remote-kind",
+      "finalRuntimePrivacy": {
+        "complete": true,
+        "logs": 24,
+        "crStatus": 8,
+        "events": 20,
+        "leaks": 0,
+        "incomplete": 0,
+        "truncated": 0
+      },
+      "nativeHelmUninstall": "passed-both-releases",
+      "cleanup": {
+        "complete": true,
+        "ownNamespacesAbsent": 6,
+        "ownPVsAbsent": 3,
+        "ownClusterResourcesAbsent": 5,
+        "privateFilesRemoved": 380,
+        "copiedCredentialsRemoved": true,
+        "ownContainerAndUnsharedVolumeRemoved": true,
+        "independentForeignContainerAndFourVolumesAndOriginalNetworkUnchanged": true
+      }
+    },
+    "new-remote-kind": {
+      "status": "functional-acceptance-and-owned-resource-cleanup-completed-with-reviewed-continuations",
+      "expectedKubernetes": "v1.37.0",
+      "plannedLimits": {
+        "cpu": 4,
+        "memoryGiB": 8
+      },
+      "independentPreTrialBaseline": {
+        "passed": true,
+        "unchangedContainersIncludingFullEnvironmentHash": 6,
+        "unchangedNetworks": 7,
+        "volumes": 0
+      },
+      "preflightClock": {
+        "seconds": 90,
+        "samples": 361,
+        "stepsOver100ms": 0
+      },
+      "actualKubernetes": "v1.37.0",
+      "kernelVerifiedLimits": {
+        "cpuMaxCores": 4,
+        "memoryGiB": 8,
+        "swapAllowedBytes": 0,
+        "oomEventsAtObservation": 0
+      },
+      "plainInitial": {
+        "actualHelmInstall": true,
+        "sameSavedFirstPublicationUsed": true,
+        "protectedTargetUIDVerified": true,
+        "actualEnvFromAndSecretVolumeGenerationAndDemoVerified": true,
+        "initialReplicaSetsPerApplication": 1,
+        "historicalApplicationRestart": false,
+        "reviewedContinuation": true,
+        "originalInterruptedInitialAttemptReclassifiedAsPass": false
+      },
+      "genesisBootstrap": {
+        "initialBatch": "incomplete-unclassified-TLS-or-transport-failure-during-negative-tests",
+        "retainedExactGenesisRecords": 4,
+        "versionAndComplianceRetentionUnchanged": true,
+        "reviewedRemainingNegativeCallsHTTP": [
+          400,
+          403,
+          403,
+          403
+        ],
+        "initializationOrAppendRepeated": false
+      },
+      "networkPaths": {
+        "samePlainOperatorPodUIDAndContainerID": true,
+        "credentiallessNonrootHelper": true,
+        "dnsResolved": true,
+        "beforePanelAndNewAPITCP": "timeout",
+        "afterPanelTLSHTTP": 200,
+        "afterAPITLSHTTP": 200,
+        "upstreamS3TCPStillBlocked": true,
+        "preservedOriginalPolicies": 21,
+        "addedPolicies": 7,
+        "totalPoliciesAtObservation": 28,
+        "allSixNamespaceUIDsAndPolicySpecsIndependentlyVerified": true,
+        "defaultDenyPreserved": true,
+        "clusterWidePolicyConformanceClaimed": false
+      },
+      "durableCoordinator": {
+        "isolatedServerTmux": true,
+        "sameInterpreterSurvivedSSHDisconnect": true,
+        "priorInteractiveInterpreterLost": true,
+        "contextRestoredFromExactDurableHelmAndUIDCaptures": true,
+        "originalLiveFrameClaimed": false,
+        "publicationInstallPreparationOrPairGenerationRepeated": false
+      },
+      "loadedClockObservationIndependentlyRead": {
+        "seconds": 604,
+        "samples": 301,
+        "stepsOver50ms": 0,
+        "maxAbsoluteDeltaSeconds": 3.6e-05,
+        "clockOrServiceModified": false
+      },
+      "completeApplicationAndFaultAcceptanceClaimed": true,
+      "plainSixBaseCases": "passed-with-reviewed-initial-and-rollout-off-observation-continuations",
+      "tokenProjectionAndRepeatedFaultSoak": {
+        "seconds": 608,
+        "faults": 4,
+        "freshHealthChecks": 67,
+        "authenticatedActualFileJWTRefreshes": 1,
+        "samePodAndContainer": true,
+        "beforeOldJWTExpiry": true,
+        "extraAppRestarts": 0,
+        "signerRotationClaimed": false
+      },
+      "storageMidSoak": {
+        "weedMemoryLimitMiB": 512,
+        "goSoftLimitMiB": 384,
+        "readyContainers": 3,
+        "restarts": 0,
+        "observedPodUptimeSeconds": 4663,
+        "configurationFromFirstCreation": true,
+        "storageResetOrRepair": false
+      },
+      "beforeFirstSecondaryTarget": {
+        "sealedAndPhysicalTransportOutage": true,
+        "noDependencyPodsOrReadyEndpoints": true,
+        "targetAbsentDuringOutage": true,
+        "samePanelDeploymentUIDRecoveredStillSealedThenUnsealed": true,
+        "newProtectedTargetUIDVerified": true,
+        "primaryDataRevisionAndAppsUnchanged": true
+      },
+      "e2e2Initial": {
+        "currentImage": "currentLocalDiagnosticOperator",
+        "nativeCLI641SignedInitialization": true,
+        "realHelmInstall": true,
+        "operatorReplicas": 2,
+        "fencerReplicas": 2,
+        "decryptedEnvFromVerified": true,
+        "historicalRollout": false
+      },
+      "e2e2ChangedAndEqual": "passed",
+      "e2e2NativeHelmUpgrade": {
+        "memoryMiB": [
+          128,
+          160
+        ],
+        "bothComponentsShareResourceValues": true,
+        "oldOperatorAndFencerPodsPhysicallyAbsent": true,
+        "freshAllFiveConditionsAfterCutover": true,
+        "targetUIDDataRevisionAndAppPodBootRSUnchanged": true,
+        "nativeHelmRepeated": false,
+        "originalObserverWrongUnchangedFencerAssumptionKeptIncomplete": true,
+        "reviewedObserverOnlyContinuation": true
+      },
+      "isolation": {
+        "actualOwnLegacyFileJWTAllowed": true,
+        "crossProjectAndDeniedEnvironmentHTTP": 403,
+        "wrongNamespaceAndAudienceHTTP": 401,
+        "liveRBACChecks": 18,
+        "backendServiceAccountUIDBindingClaimed": false,
+        "clusterWidePacketIsolationClaimed": false
+      },
+      "nodeAndReadKeyRotation": {
+        "currentImage": "currentLocalDiagnosticOperator",
+        "nativeCLI641SignedGeneration2Recovery": true,
+        "newP256AndAESReadKey": true,
+        "oldNodeAndReadKeyRejected": true,
+        "historicalRollout": false,
+        "postRotationChangedDataNewReplicaSets": 1,
+        "continuationRequired": false
+      },
+      "postRotationEqualValues": {
+        "freshCiphertext": true,
+        "sameDataRevisionReplicaSetsPodAndBoot": true
+      },
+      "fourPhysicalDependencyOutages": {
+        "dependencies": [
+          "panel",
+          "witness",
+          "fencer",
+          "gateway"
+        ],
+        "freshFailures": 4,
+        "noDependencyPodsOrReadyEndpoints": true,
+        "freshVerifiedRecoveryAfterEach": true,
+        "lastGoodTargetDataRevisionUIDAndApplicationPreserved": true
+      },
+      "wrongE2EKey": {
+        "publisherSignatureAndCurrentContextValid": true,
+        "freshRuntimeFailureReason": "CiphertextInvalid",
+        "lastGoodTargetAndAppPreserved": true,
+        "exactPreviousWrapperRestored": true,
+        "freshVerifiedRecovery": true
+      },
+      "leaderPendingRollout": {
+        "originalAttempt": "incomplete-observer-rejected-valid-Debouncing-transient",
+        "originalTERMOrHelperPreparationAttempted": false,
+        "originalFinallyUnpausedAndNormalCandidateRolloutNewReplicaSets": 1,
+        "originalHistoryPreserved": true,
+        "reviewedFreshSeparateCase": true,
+        "secretAndProtectedEligiblePendingCommitBeforeTERM": true,
+        "sameOriginalOperatorPodNewContainer": true,
+        "newLeaseProcessAndCurrentGrantActivation": true,
+        "pendingSurvivedBeforeExplicitUnpause": true,
+        "newReplicaSetsAfterUnpause": 1,
+        "onlyOwnRestartAnnotation": true,
+        "actualCommittedEnvVerified": true
+      },
+      "independentActualApplicationRead": {
+        "readOnly": true,
+        "creatorAndOwnAdminCredentialsBound": true,
+        "creationUIDsAndAllFiveCurrentConditionsVerified": true,
+        "targetAndActualEnvFromMatchPublishedCandidate": true,
+        "samePodAndTargetAcrossRead": true,
+        "credentialsOrValuesPersistedOrPrinted": false,
+        "repeatedAfterFinalJWKS": true,
+        "postJWKSAllFiveCurrentAndActualAppEnvVerified": true
+      },
+      "signerJWKSRotation": {
+        "physicalNewSignerAuthenticated": true,
+        "oldJWTWasActualProjectedFile": true,
+        "overlapBothKeysAccepted": true,
+        "retiredOldKidNewExchangeDenied": true,
+        "newKidExchangeAccepted": true,
+        "bothJWTsUnexpiredDuringRetirement": true,
+        "originalSignerAndKeyHashesRestored": true,
+        "temporaryKnownOverlapRestoredToOwnRegistrations": 3,
+        "exactOriginalManifestRestoreClaimed": false,
+        "originalRun": "incomplete-stale-port-forward-after-control-plane-restart",
+        "retirementCompletedByReviewedObservedContinuation": true,
+        "signerKeyOrManifestRotationRepeated": false,
+        "samePinnedPanelAndWitnessTransportRepaired": true,
+        "canonicalDataAuthorityAndApplicationUnchanged": true,
+        "freshPlainAndE2E2AfterRestore": true,
+        "existingMachineSessionImmediateRevocationClaimed": false
+      },
+      "finalRuntimePrivacy": {
+        "complete": true,
+        "logs": 23,
+        "crStatus": 6,
+        "events": 276,
+        "knownPatterns": 503,
+        "secretMaterialValues": 92,
+        "canaries": 21,
+        "leaks": 0,
+        "incomplete": 0,
+        "truncated": 0,
+        "allKeyVersionsAndNewSignerKeyAndRetainedJWTsCovered": true
+      },
+      "loadedClockFinal": {
+        "seconds": 9395.892,
+        "samples": 4686,
+        "stepsOver50ms": 0,
+        "maxAbsoluteDeltaSeconds": 8.6e-05,
+        "clockOrServiceModified": false
+      },
+      "storageBeforeUninstall": {
+        "weedLimitMiB": 512,
+        "goSoftLimitMiB": 384,
+        "uptimeSeconds": 7956,
+        "restarts": 0,
+        "allThreeContainersReady": true,
+        "kernelOOMEvents": 0,
+        "kernelOOMKills": 0
+      },
+      "nativeHelmUninstall": "passed-both-original-captured-releases",
+      "cleanup": {
+        "ownNamespacesAbsent": 6,
+        "ownPVsAbsent": 3,
+        "ownClusterResourcesAbsent": 5,
+        "consumersStoppedFirst": 10,
+        "exactOwnContainerVolumeAndCreatedNetworkAbsent": true,
+        "networkOriginalCleanupStoppedOnDockerUsageCounters": true,
+        "separateExactNetworkRemovalAfterIndependentHashReconstruction": true,
+        "criticalSixSourceFilesUnchanged": true,
+        "ownTaskDirectoriesAbsent": 3,
+        "regularFilesRemoved": 4553,
+        "symlinksUnlinkedWithoutFollowing": 4,
+        "ownProcessesRemaining": 0,
+        "copiedCredentialsKeysArchivesVenvToolsRemoved": true,
+        "independentlyVerified": true
+      },
+      "independentForeignDockerBaseline": {
+        "passed": true,
+        "strict": true,
+        "matchedContainers": 6,
+        "matchedNetworks": 7,
+        "matchedVolumes": 0,
+        "unexpectedResources": 0,
+        "fullEnvironmentIncludedInPrivateSpecHash": true,
+        "onlyMountArrayOrderNormalized": true
+      },
+      "hostImages": {
+        "originalVisibleImagesAndAliasesUnchanged": 14,
+        "publicNodeCacheRetained": true,
+        "ownershipBeforeFirstLoadIncludingHiddenImagesProven": false,
+        "imageRemovalOrPruneExecuted": false
+      },
+      "globalNetworkComparison": {
+        "originalStrictAuditPassed": false,
+        "allOriginalRulesPoliciesRoutesAndOrderPreserved": true,
+        "ipv4DifferencesOnlyChainTrafficCounters": true,
+        "additionalEmptyIPv6RawChains": 2,
+        "additionalNftObjects": 3,
+        "sameOneKernelIPv6AnycastRouteInBothRouteCaptures": true,
+        "originalSysctlValuesCaptured": false,
+        "userExplicitlySelectedLeaveCurrentGlobalState": true,
+        "manualSysctlFirewallRouteChangesPerformed": false,
+        "counterResetPerformed": false,
+        "wholeHostRestorationClaimed": false
+      }
+    }
+  },
+  "clockEvidence": {
+    "observedSeconds": 90,
+    "samples": 65,
+    "realtimeBacksteps": 3,
+    "backstepMagnitudeSeconds": [
+      2.571994,
+      2.613311,
+      2.645726
+    ],
+    "futureLeaseRenewalObservedAfterAPIResponse": true,
+    "genuineLeaseAgeAtLeastDurationObserved": false,
+    "specificClockAdjustmentComponentIdentified": false,
+    "globalClockOrServiceChangesMade": false,
+    "futureLeaseGuardWeakened": false,
+    "interpretation": "Fail-closed future-Lease rejection correlated with real UTC backsteps relative to monotonic time. The user selected a separate test VM; no WSL clock-service experiment was run."
+  },
+  "storage": {
+    "failedLimitsMiB": [
+      128,
+      256
+    ],
+    "currentWeedLimitMiB": 512,
+    "goSoftLimitMiB": 384,
+    "aggregateNamespaceQuotaMiB": 4096,
+    "remoteLastObservedStableSecondsBeforeDeletion": 2494,
+    "remoteLastObservedRestarts": 0,
+    "lateNotificationMatchedOld256MiBPod": true,
+    "preRepairVersionIDContinuityClaimed": false
+  },
+  "remaining": [],
+  "security": {
+    "currentOperatorGoBinariesAnalyzed": 5,
+    "operatorHighCriticalIncludingUnfixed": 0,
+    "backendKnownHighCVEs": 9,
+    "backendHighPackageMatches": 45,
+    "backendCritical": 0,
+    "backendMatchesWithFixedDebianVersion": 0,
+    "findingsFile": "stage-7.security-findings.json"
+  },
+  "nonClaims": [
+    "No uninterrupted or unattended run across recorded harness and WSL interruptions",
+    "Initial image lifecycle on the first minor does not prove the final diagnostic image or timeout-10 profile there",
+    "No independent production WORM, host fault domains, cluster-wide CNI conformance, instant offline JWT revocation or production readiness",
+    "Original incomplete attempts are not reclassified as pass",
+    "Strict global host-network comparison remains failed with explicitly accepted observed differences"
+  ],
+  "openItemsBeforeProduction": [
+    "Nine known HIGH OS CVEs in the trial backend; reachability and runtime-base hardening remain open",
+    "Independent production WORM, host fault domains and power-loss behavior were not established by this single-host trial",
+    "Exact final diagnostic image and timeout-10 profile were not rerun on the first Kubernetes minor",
+    "No full GitHub CI or unattended whole-matrix claim; original incomplete attempts and reviewed continuations are retained",
+    "Global host-network baseline was not restored exactly; the user explicitly accepted the observed differences"
+  ],
+  "sourcePrivacy": {
+    "requiredBeforeHandoff": true,
+    "scope": "full changed and nonignored candidate tree including final reports",
+    "confirmedPrivateLeaks": 0,
+    "knownPublicVectorGitleaksFindings": 4,
+    "ignoredSigningKeyRead": false,
+    "wideNewExclusionsAdded": false,
+    "proofKeptPrivately": true
+  }
+}

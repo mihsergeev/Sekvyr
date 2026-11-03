@@ -1,0 +1,42 @@
+# Public structural placeholders only. No valid keys, certificates or bootstrap.
+replicas: 2
+sync: {enabled: true}
+rollout: {enabled: true, allowedDeployments: [billing]}
+installation:
+  allowedTargetSecrets: [billing-env]
+  caConfigMaps:
+    - {name: fencer-ca, uid: 44444444-4444-4444-8444-444444444444, key: ca.crt, derSetSHA256: '1111111111111111111111111111111111111111111111111111111111111111'}
+    - {name: gateway-ca, uid: 55555555-5555-4555-8555-555555555555, key: ca.crt, derSetSHA256: '2222222222222222222222222222222222222222222222222222222222222222'}
+ha:
+  enabled: true
+  trial: true
+  namespaceUID: 44444444-4444-4444-8444-444444444444
+  operatorServiceAccountUID: 66666666-6666-4666-8666-666666666666
+  leaseUID: 77777777-7777-4777-8777-777777777777
+  managedObjects:
+    - {apiVersion: apps/v1, kind: Deployment, namespace: apps, name: billing, uid: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}
+    - {apiVersion: v1, kind: Secret, namespace: apps, name: billing-env, uid: bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb}
+    - {apiVersion: v1, kind: Secret, namespace: apps, name: operator-state, uid: 33333333-3333-4333-8333-333333333333}
+  config:
+    trial: true
+    fencerOrigin: https://fencer.example.com
+    allowedFencerOrigins: [https://fencer.example.com]
+    fencerCAConfigMapRef: {name: fencer-ca, key: ca.crt}
+    gatewayOrigin: https://gateway.example.com
+    gatewayCAConfigMapRef: {name: gateway-ca, key: ca.crt}
+    gatewayClientSecret: {name: operator-gateway, uid: 88888888-8888-4888-8888-888888888888, key: tls.crt}
+    gatewayClientKeyKey: tls.key
+    journal:
+      log_id: 55555555-5555-4555-8555-555555555555
+      genesis_hash: '3333333333333333333333333333333333333333333333333333333333333333'
+      admin_public_key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      minimum_cursor: {journal_sequence: '0', record_hash: '3333333333333333333333333333333333333333333333333333333333333333'}
+  fencer:
+    serviceAccount: {name: sekvyr-fencer, uid: 99999999-9999-4999-8999-999999999999}
+    signingKeySecret: {name: fencer-signing, uid: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab, key: key.pem}
+    tlsSecret: {name: fencer-tls, uid: bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc}
+    gatewayClientSecret: {name: fencer-gateway, uid: cccccccc-cccc-4ccc-8ccc-cccccccccccc, key: tls.crt}
+    gatewayClientKeyKey: tls.key
+    bootstrapSubjects: [{username: trial-bootstrap, uid: ''}]
+  webhook:
+    caBundle: Y2E=

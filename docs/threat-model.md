@@ -42,9 +42,12 @@ the last value locally.
 
 **What stops them.** A machine identity can only read, and only the environment
 it was granted. Its token lives 15 minutes, is bound to the identity and to an
-address allow-list when one is set. In Kubernetes there is no static secret at
-all: the pod proves itself with a ServiceAccount token signed by the cluster and
-valid for an hour.
+address allow-list when one is set. Kubernetes avoids a permanent machine
+password, but its projected ServiceAccount JWT is a stealable bearer credential
+that can be reused until expiry. The backend checks issuer, audience and
+signature using offline JWKS. Mapping uses namespace + SA name, not SA UID;
+Pod deletion does not revoke it immediately. Operator UID pins are separate. E2E2 node/AES
+material and plaintext target Secrets remain sensitive.
 
 **What remains.** A compromised server gives up ITS OWN secrets: they are in its
 memory and in the file the whole thing exists for. Sekvyr limits the blast

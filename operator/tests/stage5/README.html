@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sekvyr operator: живой E2E этапа 5</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#17212b;--line:#ccd6df;--code:#f1f5f8}body{max-width:940px;margin:auto;padding:28px 20px 48px;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,sans-serif}h1{font-size:1.6rem;line-height:1.3}h2{font-size:1.15rem;margin-top:1.7rem}pre{padding:16px;overflow:auto;background:var(--code);border:1px solid var(--line);font-size:13px}code{overflow-wrap:anywhere}li{margin:.35rem 0}table{border-collapse:collapse;width:100%}td,th{border:1px solid var(--line);padding:9px;text-align:left;vertical-align:top}@media(prefers-color-scheme:dark){:root{--bg:#111a23;--fg:#e5edf3;--line:#354552;--code:#192630}}@media(max-width:540px){body{padding:18px 14px}h1{font-size:1.3rem}}@media print{:root{--bg:#fff;--fg:#000;--line:#aaa;--code:#fff}body{max-width:none;padding:0;font-size:11pt}pre{white-space:pre-wrap;break-inside:avoid}}
+</style>
+<h1>Живой E2E этапа 5</h1>
+<p>Отдельный изолированный прогон проверяет настоящий Deployment приложения с <code>envFrom Secret</code>. Приложение читает окружение один раз при запуске, не отслеживает файлы и не перезагружает настройки самостоятельно. Новое значение возможно только в новом процессе pod.</p>
+<p>Это описание тестового harness и критериев приемки. Само наличие исходников не означает успешного живого прогона: его отдельный результат появляется в <code>$TASK_DIR/results.json</code> только после всех проверок.</p>
+<p>На общем стенде может работать другой контроллер автоматических перезапусков. Тестовый Deployment явно задает <code>reloader.stakater.com/auto: "false"</code> и оба typed auto-флага false, чтобы измерять только действие этого оператора. Глобальная конфигурация и существующие workloads не меняются. Без этого opt-out Reloader может добавить переменную окружения и отдельный ReplicaSet, что делает такой прогон непригодным для доказательства единственного rollout. <a href="https://docs.stakater.com/reloader/1.4/reference/annotations.html">Официальные правила аннотаций Reloader</a>.</p>
+<h2>Административные границы</h2>
+<table><thead><tr><th>Уровень</th><th>Условие</th></tr></thead><tbody>
+<tr><td>Helm / installation</td><td><code>sync.enabled=true</code>, отдельный <code>rollout.enabled=true</code> и непустой точный список <code>rollout.allowedDeployments</code>. По умолчанию оба действия выключены.</td></tr>
+<tr><td>Store и Secret CR</td><td>Разрешенные binding Deployment и явно включенный запрос CR должны соответствовать независимому административному списку.</td></tr>
+<tr><td>RBAC</td><td>Только namespaced <code>apps/deployments get,patch</code> с точными <code>resourceNames</code>. Без update/list/watch, scale и удаления pod.</td></tr>
+<tr><td>Pod template</td><td>Меняется только аннотация <code>secrets.sekvyr.ru/restart-&lt;targetSecretUID&gt;</code> с непрозрачной ревизией данных. Чужие аннотации, образ, env и остальные поля не меняются.</td></tr>
+</tbody></table>
+<h2>Подготовка</h2>
+<p>Панель, PostgreSQL, отдельный TLS witness и независимо закрепленный bootstrap берутся из общих helpers этапа 4. Новый каталог <code>/opt/sekvyr-trial/sekvyr-stage5-YYYYMMDD-xxxxxxxx</code> получает четыре новых namespace с тем же префиксом. Ключи и учетные данные создаются только в private, вне репозитория и Helm values. Одноразовый vault root key сохраняется с правами 0600; после планового перезапуска панель явно открывается по owner API через TLS.</p>
+<p>Перед bootstrap harness проверяет отсутствие обеих Sekvyr CRD. Их UID и UID namespace сохраняются из ответов создания. Образы передаются по digest и должны быть заранее собраны и импортированы в разрешенный тестовый containerd. Адрес сервера, имя ноды и реальные административные пути не записываются в эти исходники.</p>
+<pre>python3 operator/tests/stage5/run.py --task-dir "$TASK_DIR" \
+  --chart-path "$REVIEWED_CHART" --node-name "$APPROVED_NODE_LABEL" \
+  --expected-kubernetes "$EXPECTED_VERSION" --storage-class "$APPROVED_STORAGE_CLASS" \
+  --phase infrastructure --panel-image "$PANEL_IMAGE_BY_DIGEST" \
+  --witness-image "$WITNESS_IMAGE_BY_DIGEST" --database-image "$POSTGRES_IMAGE_BY_DIGEST" \
+  --python-image "$PYTHON_IMAGE_BY_DIGEST"
+# Те же общие параметры: затем --phase bootstrap
+# Только после готовности интеграции: --phase exercise --operator-image "$OPERATOR_IMAGE_BY_DIGEST"</pre>
+<h2>Проверки живого прогона</h2>
+<ul>
+<li>Initial Secret create и последующее включение rollout не создают исторического запроса на перезапуск.</li>
+<li>Одно фактическое изменение данных создает ровно один новый ReplicaSet UID, меняет только свою UID-аннотацию template и дает новый pod/boot ID с новым окружением. Число Deployment generation сохраняется только как диагностика: Kubernetes может повышать его также при изменении metadata annotations.</li>
+<li>Повтор reconciliation и новый ciphertext с прежним plaintext не меняют pod template или pod UID.</li>
+<li>Fork, подмена подписи/ciphertext, replay и отказы панели/witness сохраняют Secret и template. Восстановление без новых данных не запускает исторический перезапуск.</li>
+<li>Для детерминированной проверки pending Deployment временно paused. Затем witness недоступен, Deployment unpaused, оператор перезапускается: intent остается замороженным. Возврат witness и новый строгий current sync завершают intent ровно один раз.</li>
+<li>Отказ административного allowlist, suspend/resume, новое имя-совпадающее Deployment UID и потеря/замена state не обходят проверки.</li>
+<li>RBAC проверяется реальным <code>can-i</code>, статусы и логи проверяются на тестовые credentials, read/node keys и plaintext canary.</li>
+</ul>
+<p>Fault injection через административный exec в собственную тестовую панель и ручное удаление тестового Deployment принадлежат только этому изолированному прогону. При проверке UID recreation новый pod может появиться из-за действия администратора; harness отдельно проверяет, что оператор не меняет template нового Deployment по старому intent.</p>
+<h2>Результат и уборка</h2>
+<p>JSON содержит только список проверок, версии/digest и безопасные доказательства смены pod/boot ID и поколения template. Значения DEMO_VALUE, read key, node private key и токены не экспортируются. Приложение возвращает только generation, boot ID, PID и SHA-256 тестового значения.</p>
+<p>Общий <code>operator/tests/stage4/cleanup_cluster.py</code> работает по UID, записанным при создании, проверяет точную CRD schema и отсутствие чужих CR. Удаление требует явного <code>--execute</code> и server-side <code>DeleteOptions.preconditions.uid</code>. Сначала удаляются четыре namespace этого прогона, затем две закрепленные CRD. Перед уборкой отдельно фиксируют готовность ноды и фоновых нагрузок, после нее закрывают только scoped port-forward процесса.</p>
+<p>Development filesystem journal не доказывает WORM или независимость производственного restore. Здесь не выполняются production rollout, выпуск, ротации или изменения существующих приложений.</p>
+</html>

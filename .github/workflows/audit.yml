@@ -73,5 +73,6 @@ jobs:
         with:
           image-ref: ghcr.io/mihsergeev/sekvyr-${{ matrix.image }}:latest
           severity: HIGH,CRITICAL
-          ignore-unfixed: true
+          version: v0.76.1
+          ignore-unfixed: false
           exit-code: "1"

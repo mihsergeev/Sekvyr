@@ -1,0 +1,205 @@
+name: Operator verification
+
+on:
+  workflow_call:
+  push:
+    branches: [main, master, "rc/**"]
+    paths:
+      - "operator/**"
+      - ".github/workflows/operator.yml"
+      - "backend/Dockerfile"
+      - "backend/runtime/**"
+      - "ops/selfcheck.py"
+      - "ops/tests/**"
+      - "backend/app/e2e2*.py"
+      - "backend/app/api/e2e2.py"
+      - "backend/app/api/machine.py"
+      - "backend/app/api/machines_admin.py"
+      - "backend/app/machines.py"
+      - "backend/app/main.py"
+      - "backend/alembic/**"
+      - "backend/tests/test_e2e2*.py"
+      - "backend/tests/test_*machine*.py"
+      - "backend/tests/test_pg_migrations.py"
+  pull_request:
+    paths:
+      - "operator/**"
+      - ".github/workflows/operator.yml"
+      - "backend/Dockerfile"
+      - "backend/runtime/**"
+      - "ops/selfcheck.py"
+      - "ops/tests/**"
+      - "backend/app/e2e2*.py"
+      - "backend/app/api/e2e2.py"
+      - "backend/app/api/machine.py"
+      - "backend/app/api/machines_admin.py"
+      - "backend/app/machines.py"
+      - "backend/app/main.py"
+      - "backend/alembic/**"
+      - "backend/tests/test_e2e2*.py"
+      - "backend/tests/test_*machine*.py"
+      - "backend/tests/test_pg_migrations.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOWORK: "off"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: operator/go.sum
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.15.0"
+      - name: Go format, module integrity, vet, tests and runtime and offline binaries
+        working-directory: operator
+        run: |
+          test -z "$(gofmt -l api cmd internal)"
+          go mod verify
+          go vet ./...
+          go test -count=1 ./...
+          mkdir -p "$RUNNER_TEMP/operator-binaries"
+          for command in operator fencer witness journal-gateway checkpoint-recovery provision; do
+            CGO_ENABLED=0 go build -trimpath -ldflags '-s -w -buildid=' -o "$RUNNER_TEMP/operator-binaries/sekvyr-$command" "./cmd/$command"
+          done
+          test "$(uname -s)" = Linux
+          provision="$RUNNER_TEMP/operator-binaries/sekvyr-provision"
+          test -x "$provision"
+          printf 'SEKVYR_PROVISION_BIN=%s\n' "$provision" >> "$GITHUB_ENV"
+          printf 'SEKVYR_PROVISION_BIN_SHA256=%s\n' "$(sha256sum "$provision" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+      - name: Crypto, journal, fencing, recovery and runtime race detector
+        working-directory: operator
+        run: go test -race -count=1 ./internal/e2e2 ./internal/witness ./internal/verification ./internal/witnessservice ./internal/transport ./internal/syncer ./internal/controller ./internal/panelauth ./internal/rollout ./internal/journal ./internal/fencing ./internal/recovery ./internal/installation ./internal/provision ./cmd/provision
+      - name: Reachable Go vulnerabilities
+        working-directory: operator
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - name: Install test dependencies
+        run: python -m pip install jsonschema==4.26.0 PyYAML==6.0.3 cryptography==50.0.2
+      - name: Protected source inventory and stable/prerelease version gates
+        run: python -m unittest discover -s ops/tests -p 'test_selfcheck_*.py' -v
+      - name: Design, 65 encrypted cases, 36 authority cases and CRD consistency
+        run: |
+          python operator/design/check_contract.py
+          python operator/design/check_e2e2.py
+          node operator/design/check_e2e2_webcrypto.cjs
+          # Both references include the public authority-proof-v2 corpus.
+          python operator/tests/e2e2/reference.py
+          node operator/tests/e2e2/check_webcrypto.cjs
+          python operator/config/generate_crds.py --check
+      - name: Hostile wire parser fuzz smoke
+        working-directory: operator
+        run: go test ./internal/e2e2 -run '^$' -fuzz '^FuzzCanonicalRestricted$' -fuzztime=10s -parallel=2
+      - name: Install verified Helm
+        run: |
+          curl -fsSL --retry 2 https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz -o /tmp/helm.tar.gz
+          curl -fsSL --retry 2 https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz.sha256sum -o /tmp/helm.sha256sum
+          (cd /tmp && sed 's/helm-v4.3.1-linux-amd64.tar.gz/helm.tar.gz/' helm.sha256sum | sha256sum -c -)
+          tar -xzf /tmp/helm.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+          helm version --short
+          printf 'HELM_BIN=%s\n' "$(command -v helm)" >> "$GITHUB_ENV"
+      - name: Helm lint
+        run: |
+          helm lint operator/charts/sekvyr-operator --namespace apps -f operator/tests/chart/values.public.example.yaml
+      - name: Chart and stage 4 to 8 offline harness guards, no skipped tests
+        # Separate interpreters keep the harness modules isolated. These are
+        # local guards/rendering tests, not the custom full-stack live E2E.
+        run: |
+          test -x "$HELM_BIN"
+          for suite in chart stage4 stage5 stage6 stage7; do
+            python - "$suite" <<'PY'
+          import sys
+          import unittest
+          suite = unittest.defaultTestLoader.discover("operator/tests/" + sys.argv[1], pattern="test_*.py")
+          if suite.countTestCases() == 0:
+              raise SystemExit("Harness test discovery was empty")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if result.skipped:
+              raise SystemExit("Harness tests must not be skipped in CI")
+          raise SystemExit(0 if result.wasSuccessful() else 1)
+          PY
+          done
+          test "$(uname -s)" = Linux
+          test -x "$SEKVYR_PROVISION_BIN"
+          test -n "$SEKVYR_PROVISION_BIN_SHA256"
+          PYTHONPATH="operator/tests:operator/tests/stage7:operator/tests/stage6:operator/tests/stage4" python - <<'PY'
+          import unittest
+          suite = unittest.defaultTestLoader.discover("operator/tests/stage8", pattern="test_*.py", top_level_dir="operator/tests")
+          if suite.countTestCases() == 0:
+              raise SystemExit("Stage 8 guard discovery was empty")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if result.skipped:
+              raise SystemExit("Stage 8 guards must not be skipped in CI")
+          raise SystemExit(0 if result.wasSuccessful() else 1)
+          PY
+      - name: Build unified five-binary candidate image, no registry push
+        run: |
+          docker build -t sekvyr-operator-candidate:ci operator
+          container=$(docker create sekvyr-operator-candidate:ci)
+          trap 'docker rm "$container" >/dev/null' EXIT
+          mkdir -p "$RUNNER_TEMP/operator-packaged"
+          for command in operator fencer witness journal-gateway checkpoint-recovery; do
+            path="$RUNNER_TEMP/operator-packaged/sekvyr-$command"
+            docker cp "$container:/sekvyr-$command" "$path"
+            test -s "$path"
+            test -x "$path"
+          done
+      - name: Block all HIGH and CRITICAL vulnerabilities in the unified image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sekvyr-operator-candidate:ci
+          severity: HIGH,CRITICAL
+          version: v0.76.1
+          ignore-unfixed: false
+          exit-code: "1"
+
+  kind-admission:
+    name: Kubernetes ${{ matrix.kubernetes }} CRD admission only
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        kubernetes: ["v1.34.11", "v1.37.0"]
+    env:
+      KUBERNETES_VERSION: ${{ matrix.kubernetes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install admission harness dependency
+        run: python -m pip install PyYAML==6.0.3
+      - name: Isolated Kubernetes with verified kind and pinned node image
+        run: bash operator/tests/kind/prepare.sh | tee "$RUNNER_TEMP/sekvyr-kind-prepare.log"
+      - name: Real structural schema and CEL admission
+        run: python operator/tests/kind/admission.py --chart operator/charts/sekvyr-operator
+      - name: Remove only the isolated test cluster
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/sekvyr-kind-prepare.log"; then
+            task_dir=$(sed -n 's/^TASK_DIR=//p' "$RUNNER_TEMP/sekvyr-kind-prepare.log" | head -n 1)
+            case "$task_dir" in
+              /tmp/sekvyr-stage2.*)
+                if test -x "$task_dir/kind"; then
+                  sudo -n "$task_dir/kind" delete cluster --name sekvyr-stage2
+                fi
+                ;;
+            esac
+          fi

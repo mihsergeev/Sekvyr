@@ -1,0 +1,101 @@
+{
+  "stage": 6,
+  "profile": "trial-canonical-journal-v1",
+  "production": false,
+  "nextStageRequiresUserApproval": true,
+  "scope": {
+    "dataLogsPerInstallation": 1,
+    "viewsPerInstallation": 1,
+    "targetSecretsPerInstallation": 1,
+    "targetCreation": "explicit administrator provisioning before operator starts",
+    "workloadKind": "apps/v1 Deployment"
+  },
+  "journal": {
+    "authority": "full contiguous online replay from independently pinned signed genesis",
+    "commit": "one complete canonical record at one fixed slot using conditional If-None-Match:*",
+    "snapshotAndJournalCountersAreDistinct": true,
+    "mutableHeadIsAuthority": false,
+    "retention": "version-pinned COMPLIANCE receipt on every slot",
+    "reject": ["extra object versions", "delete markers", "gaps", "predecessor fork", "wrong genesis", "below independently pinned cursor", "expired or invalid retention", "truncated stream", "invalid signature"],
+    "lostAcknowledgement": "resolve only the same slot and exact canonical record after full replay; never rebase a candidate",
+    "limits": {"records": 4096, "replayBytes": 536870912},
+    "gateway": {
+      "authentication": "pinned mTLS identity with exact log and record-kind capabilities",
+      "witnessAndFencerHaveS3Credentials": false,
+      "operations": ["bounded nonce-bound full journal read", "conditional append to fixed canonical slot"],
+      "unsafeOperations": "no delete, copy, unconditional put, multipart or transparent proxy endpoints",
+      "storage": "official AWS SDK v2; trial SeaweedFS with versioning, COMPLIANCE retention and synchronous filer storage rule"
+    }
+  },
+  "authority": {
+    "transitionAuthorization": "current independent administrator key, exact expected cursor and authority digest",
+    "historicalKeyRoles": "one signing key cannot cross administrator, publisher, witness and fencer roles",
+    "publisherRotation": "new policy epoch and full newly signed snapshot activated atomically in the same journal record",
+    "readKeyRotation": "new read-key epoch and full reencrypted snapshot; new reader wraps exclude revoked nodes",
+    "nodeKeyRotation": "new immutable node key and trust Secret, new signed enrollment and bootstrap generation; replacing a node key alone does not revoke a disclosed read key",
+    "witnessRotation": "new independently delivered witness pin; old pin is never upgraded from incoming head bytes",
+    "administratorRotation": "old current administrator signs the new independent administrator; old administrator cannot authorize subsequent transitions",
+    "fencerRotation": "new fencer epoch and signing keys invalidate grants under the previous authority",
+    "panelProjection": "derived cache only, from fresh nonce-bound full authority proof under an independently pinned current witness key",
+    "rollbackRestore": "new explicitly signed recovery transition and new canonical sequence; never decrement sequence or epochs"
+  },
+  "recovery": {
+    "tool": "sekvyr-checkpoint-recovery",
+    "normalReconcileMayResetMissingState": false,
+    "plan": "independently administrator-signed exact online cursor, snapshot, enrollment, CR and Store identities and generations, binding identity, new state UID, bootstrap generation and expected protected-state digest",
+    "planMaximumLifetimeHours": 24,
+    "initialize": "explicit signed operation, previous generation zero, new generation one, no previous state UID, absent state.json",
+    "recover": "explicit signed operation, newer bootstrap generation and different precreated state Secret UID",
+    "dataTransport": "encrypted envelope and signed encrypted reader wrap exports; fresh online witness proofs and journal replay remain mandatory",
+    "phases": ["persist prepared protected checkpoint and rollout authorization", "CAS verified target bytes and metadata", "persist complete protected checkpoint"],
+    "preparedState": "normal runtime is blocked with RecoveryPending",
+    "concurrentCanonicalCommit": "journal checks and Kubernetes CAS are separate; a verified target can temporarily lag a concurrent commit, finalization stays RecoveryPending and needs a newly reviewed exact-cursor plan",
+    "retry": "only the same verified plan and durable chosen revision; already persisted target writes are resolved by exact content and metadata",
+    "supersedingPreparedPlan": "a new independently signed exact-cursor plan must bind the exact prepared state digest; completed state cannot be reset in the same generation",
+    "rolloutDefault": "invalidate historical pending intent; preserve data revision for equal selected bytes",
+    "rolloutOptIn": "separate signed allow_rollout plus installation and CR permission, only for actual selected-data change"
+  },
+  "fencing": {
+    "leaseIsFencing": false,
+    "issuer": "separate fencer process and ServiceAccount",
+    "acquisition": "projected token audience sekvyr-fence, TokenReview bound Pod and ServiceAccount UIDs, registered namespace and Lease UIDs, fresh exact process Lease holder on every CAS retry",
+    "processIdentity": "fixed at operator process startup; a stale process cannot learn and adopt a later holder identity",
+    "grant": "signed scope, genesis, installation, bootstrap generation, owner Pod UID, exact process Lease holder, monotonic term, previous grant hash, current authority digest, exact canonical snapshot and complete exact object UID set",
+    "snapshotAdvance": "invalidate previous grant even for equal plaintext; obtain a new term and metadata-only barriers before ordinary writes",
+    "grantImmediatelyActive": false,
+    "activation": "server signs and journals activation only after installing and rereading every object barrier",
+    "partialPromotion": "deny ordinary writes until activation is complete",
+    "writerSession": "immutable per reconciliation, bound to the exact grant hash; never copied from later object annotations",
+    "dataHeadGate": "accepted E2E2 snapshot head must equal the separate online replay-verified journal head before new checkpoint or data authorization is persisted",
+    "admission": {
+      "failurePolicy": "Fail",
+      "scope": "fixed namespace and object names, no mutable objectSelector",
+      "ordinaryWrite": "active current journal grant, authenticated bound Pod UID, unchanged exact fence, fixed write-session hash and exact object UID/resourceVersion",
+      "barrierWrite": "only registered fencer ServiceAccount, increasing term, exact current grant, fence-only metadata mutation",
+      "administrator": "explicit configured exact bootstrap subjects, no wildcard groups",
+      "operatorCreateDeleteApplyAndSubresourceWrites": "denied for fenced targets",
+      "deadlineParameter": "only POST /admit accepts the API server's single canonical timeout=1..30s; all other query parameters and routes reject it",
+      "leaseReadsInAdmission": false
+    },
+    "delayedApprovedWrite": "resourceVersion conflict after that object's newer barrier; writes before each barrier linearize before its promotion",
+    "crossObjectAtomicLeaseHandoff": false,
+    "kubernetesAssumption": "honest API server with resourceVersion CAS and monotonic revisions; no surviving already-approved request across raw etcd revision rewind is claimed",
+    "byzantineOperatorOrAdministratorTolerance": false
+  },
+  "outages": {
+    "panel": "retain last verified target and application; no historical or duplicate rollout",
+    "witness": "deny new data and rollout writes without fresh proof",
+    "journalOrGateway": "deny grants, activation, ordinary fenced admission and recovery",
+    "fencerOrWebhook": "deny fenced writes; already running application retains its Secret",
+    "restoredPanelDatabase": "cannot lower canonical journal or protected checkpoint",
+    "restoredKubernetesState": "live canonical grant and exact UID barriers reject stale writer; explicit administrator recovery required for lost state"
+  },
+  "nonClaims": [
+    "A single test cluster does not prove independent production storage, administrator or backup fault domains",
+    "Trial Object Lock behavior is not a certification of physical WORM storage",
+    "One honest logical witness is assumed; no custom Byzantine quorum is implemented",
+    "Previously disclosed plaintext or read keys cannot be recalled",
+    "No cross-object transaction or exactly-once workload restart is claimed",
+    "No compatibility with older binaries after a new recovery state or authority policy is claimed"
+  ]
+}

@@ -3,7 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DBAPIError, IntegrityError
@@ -26,6 +26,8 @@ from app.api import audit as audit_api
 from app.api import branding
 from app.api import auth, e2e as e2e_api, health, machine
 from app.api import machines_admin
+from app.api import e2e2 as e2e2_api
+from app import e2e2 as e2e2_core
 from app.api import migrate, ops, policies, projects, search, secrets
 from app.api import users as users_api
 from app.api import vault as vault_api
@@ -179,6 +181,10 @@ def create_app() -> FastAPI:
     # состояние сейфа.
     app.state.sealbox = sealbox.SealBox()
 
+    @app.exception_handler(e2e2_core.Rejected)
+    async def _e2e2_rejected(_request: Request, exc: e2e2_core.Rejected) -> JSONResponse:
+        return JSONResponse(status_code=exc.status, content={"detail": exc.reason, "reason": exc.reason}, headers={"X-Sekvyr-Reason": exc.reason})
+
     # Плохое имя ключа - ошибка человека, а не панели: 400 с объяснением, а не
     # 500. Одно место на все маршруты, которые пишут ключи.
     @app.exception_handler(secrets_store.BadName)
@@ -301,17 +307,19 @@ def create_app() -> FastAPI:
     app.include_router(audit_api.router, prefix="/api")
     app.include_router(vault_api.router, prefix="/api")
     app.include_router(policies.router, prefix="/api")
-    app.include_router(projects.router, prefix="/api")
-    app.include_router(secrets.router, prefix="/api")
+    app.include_router(projects.router, prefix="/api", dependencies=[Depends(e2e2_api.reject_legacy)])
+    app.include_router(secrets.router, prefix="/api", dependencies=[Depends(e2e2_api.reject_legacy)])
     app.include_router(search.router, prefix="/api")
     app.include_router(machines_admin.router, prefix="/api")
     app.include_router(ops.router, prefix="/api")
     app.include_router(migrate.router, prefix="/api")
-    app.include_router(e2e_api.router, prefix="/api")
+    app.include_router(e2e_api.router, prefix="/api", dependencies=[Depends(e2e2_api.reject_legacy)])
+    app.include_router(e2e2_api.router, prefix="/api")
     app.include_router(branding.router, prefix="/api")
     # Машинный контур стоит на отдельном пути: он единственный открыт наружу, и
     # обратный прокси отличает его от админки именно по префиксу (compose.caddy).
     app.include_router(machine.router, prefix="/api")
+    app.include_router(e2e2_api.machine_router, prefix="/api")
     return app
 
 

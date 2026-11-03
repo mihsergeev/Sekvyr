@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sekvyr operator — эксплуатация, восстановление и rollback</title>
+<style>:root{color-scheme:light dark;--bg:#fff;--fg:#1b2a36;--box:#f1f5f8;--line:#cbd6df;--muted:#506575}*{box-sizing:border-box}body{max-width:1020px;margin:auto;padding:26px 22px 60px;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,sans-serif}h1{font-size:1.8rem;line-height:1.25}h2{font-size:1.25rem;margin-top:1.8em}a{color:inherit}pre,.note{padding:15px;border:1px solid var(--line);background:var(--box)}pre{white-space:pre-wrap;font-size:13px}code{overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}td,th{border:1px solid var(--line);padding:9px;text-align:left;vertical-align:top}.small{color:var(--muted);font-size:.9em}@media(prefers-color-scheme:dark){:root{--bg:#101b25;--fg:#e1ebf3;--box:#1b2b39;--line:#40596d;--muted:#afc1d0}}@media(max-width:620px){body{padding:18px 12px;font-size:15px}h1{font-size:1.4rem}table{font-size:13px}}@media print{:root{--bg:#fff;--fg:#000;--box:#fff;--line:#888;--muted:#333}body{max-width:none;padding:0;font-size:10.5pt}h2{break-after:avoid}pre,tr,.note{break-inside:avoid}}</style>
+<p><a href="operations.en.html">English</a> · <a href="install.ru.html">Установка и bootstrap</a> · <a href="../stage-7.ru.html">Матрица фактической приемки</a></p>
+<h1>Эксплуатация и безопасное восстановление</h1>
+<p class="note">Документация неопубликованных operator/chart/provision <code>0.1.0-rc.1</code> и matching backend <code>1.1.0-rc.1</code>. Подставьте рассмотренные version/digest/checksum; новые RC не наследуют живую приемку старого digest. Опубликованная панель 1.0.3 не поддерживает E2E2 API; agent 1.0.3 неизменен. Offline команды <code>sekvyr-provision bootstrap/recovery</code> и native checkpoint-recovery сейчас HA E2E2-only. <a href="install.ru.html">Установка</a> содержит полный порядок с reservation/seal; собственный signer не требуется.</p>
+
+<h2>1. Проверяйте данные отдельно от Pod Ready</h2>
+<pre>kubectl get sekvyrsecret application-runtime -n secret-sync \
+  -o jsonpath='{.status}'
+kubectl get sekvyrstore application-secrets -n secret-sync \
+  -o jsonpath='{.metadata.uid}{" "}{.metadata.generation}{"\n"}'</pre>
+<p>Сверьте current CR generation, Store UID/generation, timestamp новой попытки и <code>lastAttemptTime == lastSuccessfulSyncTime</code>. Для E2E2 нужны актуальные Ready/BootstrapReady/WitnessReady/DataCurrent/RolloutReady и точный verified checkpoint; Plain использует WitnessReady Unknown/NotApplicablePlain, без checkpoint. Один <code>kubectl wait</code> на старый True не доказывает новый sync после upgrade или отказа. Проверяйте новые значения внутри приложения приватным canary, не печатая их в журналы/Events/report.</p>
+<p>Operator <code>/healthz</code>/<code>/readyz</code> — process probes. Fencer <code>/readyz</code> выполняет свежую онлайн-проверку журнала, <code>/healthz</code> — process-only. Chart fencer readiness timeout по умолчанию 10 с, допустим 1..30; это не разрешение кешировать trust или обходить отказ. Clock backstep/future Lease не исправляют увеличением допуска или сбросом state.</p>
+<p>При sealed, timeout, отказе API, 401/403 и cryptographic failure сохраняются последние хорошие Secret и приложение; ошибка отражается в status. Это доступность уже выданных данных, не мгновенный отзыв. Не возобновляйте pending rollout до новой успешной проверки источника. StateMissing/StateReplaced, RecoveryPending и TargetMissing/TargetReplaced требуют разбора; не удаляйте state и pins ради повторного запуска.</p>
+
+<h2>2. Включение rollout: три явных разрешения</h2>
+<ol>
+<li>В полном административном values: <code>sync.enabled=true</code>, <code>rollout.enabled=true</code>, точный непустой <code>rollout.allowedDeployments</code>.</li>
+<li>В выбранном Store binding — точный <code>rollout.allowedDeployments</code>, в пределах административного списка.</li>
+<li>В SekvyrSecret — <code>spec.rollout.enabled=true</code> и явный список <code>deployments</code>, разрешенный binding. Сами Deployment должны уже существовать, иметь известные UID и использовать выбранный Secret.</li>
+</ol>
+<pre># Фрагменты разных документов, не один values-файл:
+# Helm values:
+sync: {enabled: true}
+rollout: {enabled: true, allowedDeployments: [sample-api]}
+# Store binding:
+rollout: {allowedDeployments: [sample-api]}
+# SekvyrSecret.spec:
+rollout: {enabled: true, deployments: [sample-api]}</pre>
+<p>Изменение values выполняйте рассмотренным native Helm upgrade; изменение Store/CR — только владельцем с проверкой UID/resourceVersion. Не расширяйте список селектором или wildcard. Начальное создание, equal plaintext и само включение opt-in не создают исторический restart. Реальное изменение пишет opaque revision и durable intent; Debouncing ожидаем, DeploymentPaused удерживает pending. Оператор меняет только собственную аннотацию Pod template <code>secrets.sekvyr.ru/restart-&lt;targetSecretUID&gt;</code> через UID/RV CAS. Deployment recreation не усыновляется автоматически.</p>
+<p>Secret volume обычно может обновиться без рестарта, если приложение читает проекцию kubelet без subPath. EnvFrom не меняет окружение уже запущенного процесса. Согласуйте внешний reloader отдельно: в испытании только свои Deployment отключали его тремя <code>reloader.stakater.com/auto</code>, <code>secret.reloader.stakater.com/auto</code>, <code>configmap.reloader.stakater.com/auto</code> со значением <code>"false"</code>. Глобальный контроллер не менялся. Exactly-once restart при сторонних writers не обещается.</p>
+
+<h2>3. Что резервировать</h2>
+<table><tr><th>Набор</th><th>Условия хранения и восстановления</th></tr>
+<tr><td>Node identity, trust, marker/state.json, UIDs, installation/Helm values, CRDs/CRs</td><td>Зашифрованная копия с контролем доступа. Сохраняйте generation, scope, genesis/cursor, CREATE receipts и связь Store/CR/binding/target UID. Один старый YAML state не доказывает актуальность.</td></tr>
+<tr><td>Publisher AES/signing и независимый admin key</td><td>У доверенных владельцев, отдельно от панели и operator backup. Без private key или допустимого независимого recovery-процесса новый wrap/подпись не возникают.</td></tr>
+<tr><td>Witness/fencer keys, TLS/mTLS, CA и политики gateway</td><td>Разделяйте роли; сверяйте authorized public keys/epochs. Operator не получает gateway upstream S3 credential или admin signing key.</td></tr>
+<tr><td>Панель и canonical journal</td><td>Раздельные backup/restore границы. Для journal сохраняются весь signed record chain, версии, COMPLIANCE receipts/retention и независимо закрепленный minimum cursor. Не удаляйте versions и не переписывайте ledger ради восстановления панели.</td></tr></table>
+<p>Согласуйте окно: остановите административные публикации/ротации, дождитесь текущего подтвержденного состояния, затем зафиксируйте связанные receipts. Если нужны raw Kubernetes exports, пишите их только в приватный каталог mode 0700 с umask 077 и шифруйте backup. Не выводите Secret YAML в терминал/тикет/CI; base64 не шифрование. Target Secret содержит plaintext и требует той же защиты.</p>
+<p>Протестируйте восстановление в отдельном контуре. Trial SeaweedFS с retention и fsync не доказывает независимые production fault domains, WORM против root или power-loss durability. Ни replicas, ни наличие backup без проверенного restore этого не меняют.</p>
+
+<h2>4. Restore — не сброс checkpoint</h2>
+<p>Возвращенная из backup панель может отставать от независимого журнала. E2E2 не должен принимать ее старый index как актуальный: отсутствующий current envelope приводит к fail-closed, а не offline fallback. Возвращайте нужные encrypted artifacts по известным hashes; не переинициализируйте genesis и не уменьшайте floor. CREATE старого Kubernetes имени получает новый UID, поэтому старые pins нельзя исправить простым копированием YAML.</p>
+<p><strong>HA state loss / node replacement:</strong> остановите всех старых operator writers. В trial chart это <code>ha.maintenance=true</code>, <code>replicas=0</code>; fencer остается &gt;=2. Дождитесь физического исчезновения старых Pod, а не только Deployment Ready. Сохраните старые generation/state UID и последнюю проверенную цель. Заранее создайте новые immutable identity/trust и новый mutable state под новыми именами/UID; marker указывает новую bootstrap generation. Не перехватывайте существующую цель с чужим UID.</p>
+<ol>
+<li>Независимый администратор подписывает enrollment/reconfiguration по текущей authority и точным namespace/SA/Lease/material/object UID. Old grants становятся неактивны; новый grant не активен до всех барьеров.</li>
+<li>Подготовьте новый strict trust, current envelope/wrap и signed recovery plan operation=<code>recover</code>. В нем exact cursor/snapshot, previous generation/state UID, новая большая generation/new state UID, node/trust pins, Store/CR generations, target UID и ожидаемый hash текущих raw state.json bytes.</li>
+<li>Срок plan не более 24 часов и еще не истек. Администратор подписывает его текущим независимо разрешенным admin key; private key не входит в manifest. Новый marker и план не являются заменой подписи.</li>
+</ol>
+<h3>Подготовка плана существующим offline CLI</h3>
+<p>Используйте <a href="../internal/provision/types.go">RecoveryRequest</a> и <a href="../internal/provision/README.html">контракт provision</a>. До него повторите bootstrap для новой generation: новые настоящие UID из CREATE, trust reservation → exact UID/RV populate+immutable → независимая проверка; operator остается 0. В uid receipts/Binding и recovery.Body.Identity перенесите точный нормализованный Identity из bootstrap output; recovery не вычисляет его за вас. Подпишите и online-commit новый enrollment, затем зафиксируйте его post-enrollment chain/cursor для плана. Не смешивайте прежний body cursor с новой цепочкой.</p>
+<pre># recover-request.json (private 0600):
+{"chain":{"registration_file":"reviewed-registration.json",
+          "records_file":"reviewed-post-enrollment-records.json",
+          "expected_cursor":{"journal_sequence":"&lt;EXACT_SEQUENCE&gt;",
+                             "record_hash":"&lt;EXACT_RECORD_HASH&gt;"}},
+ "config_file":"bootstrap-next/installation.json",
+ "receipts_file":"bootstrap-next/receipts.json","binding_file":"binding.json",
+ "body_file":"recover-body.json","state_file":"reviewed-state-bytes.bin",
+ "admin_key_file":"admin/private.pem"}
+/secure/sekvyr-provision recovery --work-dir /secure/provision \
+  --input recover-request.json --output recovery-next</pre>
+<p>reviewed-state-bytes.bin — точные bytes state.json, ожидаемые в новом pinned state Secret, без JSON normalization. При отсутствии этого data key сохраните явный пустой 0600 файл: для operation=recover state_file обязателен. При initialize state_file="" и SHA-256 пустых bytes. Body recovery.Body отдельно содержит previous generation/старый state UID, новые material UID, current snapshot/cursor, expiry и allow_rollout=false. Provision подписывает текущим admin и вызывает recovery.Verify; online CLI ниже использует <code>/secure/provision/recovery-next/plan.json</code> как --plan и bootstrap-next/installation.json как --installation-file. Это не commit receipt и не разрешение обойти online journal/witness.</p>
+<pre>export KUBECONFIG=/secure/admin.kubeconfig
+/secure/sekvyr-checkpoint-recovery \
+  --installation-file=/secure/provision/bootstrap-next/installation.json \
+  --plan=/secure/provision/recovery-next/plan.json \
+  --envelope=/secure/provision/current-envelope.json \
+  --reader-wrap=/secure/provision/current-reader-wrap.json \
+  --allow-trial-canonical-ledger</pre>
+<p>CLI использует encrypted offline exports, но journal/witness должны оставаться онлайн. По умолчанию rollout выключен. Для changed-data recovery он требует одновременно явного CLI <code>--enable-rollout</code>, соответствующей installation policy и <code>allow_rollout=true</code> в подписанном плане. Equal-data recovery не создает historical restart.</p>
+<p>Prepared сохраняется до target update; затем state помечается complete. После потерянного ответа разбирают тот же plan/recovery ID и наблюдаемую фазу: нельзя генерировать новый ID или автоматически rebase на свежий cursor. Exact plan допускает проверенное продолжение; продвижение журнала может потребовать нового независимо рассмотренного плана и оставить RecoveryPending. Между journal и Kubernetes нет атомарной транзакции; lag после проверки не равен разрешению откатить уже более новую примененную цель.</p>
+<p>Resume возможен только при сохраненных UID/context и проверенной целостности. После <code>CheckpointRecoveryComplete</code> подтвердите current state/target, снимите maintenance, верните две operator replicas и проверьте свежий sync. Не переносите старый pending intent в новую generation. Прежние state names/UIDs остаются в <code>ha.webhook.retiredStateSecrets</code> до отдельного административного cleanup; не сужайте admission scope посреди recovery.</p>
+<p class="note">Этот CLI требует HA E2E2 profile и не является restore-командой для Plain или non-HA state loss. Для них автоматического восстановления потерянного high-water state нет: остановите writers, сохраните target, рассмотрите восстановление исходного объекта/backup либо отдельную миграцию с новым target и bootstrap. Нельзя очистить bindings, снять UID pin или принять чужой Secret, чтобы скрыть потерю состояния.</p>
+
+<h2>5. Ротации</h2>
+<table><tr><th>Что меняется</th><th>Порядок</th></tr>
+<tr><td>Projected JWT / JWKS</td><td>Файл token обновляет kubelet в том же Pod; не записывайте JWT руками. Signer rotation отдельно: независимо подготовленные old+new public keys, overlap в offline JWKS панели, настоящий new-kid token, затем retirement при обоих еще valid JWT (запас &gt;30 с). Новые обмены старого kid должны дать 401. Это не немедленный отзыв machine sessions/удаленных Pod.</td></tr>
+<tr><td>Node P256</td><td>Остановить старых writers, подготовить один новый key на все replicas, независимо подтвердить public fingerprint, передать public key панели, выдать новые signed wraps всех разрешенных views. Смена public_key удаляет прежние machine wrappers; нельзя чередовать старый и новый key между репликами. Затем новая enrollment/bootstrap generation и signed recovery с exact pins.</td></tr>
+<tr><td>AES read key</td><td>Отдельная cryptographic rotation: новый epoch, заново зашифрованный полный snapshot и новые wraps, signed authority transition/activation. Rewrap для нового node при прежнем AES — не смена project key. Старый read key должен перестать расшифровывать новые snapshots.</td></tr>
+<tr><td>Publisher / witness / fencer / admin</td><td>Новая public authority подписывается текущим разрешенным admin по CAS/current cursor. Epoch/revision, signer material, independent pins и service rollout переключаются согласованно; при witness rotation обновляется и pin панели. Authority change инвалидирует старый grant, новый требует barriers. Утрата admin private key не исправляется доверенным ключом из самой панели.</td></tr>
+<tr><td>TLS / CA</td><td>Проверенный cert с правильными SAN, новый immutable Secret/ConfigMap и точные UID/hash refs. Не заменяйте CA lookup или отключением TLS verification. Обычная TLS ротация не разрешает смену publisher/witness authority.</td></tr></table>
+<p>Ротация AES/node поколения 2 проверена в этапе 7 на конкретном amd64 образе; все-все ротации и новые RC требуют собственных сценариев. Legacy E2E1 не получает E2E2 migration автоматически: используйте отдельно рассмотренный publisher migration с новым canonical snapshot, не сброс trust. На trial control plane API restart может оборвать panel port-forward; будущий coordinator hook переподключает только свой transport после Ready/crypto checks. Исторический прогон с ручным продолжением не является проверкой нового hook.</p>
+
+<h3>Offline подготовка ротации</h3>
+<p><code>keygen</code> создает только одну новую роль за вызов. Для AES используйте role=read с новым output; epoch bump при прежнем AES не отзывает старый node. <code>snapshot</code> с pending=true подготавливает следующий полный envelope/wrap без record.json; затем <code>transition</code> подписывает существующий TransitionBody с activating_envelope и проверяет candidate Replay. rotate-read-key требует action=rotate-read-key и следующего read epoch; rotate-publisher — action=update, следующего policy epoch и новых publisher public keys. Restore — отдельный kind=recover с проверенной history/recovery_from, не снижение sequence. Rotate-admin/witness/fencer используют соответствующий закрытый kind и текущий admin, без лишнего activating snapshot.</p>
+<pre>/secure/sekvyr-provision snapshot --work-dir /secure/provision \
+  --input reviewed-pending-snapshot.json --output pending-rotation
+/secure/sekvyr-provision transition --work-dir /secure/provision \
+  --input reviewed-transition-request.json --output signed-rotation</pre>
+<p>Запросы имеют те же обязательные поля, что в <a href="install.ru.html">установке</a>; transition request ссылается на отдельный точный BodyFile. Нельзя выдать pending за опубликованный current. Online CAS, согласованная смена signer/pins и независимые receipts обязательны. Wrapper-only команды нет: для node rotation через этот CLI подготовьте новый AES/read epoch и следующий полный snapshot с wrap для нового node, затем admin transition/enrollment и signed recovery. Собственный signer не нужен. Остальные authorized readers также должны получить проверенные wraps; инструмент не управляет их online grants. Сохраняйте точные ciphertext/plan outputs для lost-ack разбора: новый запуск snapshot создает новые salt/nonce и другой hash.</p>
+
+<h2>6. Upgrade и ограниченный rollback</h2>
+<ol>
+<li>Выберите точный reviewed chart version и image digest, проверьте совместимость backend/protocol/state. Сохраните текущие manifests, CRD schemas, values, external UID receipts, journal cursor и backup. В namespace не должно быть параллельного административного writer.</li>
+<li>Рассмотрите schema diff CRD отдельно. Helm upgrade не обновляет CRD из crds/ автоматически. Администратор отдельно применяет рассмотренную additive schema с сохранением существующих CR; проверяет pruning, validations и stored versions.</li>
+<li>Сделайте полный render новых values; сравните RBAC, webhook, material refs и Pod templates. Не используйте reuse-values как замену review. В текущем chart resources общие для operator и fencer: memory change может заменить обе пары.</li>
+</ol>
+<pre>CHART='/secure/sekvyr-operator-&lt;REVIEWED_VERSION&gt;.tgz'
+helm template secret-sync "$CHART" --namespace secret-sync \
+  -f /secure/next-values.yaml &gt; /secure/next-render.yaml
+helm upgrade secret-sync "$CHART" --namespace secret-sync \
+  -f /secure/next-values.yaml --skip-crds --wait --timeout 180s</pre>
+<p>После Ready дождитесь физического исчезновения прежних измененных Pod UID. Зафиксируйте UTC cutover и прежний lastSuccess; требуйте новую успешную попытку после cutover с current CR/Store UID/generation и checkpoint, затем проверьте приложение. Не публикуйте новый head только ради маскировки старого status.</p>
+<p><strong>Helm rollback откатывает manifests, а не journal, CRDs, keys или data.</strong> Команда <code>helm rollback secret-sync &lt;REVIEWED_HELM_REVISION&gt; --namespace secret-sync --wait --timeout 180s</code> допустима только после подтверждения, что старые binaries понимают текущие CRD/state/authority и сохраняют текущие pins/floors. После новой bootstrap generation или несовместимого wire автоматический rollback не поддерживается: нужен forward fix либо отдельно подписанная миграция. Retained ConfigMap сверяется по известному UID и точным bytes, а не принимается по имени.</p>
+<p>CRD rollback не является частью Helm rollback. Более старая schema может удалить неизвестные поля/prune данные, отвергнуть existing CR или не понимать stored version. Не удаляйте CRD для downgrade: это cluster-wide удаление CR во всех namespaces, возможно с GC целей по Delete policy. Без отдельно проверенной schema/data migration такой downgrade не заявляется безопасным.</p>
+
+<h2>7. Uninstall и сохранение данных</h2>
+<p>Выбирайте <code>deletionPolicy: Retain</code> при создании binding; policy неизменяема. Для существующего Delete нужен отдельный план миграции/сохранения данных, не patch policy и не снятие ownerReference наугад. Сам chart не управляет target/identity/trust/state Secrets или внешними SA/Lease. Удаление CR при Delete может удалить target через GC, хотя оператор не имеет Secret DELETE. Удаление namespace удалит и Retain-данные.</p>
+<ol>
+<li>Остановите публикации и явный rollout request/suspend согласно рассмотренному плану. HA: maintenance=true/replicas=0, дождаться отсутствия старых operator Pod; fencer/admission не отключать до остановки writers. Non-HA: сначала одновременно sync.enabled=false и rollout.enabled=false в полном reviewed values, затем дождаться ухода старых sync-enabled Pod.</li>
+<li>Проверьте current target UID/данные/приложение и backup. Удалите только выбранный captured release; не удаляйте общий namespace/CRD.</li>
+</ol>
+<pre>helm uninstall secret-sync --namespace secret-sync --wait --timeout 180s</pre>
+<p>Проверьте исчезновение только своих Deployment/Role/RoleBinding и HA cluster resources, сохранность external pins и target. <code>configuration.retain=true</code> оставляет immutable ConfigMap revisions: после отсутствия всех consumers удаляйте только рассмотренные объекты с DeleteOptions UID preconditions. Наличие keep не дает права заново усыновить объект или откатить trust. CRD, Store/CR и ключи удаляются отдельным согласованным lifecycle с учетом других установок.</p>
+<p>Проверьте отсутствие собственных port-forward/helper процессов и утекших temporary credentials; сравните независимый baseline чужих workloads, volumes, networks и host state. Не используйте global prune. В этапе 7 строгий Docker resource audit прошел, а глобальный IPv6 audit имел явно принятое пользователем исключение; точное восстановление всего хоста не заявлялось. Перед новым trial нужны исходные sysctl/IPv6 anycast/address flags/firewall/routes и полный image inventory.</p>
+
+<h2>Пределы и совместимость</h2>
+<p>Фактически испытаны Linux amd64, 960d на Kubernetes 1.34.1+k0s и d328 на kind 1.37.0; последний d328/timeout-10 не перепроверен на 1.34. ARM64 и новые RC пока не получают этого покрытия. <a href="../stage-7.security-findings.json">Backend 3e25 этапа 7</a> имел 9 открытых HIGH OS CVE, 45 matches, без доказательства exploitability или waiver; новое исправление требует нового scan/acceptance.</p>
+<p>Production WORM/независимые fault domains, cross-object/system atomic freshness, exactly-once restart и защита от Byzantine control plane/storage, root-компрометации или etcd resourceVersion rewind при старом запросе не обещаются. В E2E2 plaintext read key, пароль проекта и publisher private key не передаются панели. Компрометация trusted publisher/browser JavaScript или чтение plaintext в Kubernetes находится в границе доверия.</p>
+</html>

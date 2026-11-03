@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sekvyr operator — результат этапа 3</title>
+<style>
+:root{color-scheme:light dark;--bg:#f4f7fb;--card:#fff;--fg:#172638;--muted:#56677a;--line:#d7e0eb;--accent:#146c60;--soft:#e4f4ed;--code:#eef2f7}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 system-ui,sans-serif}main{max-width:1040px;margin:auto;padding:32px 22px 56px}h1{font-size:2rem;line-height:1.2;margin:10px 0 18px}h2{font-size:1.25rem;margin:28px 0 12px}section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:22px 24px;margin:18px 0}section h2:first-child{margin-top:0}p{margin:12px 0}small,.meta{color:var(--muted)}.lead{font-size:1.12rem}.badge{display:inline-block;background:var(--soft);color:var(--accent);padding:5px 12px;border-radius:20px;font-weight:650}.gate{border-left:4px solid var(--accent);padding-left:16px}.scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:.93rem}th,td{text-align:left;vertical-align:top;border-bottom:1px solid var(--line);padding:11px 10px}th{color:var(--muted)}code{font: .88em ui-monospace,Consolas,monospace;overflow-wrap:anywhere}pre{background:var(--code);border:1px solid var(--line);padding:16px;overflow:auto;border-radius:6px;line-height:1.5}a{color:var(--accent)}li{margin:7px 0}ul,ol{padding-left:25px}.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:18px 0}.step{border:1px solid var(--line);border-top:3px solid var(--accent);border-radius:7px;padding:13px;font-size:.93rem}.step strong{display:block;margin-bottom:6px}.pending{border-style:dashed;color:var(--muted);padding:12px;border:1px dashed var(--line);border-radius:6px}
+@media(prefers-color-scheme:dark){:root{--bg:#101823;--card:#182431;--fg:#e4edf7;--muted:#adbed1;--line:#35485d;--accent:#83d6c0;--soft:#193d35;--code:#111d2a}}
+@media(max-width:700px){main{padding:22px 12px 40px}section{padding:16px}h1{font-size:1.55rem}.flow{grid-template-columns:1fr}table{font-size:.85rem}th,td{padding:9px 7px}}
+@media print{:root{--bg:#fff;--card:#fff;--fg:#000;--muted:#333;--line:#aaa;--accent:#000;--soft:#fff;--code:#fff}main{max-width:none;padding:0;font-size:11pt}section{break-inside:avoid;border-radius:0;padding:12px;margin:12px 0}pre{white-space:pre-wrap}a{color:#000;text-decoration:none}.flow{grid-template-columns:repeat(5,1fr)}}
+</style></head><body><main>
+<div class="meta">1 ноября 2026 · Sekvyr operator · этап 3 из 8</div>
+<h1>E2E2, подписи и обертки ключей</h1>
+<span class="badge">Реализация и проверки завершены</span>
+<p class="lead">Реализованы Go-кодек E2E2, подпись полного снимка, расшифрование, подписанная обертка read key и читатель с двумя свежими witness proof. Негативные тесты проверяют подмену не только с поврежденной подписью: отдельный корпус содержит настоящие подписи над недопустимыми данными.</p>
+<p class="gate"><strong>Контрольная точка пользователя.</strong> Этап 4 не начинался. Оператор пока не подключает этот читатель к живой панели и не записывает целевые Secret. Сервис witness, durable ledger и сохранение checkpoint требуют следующей реализации. Рабочие стенды и агент 1.0.3 не менялись. Коммитов, публикаций и миграций нет.</p>
+
+<section><h2>Что реализовано</h2>
+<div class="scroll"><table><thead><tr><th>Часть</th><th>Поведение</th></tr></thead><tbody>
+<tr><td><code>internal/e2e2</code></td><td>Ограниченный профиль RFC 8785 JCS, точные wire-типы, canonical UTF-8, Ed25519, SHA-256, HKDF-SHA256 и AES-256-GCM. Подпись, контекст, epochs и hash проверяются до расшифрования полного снимка.</td></tr>
+<tr><td>Reader wrap</td><td>Подпись publisher связывает realm/project/environment/view/log UUID, эпохи, publisher key и fingerprint P-256 получателя. Только после проверки выполняются ECDH, HKDF и AEAD. Payload содержит ровно контекст и 32-байтовый read key; приватный publisher key машине не выдается.</td></tr>
+<tr><td><code>internal/witness</code></td><td>Конкретный <code>PinnedVerifier</code>: независимый публичный ключ и epoch, точный source scope, nonce, canonical floor, uint64, fork и запрет уменьшения эпох. Подписанный proof не становится доверенным только из-за наличия подписи.</td></tr>
+<tr><td><code>internal/verification</code></td><td><code>Reader.ReadCurrent</code> сам создает CSPRNG nonces, проверяет первый proof, получает точный hash, проверяет снимок и wrapper, раскрывает полный набор и запрашивает второй proof. При новом head повторяет чтение максимум три раза, сохраняя самый высокий уже проверенный floor.</td></tr>
+<tr><td>Независимый bootstrap</td><td>Строгий parser bundle и одного PKCS8 PEM P-256 ключа. Bundle привязан к installation ID, namespace, ServiceAccount, generation, origin панели, ключу ноды, Store UID, binding UUID, view/log и минимальному checkpoint. Авторизация view проверяет точные идентификаторы.</td></tr>
+<tr><td>Publisher crypto API</td><td><code>SealSnapshot</code> и <code>WrapReader</code> принимают явно подготовленные данные и на каждом новом шифровании создают fresh salt/nonce/ephemeral key. Нет получения unsigned base из панели, автоматического rebase или повторного подписания после конфликта.</td></tr>
+</tbody></table></div>
+<p>Код пока находится внутри отдельного модуля <code>operator</code>, Go directive 1.26.0, компилятор 1.27.3. Внешний SDK-модуль не выпущен, совместимость нового кода с Go 1.23 не заявляется. Существующий legacy-агент не рефакторился.</p>
+</section>
+
+<section><h2>Путь принятия снимка</h2>
+<div class="flow">
+<div class="step"><strong>1. Fresh proof</strong>Случайный nonce и <code>floor=max(bootstrap,local)</code>, подпись закрепленного witness.</div>
+<div class="step"><strong>2. Exact hash</strong>Загрузка канонического envelope по подтвержденному hash, проверка publisher и source/epochs.</div>
+<div class="step"><strong>3. Reader wrap</strong>Проверка подписанного получателя и контекста, затем ECDH и раскрытие read key.</div>
+<div class="step"><strong>4. Полный набор</strong>AEAD, canonical plaintext, точное число entries, порядок, отсутствие дублей и недопустимых имен/путей.</div>
+<div class="step"><strong>5. Второй proof</strong>Другой nonce, floor первого head. При изменении — повтор; при отказе — никаких принятых значений.</div>
+</div>
+<p>Результат <code>Accepted</code> возвращается только после всех проверок. Произвольная структура <code>Head</code>, которую передал вызывающий код, не подтверждает актуальность. Транспорт получает отдельные копии challenge, а bundle и ключи копируются при построении verifier/reader.</p>
+<p class="pending">Durable checkpoint → атомарная запись Secret → сравнение фактических значений → опциональный rollout — еще не подключены. На этапе 3 возвращается проверенный результат, а не утверждение, что он сохранен или применен.</p>
+</section>
+
+<section><h2>Какие подмены и откаты отклоняются</h2>
+<ul>
+<li>Замена ciphertext, nonce, salt, подписи, source UUID, числа entries или другой части подписанного контекста.</li>
+<li>Старый witness receipt с прежним nonce, proof для другого view/log/witness epoch, измененный floor или head ниже доверенного checkpoint.</li>
+<li>Одинаковая sequence с другим hash или epochs, уменьшение read-key/publisher epochs и неверная ссылка на непосредственно известного предшественника.</li>
+<li>Wrapper для другой ноды, view или эпохи, чужой signer, невалидная P-256 точка, неверный AEAD и payload с дополнительным ключевым материалом.</li>
+<li>Корректно подписанный, но неполный, неупорядоченный или семантически недопустимый снимок; неверный action/restore/parents, удаленные или добавленные entries.</li>
+<li>Дубли JSON-полей, включая escaped aliases, неизвестные и пропущенные поля, null вместо обязательного поля, invalid UTF-8, lone surrogates, floats/exponents, noncanonical Base64url и переполнение uint64.</li>
+<li>Неканонические пути, metadata без NFC, Cc/Cf/Cs, bidi/zero-width/control characters. Значения сохраняются как исходные Unicode scalar strings и не нормализуются.</li>
+<li>Потеря связи с панелью или witness на первом и втором чтении. Читатель не возвращает частичный набор и не подменяет ошибку устаревшим кешем.</li>
+</ul>
+<p>Закрепленные Ed25519 public keys проверяются как канонические ненулевые точки простого подгруппового порядка. Для проверки точек используется <code>filippo.io/edwards25519 1.2.0</code>; подписи выполняет стандартная <code>crypto/ed25519</code>. Собственных формул кривой или blacklist кодировок нет.</p>
+</section>
+
+<section><h2>Результаты проверок</h2>
+<div class="scroll"><table><thead><tr><th>Проверка</th><th>Результат</th></tr></thead><tbody>
+<tr><td>Go</td><td>Все пакеты проходят unit-тесты, <code>go vet</code>, <code>go mod verify</code> и сборку. Покрытие новых компонентов: E2E2 82.9%, verification 84.7%, witness 90.8%. Процент не заменяет проверку сценариев.</td></tr>
+<tr><td>Независимые подписанные корпуса</td><td>45 snapshot cases: 5 допустимых и 40 отрицательных. 20 wrapper cases: 1 допустимый и 19 отрицательных. Подпись каждого элемента проверяется отдельно стандартными primitives перед оценкой semantic rejection.</td></tr>
+<tr><td>Python ↔ Node ↔ Go</td><td>Совпадают JCS bytes, envelope hash, Ed25519, P-256 ECDH, HKDF и AES-GCM. Проверены Unicode, UTF-8 порядок и заголовок с 16 parents, HKDF info 6418 байт.</td></tr>
+<tr><td>Сквозной Reader в процессе</td><td>Настоящие Seal/Wrap/Ed25519 proofs с временными тестовыми ключами; replay, неверные scope/nonce, rollback/fork, смена head, отказ первого/второго witness, отказ панели, подмена wrapper, mutable transport и независимость возвращаемых значений.</td></tr>
+<tr><td>Параллельность</td><td>8 одновременных чтений дают отдельные пары challenge. Race detector трех криптографических пакетов проходит.</td></tr>
+<tr><td>Fuzz</td><td>30 секунд проверки враждебных wire bytes: 47 009 executions, без найденного сбоя. Проверяется валидность и идемпотентность canonical output; это ограниченный прогон, не доказательство отсутствия ошибок.</td></tr>
+<tr><td>Зависимости</td><td><code>govulncheck 1.9.0</code>: известных уязвимостей не найдено. Новой production-публикации образа нет.</td></tr>
+<tr><td>Предыдущий контракт</td><td>Сохраняются design checks: 5 допустимых/22 запрещенных запроса, 40 Python reference checks и 8 исходных Node checks. Они не доказывают ledger durability.</td></tr>
+<tr><td>CI</td><td>Добавлены cross-language references, race detector и fuzz smoke. Удаленный CI еще не запускался: изменения не опубликованы.</td></tr>
+<tr><td>Чистота файлов</td><td id="hygiene">Финальная проверка штатным scanner пройдена: исходники, fixtures, документы, результаты и изменения CI проверены на секреты и внутренние названия/адреса. Тестовые scalar/seed/read key явно публичные синтетические vectors; production-ключи не использовались.</td></tr>
+</tbody></table></div>
+<p>В Node 24 встроенный HKDF ограничивает info до 1024 байт. Тестовый reference использует точный RFC 5869 через WebCrypto HMAC, сверяет официальный PRK/OKM, встроенный HKDF до этого лимита и полные Python/Go vectors. Wire format, domains и KDF inputs не сокращались. Это проверочный JS, не production writer или проверка браузерного интерфейса.</p>
+</section>
+
+<section><h2>Границы гарантии и следующего этапа</h2>
+<p>Защита от rollback относится к независимо закрепленному минимуму, доверенному сохраненному high-watermark и свежим ответам <strong>честного независимого witness</strong>. Один witness не дает Byzantine tolerance. Если его signing authority злонамеренна либо одновременно откатились все независимые корни/журналы, одни подписи не докажут потерянную историю.</p>
+<p>State adapter этапа 4 обязан привязать checkpoint к installation ID, bootstrap generation и trust identity, надежно сохранить его до применения Secret и не превращать потерю state в новый bootstrap. Текущий Reader принимает trusted local state от этого будущего адаптера; сам он его не хранит. Новый bootstrap требует положительного independently pinned checkpoint, не TOFU/genesis.</p>
+<p>Еще не реализованы сетевые API E2E2 панели, сервис witness с внешним durable append-only ledger, реальное восстановление журнала полномочий, клиент staging/commit, trusted writer UI/distribution, смена policies/ключей и миграция проектов. <code>SealSnapshot</code> — криптографическая операция над явно переданным утвержденным набором, а не самостоятельная система approval.</p>
+<p>Контроллер сохраняет закрытую интеграцию этапа 2: нет source fetch, записи target/state Secret и rollout. Поэтому на этом этапе не заявляются доставка обновлений в реальный pod или готовность E2E2 к production. Права Helm не расширялись.</p>
+<p>Свежесть определена на момент второй проверки witness. Следующий commit может произойти до записи Kubernetes. Проверки не стирают значения, уже находящиеся в приложении, и не предотвращают восстановление старого Secret самим cluster-admin. Mutable ключевые буферы очищаются по возможности; полного стирания строк, копий и памяти Go runtime не обещается.</p>
+</section>
+
+<section><h2>Файлы и повторение</h2>
+<p>Основной код: <code>operator/internal/e2e2</code>, <code>operator/internal/witness</code>, <code>operator/internal/verification</code>. Протокол и payload schema уточнены в <code>operator/design/</code>. Независимые fixtures и инструкции: <code>operator/tests/e2e2/</code>. Сводка результатов: <code>operator/stage-3.validation-results.json</code>.</p>
+<pre>cd operator
+GOWORK=off go mod verify
+GOWORK=off go vet ./...
+GOWORK=off go test -count=1 -cover ./...
+GOWORK=off go test -race -count=1 ./internal/e2e2 ./internal/witness ./internal/verification
+GOWORK=off go test ./internal/e2e2 -run '^$' \
+  -fuzz '^FuzzCanonicalRestricted$' -fuzztime=30s -parallel=2
+python tests/e2e2/reference.py
+node tests/e2e2/check_webcrypto.cjs
+GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...</pre>
+<p class="meta">Первичные источники: <a href="https://www.rfc-editor.org/rfc/rfc8785">RFC 8785</a>, <a href="https://www.rfc-editor.org/rfc/rfc8032">RFC 8032</a>, <a href="https://www.rfc-editor.org/rfc/rfc5869">RFC 5869</a>, <a href="https://pkg.go.dev/crypto/ecdh">Go crypto/ecdh</a>, <a href="https://pkg.go.dev/filippo.io/edwards25519">edwards25519</a>, <a href="https://nodejs.org/download/release/v24.15.0/docs/api/crypto.html#cryptohkdfdigest-ikm-salt-info-keylen-callback">лимит Node HKDF</a>.</p>
+</section>
+</main></body></html>

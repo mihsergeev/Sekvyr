@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sekvyr operator — этап 5</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#1b2938;--muted:#526477;--box:#f0f4f8;--line:#cbd7e3;--link:#155f9d;--ok:#146b40;--warn:#8c590d}*{box-sizing:border-box}body{max-width:1060px;margin:auto;padding:30px 22px 58px;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,sans-serif}h1{font-size:1.8rem;line-height:1.25}h2{font-size:1.25rem;margin-top:2rem}a{color:var(--link)}code{font:0.9em ui-monospace,monospace;overflow-wrap:anywhere}pre{padding:16px;background:var(--box);border:1px solid var(--line);overflow:auto;font-size:13px}.gate,.boundary{padding:15px 18px;background:var(--box);border-left:5px solid var(--ok)}.boundary{border-color:var(--warn)}table{border-collapse:collapse;width:100%;margin:1rem 0}th,td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}th{background:var(--box)}.scroll{overflow:auto}li{margin:.4rem 0}.ok{color:var(--ok);font-weight:650}.muted{color:var(--muted)}@media(prefers-color-scheme:dark){:root{--bg:#121b25;--fg:#e1eaf3;--muted:#adbdce;--box:#1b2b3a;--line:#40576e;--link:#8fcaff;--ok:#89dfaf;--warn:#efbc68}}@media(max-width:620px){body{padding:18px 13px 40px;font-size:15px}h1{font-size:1.45rem}table{font-size:13px}th,td{padding:8px}}@media print{:root{--bg:#fff;--fg:#000;--muted:#333;--box:#fff;--line:#999;--link:#000;--ok:#000;--warn:#000}body{max-width:none;padding:0;font-size:10.5pt}pre{white-space:pre-wrap}tr{break-inside:avoid}h2{break-after:avoid}.gate,.boundary{border:1px solid #777}}
+</style>
+<h1>Sekvyr operator: результат этапа 5</h1>
+<p>Реализован опциональный перезапуск <strong>Deployment после проверенного E2E2-изменения данных Kubernetes Secret</strong>. Одинаковые выбранные значения сохраняют revision и не создают новый запрос на перезапуск. Первое создание Secret и последующее включение rollout также не создают исторического restart.</p>
+<p class="gate"><strong>Этап 5 прошел приемку: 20/20 живых E2E на реальном Kubernetes.</strong> Этап 6 не начат. Публикация и production rollout не выполнялись. Дальнейшая работа требует решения пользователя.</p>
+<h2>Как включается</h2>
+<p>Нужны три независимых разрешения: установка оператора, административный binding Store и явный запрос SekvyrSecret. Все Deployment находятся в одном namespace и должны реально использовать целевой Secret. По умолчанию rollout выключен.</p>
+<pre>sync:
+  enabled: true
+rollout:
+  enabled: true
+  allowedDeployments: [application]
+
+# В нужном binding Store:
+rollout:
+  allowedDeployments: [application]
+
+# В spec нужного SekvyrSecret:
+rollout:
+  enabled: true
+  deployments: [application]</pre>
+<p>Helm передает отдельный <code>--enable-rollout</code>, который должен совпадать с административной конфигурацией и требует включенного sync. RBAC разрешает только <code>get,patch</code> конкретных Deployment. Прав на scale, удаление Pod, Deployment update/list/watch нет.</p>
+<h2>Что предотвращает лишние перезапуски</h2>
+<div class="scroll"><table><thead><tr><th>Сценарий</th><th>Поведение</th></tr></thead><tbody>
+<tr><td>Первое создание, включение rollout</td><td>Не создают eligibility. Приложение запускается обычным способом с уже созданным Secret.</td></tr>
+<tr><td>Одинаковые значения</td><td>Сравниваются фактические выбранные bytes после полной E2E2-проверки. Новый ciphertext или checkpoint без изменения данных не меняет непрозрачную revision и не создает новый rollout.</td></tr>
+<tr><td>Настоящее изменение</td><td>Новая случайная revision и intent записываются вместе с данными Secret. Разрешение на этот intent предварительно сохраняется в защищенном state.</td></tr>
+<tr><td>Частые изменения</td><td>Debounce одного binding: 5 секунд тишины, не более 30 секунд от первого незавершенного разрешенного изменения. Время сохраняется при рестарте оператора.</td></tr>
+<tr><td>Сбой панели или witness</td><td>Новый или отложенный rollout не выполняется. Возобновление требует свежей проверки canonical head, полного снимка и текущих полномочий. Старый успешный результат из памяти не используется.</td></tr>
+<tr><td>Повторная обработка, потерянный ответ</td><td>Сверяются текущая annotation и долговечная отметка выполнения для revision/Deployment UID. Уже примененный intent не патчится заново из-за исчезнувшей annotation.</td></tr>
+<tr><td>Paused, denied, timeout</td><td>Secret может быть текущим при RolloutReady=false. Старый failed status допускает одну попытку с новой revision, которая может исправить конфигурацию; та же failed revision не запускается повторно.</td></tr>
+</tbody></table></div>
+<h2>Проверки безопасности</h2>
+<p>Публичные annotations не являются полномочием. Защищенный state хранит полный intent, hash только его metadata, отмену и отметки выполнения. Перед patch повторно проверяются точный checkpoint, Secret UID, текущие проверенные bytes, revision, intent, CR/Store UID и generations, разрешенные Deployment и фактическая ссылка на Secret.</p>
+<p>Учитываются envFrom, SecretKeyRef и смонтированные Secret/projected volumes в обычных и init-контейнерах. Неиспользуемый volume, label или imagePullSecret не считается использованием конфигурации. Patch содержит тесты UID/resourceVersion и меняет только собственную Pod-template annotation <code>secrets.sekvyr.ru/restart-&lt;SecretUID&gt;</code>. Образ, env, команды, replicas, strategy и чужие annotations сохраняются.</p>
+<p>Внутренние Guard и Result скрывают проверенные значения при форматировании через String/GoString. Восстановление из отсутствующего state или поддельных markers не создает разрешение на restart.</p>
+<h2>Проверки</h2>
+<div class="scroll"><table><thead><tr><th>Проверка</th><th>Фактический результат</th></tr></thead><tbody>
+<tr><td>Go: все пакеты, vet и module integrity</td><td class="ok">PASS на Go 1.27.3, включая syncer, controller, rollout, transport и verifier. Самопроверка проекта также прошла.</td></tr>
+<tr><td>Race, fuzz, зависимости</td><td class="ok">Финальный прогон — PASS: девять пакетов race, fuzz и govulncheck. Достижимых Go-уязвимостей не найдено.</td></tr>
+<tr><td>Helm и harness</td><td class="ok">11 проверок chart/schema, 6 проверок stage-5 harness и 5 проверок общих cleanup guards — PASS.</td></tr>
+<tr><td>Реальный Kubernetes 1.34.1</td><td class="ok">20/20 — PASS, exit 0, на финальном образе. Одно изменение Secret создало один новый ReplicaSet и новый Pod с новым boot ID и обновленным env. Отложенный rollout после восстановления witness создал один новый ReplicaSet. Одинаковые значения и сбои сервисов лишних rollout не создали.</td></tr>
+<tr><td>Секреты и внутренние данные</td><td class="ok">151 новый/измененный файл-кандидат проверен без исключений: подтвержденных секретов и внутренних данных нет. JSON, Python, HTML и все ссылки на артефакты проверены; внешних ресурсов HTML нет.</td></tr>
+</tbody></table></div>
+<p>Проверены также подмена public revision/intent при нетронутом защищенном state, fork, поврежденные подпись/ciphertext, replay старого снимка, устаревший индекс панели, suspended CR, запрещенный Deployment, смена UID приложения, потеря/замена state и реальные RBAC-запреты. В завершающем отрицательном тесте Ready/DataCurrent стали false после намеренной замены state — это ожидаемый безопасный отказ.</p>
+<p>В первом живом прогоне обнаружен установленный на стенде внешний Reloader: он независимо изменил тестовый Deployment. Такой прогон не принят как доказательство отсутствия лишних restart. Чистый повтор использует штатный opt-out только на своем Deployment — <code>reloader.stakater.com/auto: "false"</code>; общий контроллер не менялся. Это поддерживаемая аннотация <a href="https://docs.stakater.com/reloader/1.4/reference/annotations.html">Stakater Reloader</a>.</p>
+<p>Число rollout проверяется по новым ReplicaSet/Pod UID и точному изменению Pod template, а не по одному счетчику Deployment generation. В Kubernetes изменение Deployment annotations также может увеличивать generation; это видно в <a href="https://github.com/kubernetes/kubernetes/blob/v1.34.1/pkg/registry/apps/deployment/strategy.go#L105-L110">исходниках соответствующей версии</a>.</p>
+<h2>Границы результата</h2>
+<p class="boundary"><strong>Этап 5 не означает production readiness.</strong> Witness остается явным development filesystem профилем, без гарантии WORM и доказанной независимости production restore-domain. HA/fencing, ротации и полноценное восстановление остаются для этапа 6.</p>
+<ul>
+<li>Нет общей транзакции между state, Secret, полномочиями и Deployment; гарантия exactly-once и мгновенный отзыв уже выполняющейся записи не заявляются. Неоднозначная частичная запись блокирует rollout и может требовать административного восстановления.</li>
+<li>Debounce относится к одному binding/Secret. Одновременные изменения нескольких разных Secrets одного приложения не объединяются в одну транзакцию.</li>
+<li>UID Deployment закрепляется для текущего контекста CR/Store generations и списка имен. Изменение generation считается новой административной авторизацией и может закрепить новый UID. Враждебный общий namespace не поддерживается.</li>
+<li>Отложенный кандидат с еще не найденным UID может впервые закрепить разрешенное имя после восстановления доступа. Приложение, созданное после изменения Secret, при этом может получить дополнительный rollout; без доказательства момента чтения env эвристика по creationTimestamp не используется.</li>
+<li>Нужно выбрать один контроллер перезапуска для приложения и этого Secret. Sekvyr не выключает чужие reloaders автоматически и не может подавить restart другого контроллера.</li>
+<li>Поддержан только Deployment. Приложения со StatefulSet/DaemonSet, произвольные hooks и обновление рабочих Pod через delete/scale не входят в этап.</li>
+<li>Изменения совместимости state с более старыми бинарниками, полноценные миграции, независимое security review и выпуск остаются отдельными этапами. Старый бинарник может отвергнуть новые state-поля.</li>
+</ul>
+<h2>Артефакты</h2>
+<p>После приемки удалены ресурсы всех трех удаленных тестовых запусков: 12 namespace, два тестовых CRD и связанные persistent volumes отсутствуют. Независимая проверка подтвердила Ready нод и штатных workloads; UID и spec штатных workloads совпадают с исходным снимком. Временные port-forward и отдельный процесс сборки остановлены. Сгенерированные private fixtures и копии административного kubeconfig удалены.</p>
+<p><a href="stage-5.contract.json">Контракт этапа 5</a> · <a href="stage-5.validation-results.json">Сводка проверок</a> · <a href="tests/stage5/README.html">Повторение E2E</a>.</p>
+<p>Основной код: <code>operator/internal/rollout</code>, <code>operator/internal/syncer/rollout.go</code>, <code>operator/internal/syncer/runtime.go</code>, <code>operator/internal/controller/reconciler.go</code>; установка: <code>operator/charts/sekvyr-operator</code>.</p>
+<p class="muted">Тестовые закрытые ключи, пароли, kubeconfig и адрес стенда не входят в отчет и репозиторий. Локальный kind от этапа 4 удален после восстановления доступа к WSL. Этап 6 не начат.</p>
+</html>

@@ -1,0 +1,100 @@
+# Development trial is not a product release. Supply a reviewed image digest.
+image:
+  repository: ghcr.io/mihsergeev/sekvyr-operator
+  digest: ""
+  pullPolicy: IfNotPresent
+replicas: 1
+nodeSelector: {}
+serviceAccount:
+  create: true
+  uid: ""
+leaderElection:
+  id: sekvyr-operator-leader
+  create: true
+  uid: ""
+configuration:
+  # Retain immutable revisions for a reviewed upgrade/rollback; cleanup is an
+  # explicit administrative operation after no Pod references the old revision.
+  retain: true
+auth:
+  tokenExpirationSeconds: 3600
+sync:
+  enabled: false
+rollout:
+  enabled: false
+  allowedDeployments: []
+ha:
+  enabled: false
+  trial: true
+  # Explicit operator stop for reviewed bootstrap recovery; fencer stays online.
+  maintenance: false
+  namespaceUID: ""
+  operatorServiceAccountUID: ""
+  leaseUID: ""
+  managedObjects: []
+  config:
+    trial: true
+    fencerOrigin: ""
+    allowedFencerOrigins: []
+    fencerCAConfigMapRef: {name: "", key: ca.crt}
+    gatewayOrigin: ""
+    gatewayCAConfigMapRef: {name: "", key: ca.crt}
+    gatewayClientSecret: {name: "", uid: "", key: tls.crt}
+    gatewayClientKeyKey: tls.key
+    journal:
+      log_id: ""
+      genesis_hash: ""
+      admin_public_key: ""
+      minimum_cursor: {journal_sequence: "0", record_hash: ""}
+  fencer:
+    replicas: 2
+    # Readiness replays the current journal; process liveness is separate.
+    readinessTimeoutSeconds: 10
+    serviceAccount: {name: sekvyr-fencer, uid: "", create: true}
+    signingKeySecret: {name: "", uid: "", key: key.pem}
+    tlsSecret: {name: "", uid: ""}
+    gatewayClientSecret: {name: "", uid: "", key: tls.crt}
+    gatewayClientKeyKey: tls.key
+    bootstrapSubjects: []
+  webhook:
+    serviceName: ""
+    caBundle: ""
+    # Exact administrative creation pins from earlier bootstrap generations.
+    # Keep admission coverage until explicit installation cleanup.
+    retiredStateSecrets: []
+# Administrative references only. Never put key material or tokens in values.
+# These existing Secrets are not created, adopted or deleted by this chart.
+installation:
+  installationID: ""
+  namespace: ""
+  serviceAccount: sekvyr-operator
+  bootstrapGeneration: 1
+  allowedPanelOrigins: []
+  allowedWitnessOrigins: []
+  identityKeySecret:
+    name: ""
+    uid: ""
+    key: node.key
+  trustBundleSecret:
+    name: ""
+    uid: ""
+    key: trust.json
+  stateSecret:
+    name: ""
+    uid: ""
+    key: installation.json
+  protectedSecretNames: []
+  protectedSecretUIDs: []
+  protectedPrefixes:
+    - sh.helm.release.v1.
+  caConfigMaps: []
+  # Administrative target allowlist. Namespace-scoped create still needs runtime
+  # checks; Kubernetes RBAC cannot constrain Secret create by resourceNames.
+  allowedTargetSecrets: []
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

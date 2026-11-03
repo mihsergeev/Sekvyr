@@ -711,3 +711,101 @@ class Policy(Base):
     )
 
     __table_args__ = (Index("ix_policies_subject", "subject_type", "subject_id"),)
+
+
+class E2E2Realm(Base):
+    """Stable explicit realm identity; never reconstructed from routing labels."""
+    __tablename__ = "e2e2_realms"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    realm_uuid: Mapped[str] = mapped_column(String(36), unique=True)
+
+
+class E2E2ProjectIdentity(Base):
+    __tablename__ = "e2e2_project_identities"
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    project_uuid: Mapped[str] = mapped_column(String(36), unique=True)
+
+
+class E2E2EnvironmentIdentity(Base):
+    __tablename__ = "e2e2_environment_identities"
+    environment_id: Mapped[int] = mapped_column(ForeignKey("environments.id", ondelete="CASCADE"), primary_key=True)
+    environment_uuid: Mapped[str] = mapped_column(String(36), unique=True)
+
+
+class E2E2View(Base):
+    __tablename__ = "e2e2_views"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    realm_uuid: Mapped[str] = mapped_column(String(36))
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="RESTRICT"), index=True)
+    environment_id: Mapped[int] = mapped_column(ForeignKey("environments.id", ondelete="RESTRICT"), index=True)
+    project_uuid: Mapped[str] = mapped_column(String(36))
+    environment_uuid: Mapped[str] = mapped_column(String(36))
+    log_uuid: Mapped[str] = mapped_column(String(36), unique=True)
+    publisher_keys: Mapped[str] = mapped_column(Text)
+    read_key_epoch: Mapped[str] = mapped_column(String(20), default="1")
+    publisher_policy_epoch: Mapped[str] = mapped_column(String(20), default="1")
+    # Derived index only. The independent fresh witness head is authoritative.
+    indexed_sequence: Mapped[str] = mapped_column(String(20), default="0")
+    indexed_hash: Mapped[str] = mapped_column(String(64), default="0" * 64)
+    created_by: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class E2E2Envelope(Base):
+    """API-immutable signed ciphertext, addressed by its canonical envelope hash."""
+    __tablename__ = "e2e2_envelopes"
+    envelope_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    view_id: Mapped[str] = mapped_column(ForeignKey("e2e2_views.id", ondelete="RESTRICT"), index=True)
+    sequence: Mapped[str] = mapped_column(String(20))
+    canonical_envelope: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class E2E2ReaderGrant(Base):
+    __tablename__ = "e2e2_reader_grants"
+    view_id: Mapped[str] = mapped_column(ForeignKey("e2e2_views.id", ondelete="RESTRICT"), primary_key=True)
+    machine_id: Mapped[int] = mapped_column(ForeignKey("machine_identities.id", ondelete="CASCADE"), primary_key=True)
+    recipient_fingerprint: Mapped[str] = mapped_column(String(76))
+    canonical_wrapper: Mapped[str] = mapped_column(Text)
+    read_key_epoch: Mapped[str] = mapped_column(String(20))
+    publisher_policy_epoch: Mapped[str] = mapped_column(String(20))
+    created_by: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class E2E2AuthorityProjection(Base):
+    """Derived cache/floor; authority is a fresh independently pinned proof."""
+    __tablename__ = "e2e2_authority_projections"
+    view_id: Mapped[str] = mapped_column(ForeignKey("e2e2_views.id", ondelete="RESTRICT"), primary_key=True)
+    genesis_hash: Mapped[str] = mapped_column(String(64))
+    journal_sequence: Mapped[str] = mapped_column(String(20))
+    record_hash: Mapped[str] = mapped_column(String(64))
+    witness_epoch: Mapped[str] = mapped_column(String(20))
+    authority_revision: Mapped[str] = mapped_column(String(20))
+    authority_digest: Mapped[str] = mapped_column(String(64))
+
+
+class E2E2EpochReaderGrant(Base):
+    __tablename__ = "e2e2_epoch_reader_grants"
+    view_id: Mapped[str] = mapped_column(ForeignKey("e2e2_views.id", ondelete="RESTRICT"), primary_key=True)
+    machine_id: Mapped[int] = mapped_column(ForeignKey("machine_identities.id", ondelete="CASCADE"), primary_key=True)
+    read_key_epoch: Mapped[str] = mapped_column(String(20), primary_key=True)
+    publisher_policy_epoch: Mapped[str] = mapped_column(String(20), primary_key=True)
+    recipient_fingerprint: Mapped[str] = mapped_column(String(76))
+    canonical_wrapper: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class E2E2StagedReaderWrap(Base):
+    """Untrusted opaque candidate; it grants no machine access."""
+    __tablename__ = "e2e2_staged_reader_wraps"
+    view_id: Mapped[str] = mapped_column(ForeignKey("e2e2_views.id", ondelete="RESTRICT"), primary_key=True)
+    machine_id: Mapped[int] = mapped_column(ForeignKey("machine_identities.id", ondelete="CASCADE"), primary_key=True)
+    read_key_epoch: Mapped[str] = mapped_column(String(20), primary_key=True)
+    publisher_policy_epoch: Mapped[str] = mapped_column(String(20), primary_key=True)
+    recipient_fingerprint: Mapped[str] = mapped_column(String(76))
+    canonical_wrapper: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

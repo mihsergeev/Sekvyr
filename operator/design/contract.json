@@ -1,0 +1,602 @@
+{
+  "status": {
+    "conditions": [
+      "Ready",
+      "DataCurrent",
+      "RolloutReady",
+      "BootstrapReady",
+      "WitnessReady"
+    ],
+    "fields": [
+      "observedGeneration",
+      "lastSuccessfulSyncTime",
+      "lastAttemptTime",
+      "lastAppliedRevision",
+      "conditions",
+      "lastVerifiedCheckpoint (ciphertext envelope hash and sequence only)"
+    ],
+    "forbidden": [
+      "secret values",
+      "ciphertext",
+      "tokens",
+      "private keys",
+      "trust pins",
+      "upstream response bodies",
+      "plaintext-derived hashes"
+    ],
+    "readiness": "Ready = authorized bootstrap and current data and (rollout disabled or rollout ready); DataCurrent false on failed latest attempt even if old Secret exists; RolloutReady independent"
+  },
+  "date": "2026-11-01",
+  "api": {
+    "group": "secrets.sekvyr.ru",
+    "version": "v1alpha1",
+    "scope": "Namespaced",
+    "kinds": [
+      "SekvyrStore",
+      "SekvyrSecret"
+    ]
+  },
+  "authorization": {
+    "defaultWriters": "trusted namespace administrators or trusted GitOps only; application service accounts read target Secrets only",
+    "binding": "admin Store binds exact SekvyrSecret name, binding UUID, source, selection, target and allowed Deployment names",
+    "delegation": "untrusted self-service CR creation is excluded; RBAC cannot constrain all fields or create by resourceName",
+    "storeRef": "name + immutable UID; recreating the Store requires administrative reauthorization",
+    "installation": "one namespace, service account, panel identity and node private key per trust domain",
+    "protectedTargets": "all identity/trust/state Secret names and UIDs, service-account token and Helm release namespaces/prefixes; cross-namespace references forbidden",
+    "uniqueness": "binding ids/names/resourceNames must be unique per Store; one active binding for a CR and target name across all Stores in the namespace; conflicts fail before any external side effect. uniqueItems on whole objects is not sufficient."
+  },
+  "installation": {
+    "id": "immutable UUID",
+    "allowedPanelOrigins": "admin installation allowlist; Store cannot introduce a new origin",
+    "serviceAccount": "fixed by installation; no serviceAccountRef, impersonation or arbitrary TokenRequest",
+    "identityKeySecret": "admin-prepared immutable Secret, mounted read-only; no runtime key generation",
+    "trustBundleSecret": "admin-prepared immutable Secret, mounted read-only, independent from runtime state",
+    "stateSecret": "precreated operator-only Secret with recorded UID; loss/replacement is fail-closed",
+    "bootstrapGeneration": "monotonic administrative authorization generation; never reconstructed from panel or labels",
+    "caTrust": "caConfigMapRef is admin-only, immutable reference; trust bundle pins ConfigMap UID,key and SHA256 of certificate DER set. Changed CA content requires explicit new administrative authorization. App-writable CA is forbidden; custom CA replaces system roots for that Store.",
+    "generationLimit": "if witness keys plus ALL canonical journal/independent checkpoints are compromised or rolled back together, protocol cannot detect the lost history. No infinite witness chain or absolute all-roots-rollback promise.",
+    "allowedWitnessOrigins": "independent administrative allowlist and pinned witness trust, separate from panel origin",
+    "externalLedger": "witness canonical append-only journal outside panel/operator restore domain; no fresh head signed from stale cache"
+  },
+  "e2e": {
+    "protocol": "e2e2",
+    "profile": "WholeView-WitnessCurrent-v1",
+    "spec": "e2e2.protocol.json",
+    "schema": "e2e2.schema.json",
+    "securityDecision": "D1 selected E2E2 by user: no e2e1 fallback for operator E2E bindings",
+    "readKeys": "separate random read key per publishable view and epoch; local target selection is not a confidentiality boundary",
+    "publishKeys": "independent Ed25519 private authority, never issued to readers; separate read/publish bundle passwords",
+    "freshness": "independent witness nonce proof with canonical floor + durable local checkpoint; current at last linearizable check, not forever latest",
+    "wholeSnapshot": "one signed AES-GCM envelope of complete ordered values; immutable realm/project/environment/view/log UUIDs bound in AAD and signature",
+    "bootstrap": "out-of-band publisher public key/policy, witness key/epoch/log, min checkpoint, node key and source UUIDs; no TOFU",
+    "limitations": "trusted independently distributed writer client required; malicious JavaScript from a compromised panel can use unlocked keys; if witness keys plus ALL canonical journal/independent checkpoints are compromised or rolled back together, protocol cannot detect the lost history. No infinite witness chain or absolute all-roots-rollback promise.; does not erase values already in app memory/env and cannot prevent an admin/etcd restore from exposing an older existing Kubernetes Secret before reconciliation. Strong startup freshness needs separate admission/app gate; not promised here.",
+    "rotation": {
+      "migration": "trusted client verifies explicit v1 source baseline, decrypts current approved values, creates new view key/publisher authority, signs initial e2e2 full view, commits to witness, installs independent trust bundle, then atomically switches mode. v1 history not authenticated retroactively.",
+      "legacy": "existing e2e1 projects/agents keep old explicit mode; e2e2 readers reject e2e1/plaintext. Old agents receive UpgradeRequired for e2e2, never downgraded values.",
+      "writerRotation": "independent authority authorizes new signing policy, stages new-signed snapshot+reader wrappers, atomically activates policy+head at witness, updates trust bundle. Old key cannot sign future canonical commits.",
+      "readRotation": "new independent view read key, epoch+1, full new ciphertext, new wrappers for retained readers; commit new sequence; no header-only epoch bump.",
+      "recovery": "no panel-initiated epoch/reset. Unrecoverable history requires explicit independently authorized new log/trust epoch, audited migration, consumers stopped until new trust installed."
+    },
+    "migration": "trusted client verifies explicit v1 source baseline, decrypts current approved values, creates new view key/publisher authority, signs initial e2e2 full view, commits to witness, installs independent trust bundle, then atomically switches mode. v1 history not authenticated retroactively.",
+    "witnessAuthority": "canonical journal includes root log registration/genesis and ALL authority transitions: publisher keysets and policy activations/revocations, read-key epochs, witness key/epoch transitions and administrative recovery. Authorization state is derived from verified journal, never restored cache/config alone."
+  },
+  "reconcile": {
+    "order": [
+      "validate installation bootstrap, Store UID, binding, node key, protected target and ownership state",
+      "acquire namespaced Lease; leader only writes/reports",
+      "obtain first independent nonce+floor witness proof for E2E2",
+      "authenticate to panel and fetch exact witness-canonical envelope hash and signed reader key wrapper",
+      "verify bounds, canonicalization, publisher signature, source UUIDs, epochs, wrapper and complete decrypted snapshot",
+      "verify second nonce+floor witness head; bounded retry if advanced",
+      "persist accepted high-watermark durably BEFORE target mutation",
+      "select deterministic target bytes; compare existing target",
+      "atomically write changed data, opaque revision, accepted checkpoint and eligible rollout intent",
+      "converge rollout only under mode-specific freshness gate; status distinguishes failures"
+    ],
+    "ownership": "registry binds CR UID + Store UID + binding ID + target UID; labels alone never authorize takeover",
+    "ambiguousCreate": "crash between creating target and recording target UID -> StateAmbiguous and explicit admin recovery; no blind adoption",
+    "retention": "Retain default; no ownerReference when Retain; Delete ownerReference only to same-namespace exact CR UID",
+    "sourceDeletion": "e2e2 deletion must be in a full signed witness-committed snapshot; unsigned filtering/404 is never a deletion command. All/Keys selection semantics remain after full verification.",
+    "empty": "allowEmpty=false by default",
+    "limits": {
+      "responseBytes": 33554432,
+      "sourceValues": 1024,
+      "targetDecodedValueBytes": 1048576,
+      "storeBindings": 64,
+      "rolloutDeployments": 32
+    },
+    "paths": "canonical absolute POSIX paths; no dot/dotdot, repeated slash, trailing slash except root, backslash or control characters; segment-aware prefix; duplicate source tuples and target keys are errors",
+    "mutability": "Store UID refs,binding IDs,stable view identity,target names/type/deletionPolicy and encryption mode immutable; E2E2 human routing labels may be renamed only administratively while pinned UUIDs remain unchanged. Source selection/rollout allowlist admin-controlled.",
+    "deletion": "no Secret recreation during CR deletion; finalization never waits for panel; Retain preserves identity/trust/state keys outside Helm workload lifecycle",
+    "partialFailure": "no partial Secret content, no false DataCurrent, no new rollout from failed reconcile",
+    "suspension": "suspend=true stops fetch/report, Secret writes and rollout; preserves target; deletion and Store absence never trigger a new restart",
+    "storeRemoval": "missing/deleted/recreated Store UID preserves last target and fails authorization; Delete applies to CR deletion, not Store disappearance",
+    "namespaceRemoval": "Retain does not survive namespace deletion; restore requires external backup and administrative reauthorization",
+    "retentionPolicy": "deletionPolicy is immutable for a binding; conversion needs explicit migration, never a silent ownerReference change during deletion",
+    "crossResourceValidation": "check unique binding fields, source/target conflicts, CA trust pins, protected names/UIDs and immutable references at runtime before report/fetch/target mutation; schema shape alone never establishes authorization.",
+    "apiCompatibility": "Plain may use1.0.3 data plane. E2E2 needs a new explicit panel/API capability and SDK/agent release; 1.0.3 is not E2E2-capable."
+  },
+  "rollout": {
+    "defaultEnabled": false,
+    "scope": "exact same-namespace Deployment names in both CR request and Store allowlist; Deployment must use target Secret",
+    "permissions": "chart gives Deployment patch only when rollout installation feature is enabled; RBAC resourceNames allowlist",
+    "initialCreate": "no automatic rollout on initial Secret create",
+    "revision": "cryptographically random opaque 128-bit ID saved atomically with Secret data; no plaintext hash exposed",
+    "annotation": "secrets.sekvyr.ru/restart-<target Secret UID>",
+    "convergence": "Plain may resume previously eligible intent on temporary panel outage as specified. E2E2 resumes only after strict canonical-head/snapshot validation; suspend/revoke/delete stop both.",
+    "debounceSeconds": 5,
+    "maximumDebounceSeconds": 30,
+    "writes": "only own Pod-template annotation; preserve strategy, images, replicas, commands; no Pod delete/scale",
+    "blocked": "paused Deployment, missing target, changed UID during patch, denied permissions and progress timeout get independent RolloutReady condition",
+    "excluded": [
+      "StatefulSet",
+      "DaemonSet",
+      "arbitrary hooks",
+      "cross-namespace rollout",
+      "exactly-once restart guarantee"
+    ],
+    "intent": "data update atomically persists revision plus eligible=false for initial create/disabled; eligible=true only for an authorized update. Intent includes CR UID,Store UID,binding ID,bootstrap generation,Store/CR generations and exact Deployment targets. A missing marker alone never creates eligibility.",
+    "e2e2CurrentGate": "E2E2 pending intent also needs successful strict-current reconciliation; new panel/witness failure freezes pending restarts. Ordinary Plain mode retains its separately specified behavior."
+  },
+  "toolchain": {
+    "compiler": "Go 1.27.3 pinned current project baseline; recheck security updates at stage 2",
+    "sdkGoDirective": "SDK extraction not shipped; stage3 code uses operator Go1.26 APIs. Older Go compatibility is not claimed; existing agent module remains unchanged.",
+    "operatorGoDirective": "1.26.0",
+    "kubebuilder": "v4.16.0",
+    "controllerRuntime": "v0.25.2",
+    "kubernetesModules": "v0.37.0",
+    "plannedTests": [
+      "k0s 1.34.1/amd64 real stand",
+      "Kubernetes 1.37.x kind/envtest"
+    ],
+    "support": "targets only; claim compatibility after live stage 7 tests",
+    "sources": [
+      "https://github.com/kubernetes-sigs/controller-runtime/blob/v0.25.2/go.mod",
+      "https://github.com/kubernetes-sigs/kubebuilder/blob/v4.16.0/testdata/project-v4/go.mod"
+    ]
+  },
+  "layout": {
+    "sdk": "sdk/go (own module: github.com/mihsergeev/Sekvyr/sdk/go; e2e and machine packages)",
+    "operator": "operator (own module: github.com/mihsergeev/Sekvyr/operator)",
+    "agent": "existing agent module consumes sdk via local replace",
+    "build": "GOWORK=off in reproducible builds; explicit local replace ../sdk/go; root repo Docker contexts; update all three agent build paths and signed manifest together",
+    "chart": "operator/charts/sekvyr-operator",
+    "witness": "witness: new Go module plus external canonical ledger adapter; no secrets or read keys stored",
+    "writer": "independently trusted writer client/bundle, not JavaScript from a potentially compromised panel"
+  },
+  "nonGoals": [
+    "controller runtime implementation in stage 1",
+    "CRD installation or live infrastructure changes in stage 1",
+    "ESO dependency",
+    "cluster-wide or hostile multi-tenant mode",
+    "production deployment or publishing without review",
+    "E2E2 runtime, witness deployment or existing project migration during stage1"
+  ],
+  "validation": {
+    "schema": "draft-2020-12 design request schema; CRD/OpenAPI generation is stage 2",
+    "unknownFields": "strict design validator and fieldValidation=Strict reject; Kubernetes non-strict clients may warn/prune unknown fields. Unknown fields are never preserved or acted upon.",
+    "runtimeRules": "canonical URL/path, binding/Store UID, protected target, trust generations, ownership, source mode and workload usage are mandatory controller checks; schema validation alone is not authorization",
+    "metadata": "namespace is DNS1123 label <=63; names are DNS1123 subdomains <=253; semantic binding/target validation is controller responsibility"
+  },
+  "panelChanges": {
+    "recipientGuard": "new E2E2 signed reader-wrap endpoint binds exact verified recipient node fingerprint and full view context. Legacy E2E1 grant API remains isolated; capability checks prevent silent downgrade.",
+    "kubernetesIdentity": "existing API checks sequential duplicates; add DB unique constraint on cluster_id,namespace,serviceAccount with pre-migration duplicate audit; no automatic permissions merging",
+    "browser": "trusted independently distributed writer client; separate read/publish unlock; publish key never in machine wrapper; export complete UUID/publisher/witness/checkpoint trust package, not a project-key TOFU pin",
+    "operatorReport": "add optional client_kind,client_version and safe apply state; no need to grant machine secret write permissions",
+    "safeErrors": "add stable machine-readable reason codes alongside existing detail strings, without leaking bodies; older unrecognized HTTP409 is SourceConflict, not guessed by Russian text; explicit UpgradeRequired, SnapshotUnavailable and witness/checkpoint reason codes; no parsing localized details",
+    "e2e2Required": [
+      "new witness module/service and durable external ledger adapter",
+      "stable realm/project/environment/view/log UUIDs; immutable envelopes and staged/committed state",
+      "new full-snapshot APIs and typed errors; legacy per-key write/approve/import/copy/rename/restore refused for e2e2",
+      "trusted writer distribution and separate read/publish key bundles",
+      "SDK new e2e2 codec, signature and witness verifier; legacy e2e1 isolated",
+      "operator strict current-head gate, durable checkpoint and E2E2 trust schema",
+      "migration and independent security review required before production release"
+    ],
+    "views": "new immutable stable realm/project/environment/view/log UUIDs and explicit whole-view machine grants; folder-filtered authorization cannot be used to return a partial ciphertext snapshot"
+  },
+  "failurePolicy": [
+    {
+      "reason": "InvalidSpec",
+      "retryPolicy": "local configuration/authorization change only",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "Ready=false"
+    },
+    {
+      "reason": "ScopeDenied",
+      "retryPolicy": "local configuration/authorization change only",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "Ready=false"
+    },
+    {
+      "reason": "ProtectedTarget",
+      "retryPolicy": "local configuration/authorization change only",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "Ready=false"
+    },
+    {
+      "reason": "BindingConflict",
+      "retryPolicy": "local configuration/authorization change only",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "Ready=false"
+    },
+    {
+      "reason": "BootstrapMissing",
+      "retryPolicy": "administrative bootstrap/state recovery only",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "BootstrapReady=false"
+    },
+    {
+      "reason": "BootstrapMismatch",
+      "retryPolicy": "administrative bootstrap/state recovery only",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "BootstrapReady=false"
+    },
+    {
+      "reason": "StateMissing",
+      "retryPolicy": "administrative bootstrap/state recovery only",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "BootstrapReady=false"
+    },
+    {
+      "reason": "StateAmbiguous",
+      "retryPolicy": "administrative bootstrap/state recovery only",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "BootstrapReady=false"
+    },
+    {
+      "reason": "AwaitingPin",
+      "retryPolicy": "administrative bootstrap/state recovery only",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "BootstrapReady=false"
+    },
+    {
+      "reason": "AwaitingProjectKey",
+      "retryPolicy": "bounded periodic poll (60s..900s)",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "AuthRejected",
+      "retryPolicy": "bounded periodic retry (60s..900s); at most one fresh auth retry per attempt",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "AccessDenied",
+      "retryPolicy": "bounded periodic retry (60s..900s); at most one fresh auth retry per attempt",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "SourceNotFound",
+      "retryPolicy": "bounded periodic retry (60s..900s); at most one fresh auth retry per attempt",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "SourceConflict",
+      "retryPolicy": "bounded periodic retry (60s..900s); at most one fresh auth retry per attempt",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "ProjectKeyMismatch",
+      "retryPolicy": "bounded retry without mutation; admin repair if persistent",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "SourceModeMismatch",
+      "retryPolicy": "bounded retry without mutation; admin repair if persistent",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "CiphertextInvalid",
+      "retryPolicy": "bounded retry without mutation; admin repair if persistent",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "SourceIncomplete",
+      "retryPolicy": "bounded retry without mutation; admin repair if persistent",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "EmptyNotAllowed",
+      "retryPolicy": "bounded retry without mutation; admin repair if persistent",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "ResponseTooLarge",
+      "retryPolicy": "bounded retry without mutation; admin repair if persistent",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "PanelUnavailable",
+      "retryPolicy": "exponential backoff+jitter (30s..900s)",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "Plain eligible intent only; E2E2 blocked until strict-current snapshot validation succeeds",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "PanelSealed",
+      "retryPolicy": "exponential backoff+jitter (30s..900s)",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "Plain eligible intent only; E2E2 blocked until strict-current snapshot validation succeeds",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "RateLimited",
+      "retryPolicy": "bounded Retry-After/backoff (30s..900s)",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "TargetConflict",
+      "retryPolicy": "config/admin recovery; never auto-adopt",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "TargetReplaced",
+      "retryPolicy": "config/admin recovery; never auto-adopt",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "TargetImmutable",
+      "retryPolicy": "config/admin recovery; never auto-adopt",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked",
+      "condition": "DataCurrent=false"
+    },
+    {
+      "reason": "ConcurrentUpdate",
+      "retryPolicy": "reread UID/resourceVersion; bounded conflict retry",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked until reread validation",
+      "condition": "DataCurrent=false until committed"
+    },
+    {
+      "reason": "RolloutDenied",
+      "retryPolicy": "bounded retry of existing authorized intent; no new revision",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "authorized eligible intent only",
+      "condition": "RolloutReady=false"
+    },
+    {
+      "reason": "RolloutPending",
+      "retryPolicy": "bounded retry of existing authorized intent; no new revision",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "authorized eligible intent only",
+      "condition": "RolloutReady=false"
+    },
+    {
+      "reason": "RolloutBlocked",
+      "retryPolicy": "bounded retry of existing authorized intent; no new revision",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "authorized eligible intent only",
+      "condition": "RolloutReady=false"
+    },
+    {
+      "reason": "WitnessUnavailable",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "WitnessCheckpointMismatch",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "WitnessEpochMismatch",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "WitnessStorageUnverified",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "CanonicalSnapshotUnavailable",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "RollbackDetected",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "ForkDetected",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "SignatureInvalid",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "ContextMismatch",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "SnapshotIncomplete",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "HeadChanged",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "CheckpointMissing",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "UnsupportedEpoch",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "AwaitingPublication",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "AwaitingTrustUpdate",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    },
+    {
+      "reason": "UpgradeRequired",
+      "retryPolicy": "bounded retry for transient availability/head advance, otherwise independent admin repair",
+      "targetDataWrite": false,
+      "newRollout": false,
+      "committedRollout": "blocked for E2E2",
+      "condition": "DataCurrent=false; WitnessReady/BootstrapReady reflect reason"
+    }
+  ],
+  "documentStatus": "stage-3-crypto-review-candidate",
+  "stage3": {
+    "scope": "restricted JCS codec, signed whole-view envelopes, P256 signed reader wraps, explicit publisher crypto functions, pinned witness proofs and double-head Reader flow with independent bootstrap parsing",
+    "binding": "reader bootstrap independently binds installationID,namespace,ServiceAccount,generation,panel origin,node fingerprint,StoreUID,bindingID,view/log UUIDs,publisher/witness public keys and min checkpoint",
+    "checkpoints": "local Head must be trusted durable state bound to installation/bootstrap/trust identity. Current signed proof never comes from a bare caller-supplied Head. Missing/replaced state cannot become a new bootstrap automatically.",
+    "integration": "standalone in-process verification and tests only; existing controller remains fail-closed until stage4 APIs and persistence are implemented",
+    "releaseStatus": "no commit, public release, deployment or migration performed"
+  },
+  "stage2": {
+    "historicalScope": "records stage2 completion; stage3 fields describe the newly implemented crypto modules",
+    "scope": "compileable namespace-scoped controller, structural CRDs with CEL rules, Helm packaging, administrative bootstrap metadata validation and isolated projected-token authentication client",
+    "safetyGate": "no source fetch, machine report, target Secret mutation, checkpoint mutation or workload restart in the scaffold; Ready and DataCurrent remain false",
+    "rbac": "read exact bootstrap Secret names without Secret list/watch; namespace-only custom-resource/status permissions and precreated Lease; no Secret create/update/patch/delete, Deployment patch, TokenRequest or impersonation",
+    "authentication": "fixed pod-bound projected ServiceAccount JWT, dedicated panel audience, read on each login; TLS and origin allowlist; no redirects or environment proxy; short-lived machine session held only in memory. Local unverified claim checks are hygiene only; panel verifies signature/issuer/audience/expiry against configured cluster JWKS.",
+    "notYetImplemented": [
+      "E2E2 codec, publisher signature/AEAD/reader-wrapper verification",
+      "witness transport, proof verification and durable external ledger adapter",
+      "cryptographic trust-bundle parsing and node-key validation",
+      "durable ownership registry, accepted checkpoint persistence and Secret synchronization",
+      "optional workload restart and application data E2E acceptance"
+    ],
+    "processReadiness": "HTTP /healthz and /readyz are process probes only; synchronization readiness is expressed by custom-resource conditions",
+    "releaseStatus": "development scaffold only; chart version is not a signed or published product release"
+  },
+  "designRevision": 2,
+  "roadmapRevision2": [
+    "stage2: scaffold operator, strict CRD types and witness/ledger interface only after review",
+    "stage3: implement E2E2 codec+trusted publisher workflow+signed wrappers, isolate E2E1",
+    "stage4: panel immutable snapshots, explicit views, atomic witness-anchored commits, operator checkpoint/Secret",
+    "stage5: rollout linked to accepted verified checkpoint",
+    "stage6: ledger restore, all authority transitions, HA/key rotations and unavailable witness",
+    "stage7: actual backend/storage adapters, cross-language parity and live Kubernetes acceptance",
+    "stage8: independent security review, migration/compatibility, signed/versioned releases and controlled rollout"
+  ]
+}

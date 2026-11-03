@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0-rc.1] - 2026-11-03
+
+### Added
+
+- E2E2 machine API for signed encrypted snapshots, node key wraps and explicit
+  read-key and publisher-key rotations. Kubernetes identities remain scoped to
+  their registered project, environment, namespace and token audience.
+- Sekvyr operator and Helm chart 0.1.0-rc.1 with explicit Plain or E2E2 mode,
+  durable checkpoints and opt-in Deployment restarts on changed values.
+- Independently pinned canonical journal, checkpoint recovery, key rotations and
+  trial HA fencing. Production fault-domain and external retention guarantees
+  require a separate deployment review.
+- Offline `sekvyr-provision` tooling for keys, genesis, snapshots, transitions,
+  HA bootstrap material and administrator-signed recovery plans.
+- Russian and English installation and operations guides, including retained
+  resources, backup, recovery and upgrade boundaries.
+
+### Security
+
+- Move the backend runtime to maintained Alpine 3.24, apply stable package
+  updates and install SQLite 3.54.1 as a signed, checksum-verified APK. Build
+  signing keys exist only on tmpfs; runtime installation is offline.
+- Apply stable Expat, musl and zlib fixes to the frontend runtime, including
+  CVE-2026-117610 and CVE-2026-118370 in Expat.
+- Replace gosu with su-exec while preserving startup ownership repair, privilege
+  dropping and direct signal delivery. Keep signed agent 1.0.3 unchanged.
+- Restrict source self-checks to nonignored Git inputs and reject protected key
+  names, path escapes, links and changed file identities before reading.
+
 ## [1.0.3] - 2026-10-31
 
 ### Security

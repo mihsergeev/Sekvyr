@@ -1,0 +1,29 @@
+# Plain is explicit: E2E responses must not be silently accepted in this mode.
+apiVersion: secrets.sekvyr.ru/v1alpha1
+kind: SekvyrStore
+metadata:
+  name: plain-application-secrets
+  namespace: apps
+spec:
+  endpoint:
+    url: https://sekvyr.example.com
+  bindings:
+    - id: 33333333-3333-4333-8333-333333333333
+      name: checkout-prod
+      resourceName: checkout-runtime
+      source:
+        group: acme
+        project: checkout
+        environment: prod
+        pathPrefix: /runtime
+      selection:
+        mode: All
+      encryption:
+        mode: Plain
+      target:
+        name: checkout-env
+        type: Opaque
+        deletionPolicy: Retain
+        allowEmpty: false
+      rollout:
+        allowedDeployments: []

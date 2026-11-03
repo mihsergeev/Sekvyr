@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sekvyr Operator - этап 1, E2E2 и защита от отката</title>
+<style>
+:root{color-scheme:light dark;--bg:#f2f6f8;--card:#fff;--fg:#172533;--muted:#536577;--line:#d7e1e8;--accent:#147448;--soft:#eaf5ef;--warn:#956214}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1320;--card:#142031;--fg:#e5eef7;--muted:#a7bacb;--line:#34475a;--accent:#78e5ad;--soft:#172e29;--warn:#efc271}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 system-ui,sans-serif}main{max-width:1080px;margin:32px auto;padding:34px;background:var(--card);border:1px solid var(--line);border-radius:16px}h1{font-size:30px;line-height:1.25}h2{font-size:22px;margin-top:32px}h3{font-size:18px}a{color:var(--accent)}.meta{color:var(--muted)}.lead{border-left:4px solid var(--accent);padding:14px 18px;background:var(--soft)}.boundary{border-left:4px solid var(--warn);padding:14px 18px;background:var(--bg)}table{width:100%;border-collapse:collapse}td,th{text-align:left;vertical-align:top;padding:10px 8px;border-bottom:1px solid var(--line)}th{color:var(--muted)}li{margin:7px 0}code{overflow-wrap:anywhere}pre{padding:16px;background:var(--bg);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.6 ui-monospace,monospace}.scroll{overflow-x:auto}
+@media(max-width:640px){main{margin:0;padding:20px 14px;border:0;border-radius:0}h1{font-size:25px}td,th{padding:8px 4px;font-size:14px}}
+@media print{:root{--bg:#fff;--card:#fff;--fg:#000;--muted:#333;--line:#bbb;--accent:#164d33;--soft:#f5f5f5;--warn:#664000}main{margin:0;padding:0;border:0;max-width:none}h2,h3{break-after:avoid}tr{break-inside:avoid}.scroll{overflow:visible}a{color:inherit}pre{font-size:11px}}
+</style></head><body><main>
+<p class="meta">1 ноября 2026. Этап 1, редакция 2. Архитектурный кандидат до начала реализации.</p>
+<h1>sekvyr-operator: E2E2, подлинность и защита от отката</h1>
+<p class="lead">Решение D1 принято: первый E2E-профиль оператора - e2e2, без fallback к e2e1. В контракт добавлены подпись полного снимка, отдельные права публикации, ключ на каждую view, независимый checkpoint-witness и правила восстановления. Обновлены схемы и примеры. Этап 2, сервис witness и миграции еще не начинались.</p>
+<h2>1. Что изменилось относительно первого контракта</h2>
+<ul>
+<li>Одна AEAD-упаковка на весь полный утвержденный набор полей. Имена, пути и значения защищены вместе; нельзя переставить поле или скрыто удалить запись после подписи.</li>
+<li>Отдельный Ed25519 ключ публикации. Машины получают только ключ чтения конкретной view и открытые ключи проверки, но не могут подписывать новые публикации.</li>
+<li>Стабильные realm/project/environment/view/log UUID, последовательность, previous hash и эпохи ключей входят в AAD и подпись.</li>
+<li>Последний канонический head определяется независимым witness, а не current-полями базы панели. Свежесть проверяется по одноразовому nonce и подтвержденной предыдущей контрольной точке.</li>
+<li>Ключ чтения отдельный для каждой view. Выбор одного поля для target Secret не означает, что оператор не знает остальные поля этой view.</li>
+<li>Начальное доверие, восстановление state, ротация и миграция описаны отдельно. Автоматического TOFU, reset или offline fallback нет.</li>
+</ul>
+<h2>2. Модель угроз и точные гарантии</h2>
+<p>Панель может быть злонамеренной. Доверенными остаются независимо доставленный writer, оператор/его кластер и честные witness с canonical ledger. Один witness не является Byzantine-устойчивым кворумом: захваченный witness с действующей подписью может солгать о свежести новому клиенту даже без отката журнала. Локальный watermark добавляет защиту уже виденной истории, но не устраняет эту границу доверия.</p>
+<div class="scroll"><table><thead><tr><th>Сценарий</th><th>Защита при выполнении условий протокола</th></tr></thead><tbody>
+<tr><td>Панель меняет bytes, имя/путь/окружение или состав набора</td><td>Подпись и AEAD полного снимка не проходят; весь результат отвергается до изменения Secret.</td></tr>
+<tr><td>Панель отдает старый подписанный снимок</td><td>Нужен точный hash текущего head из свежего независимого witness proof. Старая подпись сама по себе не дает права применить снимок.</td></tr>
+<tr><td>Тот же номер, но другая история; два concurrent writers</td><td>Witness conditional append допускает только одного successor для точных предыдущих sequence+hash. Конфликт не перебазируется молча.</td></tr>
+<tr><td>Панель откатила свою БД или скрывает новую публикацию</td><td>Head сохраняется в независимом журнале. Если канонический объект не отдается, CanonicalSnapshotUnavailable, а не применение старой версии с зеленым status.</td></tr>
+<tr><td>Оператор восстановлен из старого backup</td><td>Новый nonce-запрос получает head независимого журнала; старый локальный watermark не становится источником «актуальности». Потеря/замена state требует административного восстановления.</td></tr>
+<tr><td>Witness восстановлен из старого cache/SQL backup</td><td>Он обязан восстановить heads и полномочия из независимого canonical ledger до Ready. Старый cache не имеет права подписать свежий head.</td></tr>
+<tr><td>Злоумышленник знает ключ чтения</td><td>Может читать свою view, но без разрешенного publisher key не создаст новую каноническую подписанную публикацию.</td></tr>
+</tbody></table></div>
+<div class="boundary"><strong>Граница:</strong> гарантируется подлинный канонический снимок на момент последней линейно согласованной проверки witness, а не «самое новое навсегда». Новый commit возможен сразу после проверки. Если вместе с панелью откатить или скомпрометировать все доверенные журналы, ключи и независимые checkpoints, криптография сама не обнаружит утраченную историю.</div>
+<h2>3. View и полномочия ключей</h2>
+<p><strong>View</strong> - полная опубликованная конфигурация с постоянным UUID и отдельным случайным 32-байтным ключом чтения на эпоху. Обладатель ключа видит все ее entries. Для разных наборов читателей нужны разные views и ключи; серверная фильтрация отдельных полей внутри зашифрованного blob невозможна.</p>
+<table><thead><tr><th>Ключ</th><th>Где находится и что разрешает</th></tr></thead><tbody>
+<tr><td>View read key</td><td>Случайный AES-ключ. Передается машине только в подписанной ECDH P-256 обертке на проверенный node public key. После раскрытия - в памяти клиента. Не дает права публикации.</td></tr>
+<tr><td>Publisher Ed25519</td><td>Приватная часть у доверенного публикующего клиента; машины ее не получают. Открытая часть и policy epoch закрепляются независимо в trust bundle и witness authority.</td></tr>
+<tr><td>Node P-256</td><td>Один устойчивый ключ на установку/личность оператора, общий для HA-реплик. Проверяется по административному fingerprint до report.</td></tr>
+<tr><td>Witness Ed25519</td><td>Подписывает nonce-bound proofs из проверенного канонического журнала. Публичный ключ/epoch закреплены отдельно от панели.</td></tr>
+<tr><td>Административная recovery authority</td><td>Отдельно разрешает регистрацию, смену policy/witness и восстановление. Учетной записи панели недостаточно для reset истории.</td></tr>
+</tbody></table>
+<p>Пароли чтения и публикации различны и только оборачивают случайно созданные ключи, а не используются как сами ключи. Машинная обертка содержит лишь read key и привязанный контекст. Общий publish-password дает право подписи каждому, кто его знает; это не персональная атрибуция и не криптографическое согласование несколькими людьми. Для threshold approval понадобятся отдельные персональные ключи и закрепленная политика.</p>
+<p><strong>Доверенный writer-клиент обязателен.</strong> JavaScript, полученный от уже захваченной панели, может использовать разблокированный ключ. Предусмотрен независимо доставленный/проверенный writer bundle или клиент; нельзя вводить publish-secret в недоверенный frontend и рассчитывать, что подпись это исправит.</p>
+<h2>4. Формат полного снимка</h2>
+<p>Алгоритмы фиксированы версией: HKDF-SHA256, AES-256-GCM и pure Ed25519. Подписанные bytes задаются ограниченным профилем <a href="https://www.rfc-editor.org/rfc/rfc8785.html">RFC 8785 JCS</a>: фиксированные ASCII имена свойств, UTF-8 без BOM, без дублей/неизвестных полей и нечисловых значений. Sequence/epochs - канонические десятичные строки uint64, без потери точности JavaScript Number.</p>
+<pre>envelope = {
+  body: {
+    header: {
+      protocol: "e2e2", intent: "publish", suite: fixed,
+      realm_id, project_id, environment_id, view_id, log_id,
+      sequence, previous_hash, read_key_epoch,
+      publisher_policy_epoch, publisher_key_id,
+      snapshot_salt, entry_count,
+      action, restored_from, parents
+    },
+    nonce,
+    ciphertext
+  },
+  signature
+}</pre>
+<p>Внутри ciphertext - canonical JSON полного списка <code>{path,name,value}</code>, контекст UUID и format. Entries строго отсортированы по UTF-8 tuple(path,name), дубли запрещены. Имена/пути в NFC, без Cc/Cf/Cs, dot/dotdot и иных неканонических путей. Значения остаются точными Unicode scalar strings без скрытой нормализации.</p>
+<pre>snapshotKey = HKDF-SHA256(
+  viewReadKey, snapshotSalt[32],
+  "sekvyr-e2e2/snapshot-key/v1" || NUL || JCS(header), 32
+)
+AAD = "sekvyr-e2e2/snapshot-aad/v1" || NUL || JCS(header)
+ciphertext = AES-256-GCM(snapshotKey, nonce[12], JCS(plaintext), AAD)
+signature = Ed25519.Sign(publisherKey,
+  "sekvyr-e2e2/publish/v1" || NUL || JCS(body))
+envelopeHash = SHA256(
+  "sekvyr-e2e2/envelope-hash/v1" || NUL || JCS(envelope))</pre>
+<p>Точная схема сохранена в e2e2.schema.json. Бинарные поля - canonical Base64url без padding, hashes - lowercase hex64. Salt и nonce свежие для каждой новой попытки шифрования. Идемпотентный повтор уже готового envelope отправляет те же bytes, не создает новую публикацию.</p>
+<p>Хеши относятся к рандомизированному ciphertext/envelope, не к plaintext коротких паролей. Witness receipts не входят в envelopeHash. entry_count и контекст расшифрованного набора должны совпасть с header; весь набор проверяется до выбора target keys.</p>
+<p>Лимиты первого профиля: 1024 entries, 8 MiB canonical plaintext, 16 MiB envelope, 16 parent refs. Проверки до/после декодирования и расшифрования. Target Kubernetes Secret отдельно ограничен 1 MiB decoded values.</p>
+<h2>5. Публикация и защита от развилок</h2>
+<ol>
+<li>Writer напрямую получает свежий witness head и проверяет точный предыдущий canonical snapshot по hash. Он применяет явную правку к проверенной базе, а не заново подписывает full set из неподписанного ответа панели.</li>
+<li>Ниже порога полномочий изменение остается Draft/Proposal с отдельным intent. Approver просматривает весь финальный diff и только затем подписывает publication.</li>
+<li>Полный подписанный envelope размещается на панели как immutable staged object, доступный по вычисленному hash.</li>
+<li>Witness проверяет staged object, подпись, область источника, publisher policy и точную базу. Затем выполняет условное durable append: новый sequence = предыдущий + 1, previous_hash совпадает.</li>
+<li>Только подтвержденная запись в canonical ledger означает commit. Панельный current pointer обновляется как производный индекс.</li>
+<li>Если после commit индекс панели не обновился, клиент все равно получает объект по известному hash. Если bytes исчезли, это отказ доступности, а не повод вернуться к старому head.</li>
+</ol>
+<p>Одновременно конкурирующие публикации: один CAS проходит, другой получает PublicationConflict. Второй writer загружает новую проверенную базу, показывает конфликт и требует нового подтверждения. Автоматически переиспользовать подпись или молча перебазировать смысл правки нельзя.</p>
+<p>Состав подписанного набора - это утвержденный publisher набор. Криптография не доказывает, что он получил все истинные данные из неподписанного источника. Поэтому проверка предыдущей witness-canonical базы - обязательная часть writer workflow.</p>
+<h2>6. Что означает независимый witness</h2>
+<p>Это новый небольшой логический сервис контрольных точек, отдельный от панели и локального operator state. Он не хранит plaintext или AES-ключи. В нем нет самодельного кворума: HA должен опираться на проверенные линейно согласованные операции хранилища.</p>
+<p><strong>Canonical ledger</strong> - внешний неперезаписываемый append-only журнал с линейно согласованными ReadHead/AppendIfHead. В нем хранятся не только heads, но и вся история полномочий: genesis и регистрации UUID, publisher keys/policy epochs/отзывы, read-key epochs, административные восстановления и witness trust transitions. Authority state восстанавливается из проверенного журнала, не из старого cache/config.</p>
+<p>Адаптер хранилища должен доказать conditional append, устойчивую запись до выдачи подтверждения, неизменяемость committed history, отсутствие stale head reads и независимость от восстановления панели/оператора. Обычная БД с периодическим backup сама по себе не соответствует строгому профилю. Конкретный адаптер еще не выбран и не реализован; до его приемки гарантия не считается реализованной.</p>
+<p>При восстановлении witness сначала проверяет/воспроизводит внешний журнал и только затем становится Ready. При недоступном/несогласованном журнале свежие proofs не подписываются. Сохранение старой пары «ключ + восстановленный cache» не дает права объявить старый head актуальным.</p>
+<p>Read API раскрывает только opaque IDs, счетчики и ciphertext-derived hashes, а не имена или значения секретов. Эти checkpoint-метаданные не считаются конфиденциальными; нужны TLS, лимиты нагрузки и при необходимости сетевое ограничение. Регистрация и изменение полномочий - отдельные административно авторизованные операции.</p>
+<h2>7. Чтение и anti-rollback</h2>
+<ol>
+<li>Оператор берет независимый trust bundle: UUID, publisher keys/policy, witness key/epoch, log ID, минимальный sequence+hash и свой node fingerprint. Из живого ответа панели это не выводится.</li>
+<li>Отправляет witness новый случайный 32-байтный nonce и доверенный floor - максимальный из bootstrap checkpoint и сохраненного high-watermark.</li>
+<li>Witness проверяет существование именно этого исторического canonical floor и подписывает его вместе с текущим head и nonce. Более высокий sequence без такой связи не подтверждает произвольную старую ветку.</li>
+<li>Оператор проверяет proof и получает точный snapshot hash. Ниже watermark - RollbackDetected; тот же sequence с другим hash - ForkDetected. Epoch 0 при published sequence, неизвестные ключи/epoch и иной источник отвергаются.</li>
+<li>Получает по hash весь envelope и подписанную read-key обертку. Проверяет schema/limits, подпись, UUID, epochs, recipient, AEAD и весь расшифрованный набор. Head и envelope обязаны совпасть по seq/hash/read-key/policy epochs.</li>
+<li>Делает второй nonce-bound witness-запрос с первым head как floor. Если head продвинулся, кандидат не считается свежим: до трех повторов, затем HeadChanged/DataCurrent=false.</li>
+<li>Устойчиво сохраняет accepted checkpoint до изменения target. После сбоя допускается повтор той же или более новой подтвержденной версии, но не уменьшение watermark.</li>
+<li>Сравнивает детерминированные target bytes. Новые salt/nonce не означают новые plaintext: no-op обновляет checkpoint, но не target revision и не rollout.</li>
+</ol>
+<p>Вторая проверка определяет точку согласованного чтения. Между ней и записью Kubernetes Secret возможен следующий commit; обещания «latest на каждый момент времени» нет. Интервал опроса остается частью задержки доставки.</p>
+<p>Без witness строгий профиль не переходит в offline и не принимает кеш как свежую выдачу. Существующий Secret сохраняется с DataCurrent/Ready=false; новый target не создается из устаревших данных. E2E2 pending rollout тоже требует успешной строгой проверки, а не только старой случайной revision.</p>
+<h2>8. Восстановление, rollback и ротации</h2>
+<table><thead><tr><th>Событие</th><th>Контракт</th></tr></thead><tbody>
+<tr><td>Потеря operator state</td><td>CheckpointMissing/StateMissing, административное восстановление. Независимый текущий witness и bootstrap floor обязательны; TOFU запрещен.</td></tr>
+<tr><td>Старый backup панели</td><td>Не меняет внешний canonical head. Панель восстанавливает необходимые envelopes/индекс, но не продолжает меньший счетчик как новую историю.</td></tr>
+<tr><td>Старый backup witness cache</td><td>Rebuild из полного внешнего ledger, включая права и отзывы. Нельзя воскресить старого signer из восстановленной конфигурации.</td></tr>
+<tr><td>Вернуть прежние значения</td><td>Легитимная операция restore - новый sequence, свежая криптография и подпись, action=restore и restored_from. Anti-rollback не запрещает авторизованному publisher сознательно опубликовать старые значения заново.</td></tr>
+<tr><td>Отозвать читателя</td><td>Новый случайный read key, epoch+1, полный новый ciphertext и обертки оставшимся читателям. Уже полученные данные и старые снимки отозвать невозможно.</td></tr>
+<tr><td>Ротация publisher/witness</td><td>Независимо разрешенный переход trust/policy, новый подписанный snapshot/обертки, атомарная активация policy+head в журнале и обновление bundle. Отозванный signer не подписывает будущие canonical commits.</td></tr>
+<tr><td>Утрата всей истории</td><td>Не silent reset. Независимое recovery-решение, новая авторизованная история/trust epoch, аудит и остановка применения до установки нового доверия.</td></tr>
+</tbody></table>
+<p>Ключевая граница: защита ограничивает то, что оператор сам принимает и записывает. Она не стирает память уже работающего приложения и не запрещает cluster-admin восстановить старый Kubernetes Secret прямо в etcd до запуска оператора. Для строгой проверки свежести при каждом старте приложения понадобится отдельный admission/app gate; сейчас это не обещается.</p>
+<h2>9. Наследование, ACL и миграция</h2>
+<ul>
+<li>Первый профиль публикует полные материализованные views. Сервер после подписи не подмешивает новый родитель. Parent refs подписаны и фиксируют использованную базу; изменение родителя требует отдельной клиентской публикации дочернего view.</li>
+<li>Канонический дочерний snapshot - последняя явно опубликованная материализация, не обещание «последний родитель автоматически». UI показывает необходимость перепубликации.</li>
+<li>Один секрет в нескольких views нужно публиковать в каждой. CAS действует на один view; атомарность нескольких views и отсутствие окна смешанных версий пока не обещаются.</li>
+<li>Машинный доступ - на полный view. Если нужны отдельные папки/читатели, создаются отдельные views/ключи, а не фильтрация подписанного blob сервером.</li>
+<li>При переименовании маршрутов UUID сохраняются. Переименование поля/пути требует новой публикации; удаление и пересоздание сущности получает новый UUID.</li>
+<li>Миграция e2e1 выполняется доверенным клиентом по явной подтвержденной базе. Создаются новые ключи/view, первая подпись и witness commit, затем независимо ставится trust bundle и переключается режим.</li>
+<li>Старая история не получает подлинность задним числом. Pending не включается автоматически в initial published snapshot. После e2e2 pin нет возврата к e2e1/plaintext; старому агенту - UpgradeRequired.</li>
+</ul>
+<h2>10. Обновленный контракт оператора</h2>
+<p>Остались два namespaced CRD, административные bindings и одна доверенная зона на установку. ServiceAccount фиксирован установкой; пользователь CR не выбирает чужой SA, URL или target. Поддерживается Plain как отдельный явный режим, но E2E означает только e2e2 + WitnessCurrent.</p>
+<pre># Design example only: CRDs do not exist yet. Apply only after stage 2.
+apiVersion: secrets.sekvyr.ru/v1alpha1
+kind: SekvyrStore
+metadata:
+  name: application-secrets
+  namespace: apps
+spec:
+  endpoint:
+    url: https://sekvyr.example.com
+  bindings:
+    - id: 22222222-2222-4222-8222-222222222222
+      name: billing-prod
+      resourceName: billing-runtime
+      source:
+        group: acme
+        project: billing
+        environment: prod
+        pathPrefix: /runtime
+        viewId: 66666666-6666-4666-8666-666666666666
+      selection:
+        mode: Keys
+        keys:
+          - path: /runtime
+            name: DB_PASSWORD
+            targetKey: DB_PASSWORD
+            required: true
+      encryption:
+        mode: E2E
+        protocol: e2e2
+        trustKey: billing-prod-view
+        freshness:
+          mode: WitnessCurrent
+      target:
+        name: billing-env
+        type: Opaque
+        deletionPolicy: Retain
+        allowEmpty: false
+      rollout:
+        allowedDeployments:
+          - billing-api
+
+</pre>
+<p>В trust bundle вместо одного project-key pin находятся независимые realm/project/environment/view/log IDs, publisher policy/public key, witness epoch/key/origin, минимальный checkpoint и node fingerprint. Пример bootstrap-public.example.json содержит только помеченные вымышленные placeholders.</p>
+<p>Retain по умолчанию, точный registry UID и защищенные identity/trust/state targets сохраняются. Rollout выключен по умолчанию, разрешен только для точных Deployment из административного списка. Data, accepted checkpoint и eligible intent записываются согласованно; отсутствие marker не вызывает первый restart. В status нет значений/ключей/токенов или plaintext-derived hashes.</p>
+<h2>11. Что потребуется изменить в продукте</h2>
+<table><thead><tr><th>Часть</th><th>Новая работа после просмотра</th></tr></thead><tbody>
+<tr><td>Panel DB/API</td><td>Стабильные UUID, views, immutable envelopes, staged/committed states, proposals, typed errors и read-by-hash. Старые per-key approve/import/rename/copy/restore не должны менять e2e2 «мимо подписи».</td></tr>
+<tr><td>Trusted writer</td><td>Независимая доставка клиента, разные read/publish unlock, проверенная canonical база, full-view diff, финальная подпись и явный CAS conflict workflow.</td></tr>
+<tr><td>Witness</td><td>Новый сервис и приемка внешнего canonical ledger, администрация trust, nonce/floor proofs и атомарные policy/head transitions.</td></tr>
+<tr><td>SDK/agent</td><td>Изолированный e2e2 codec, JCS, подписи, read-key wraps и witness verifier. Legacy e2e1 остается отдельно, существующие теги 1.0.3 не меняются.</td></tr>
+<tr><td>Operator</td><td>Полный view fetch, строгие checks, high-watermark/state recovery, mode-specific rollout gate. Поддержка e2e2 требует нового явного API, одной панели 1.0.3 недостаточно.</td></tr>
+</tbody></table>
+<pre>Предлагаемые data-plane маршруты:
+GET  /api/v2/machine/e2e2/views/{view_id}/snapshots/{hash}
+GET  /api/v2/machine/e2e2/views/{view_id}/reader-wrap?read_key_epoch=N
+
+Отдельный witness:
+POST /v1/logs/{log_id}/head-challenge
+POST /v1/logs/{log_id}/commits
+Независимые admin registration/policy/recovery операции.</pre>
+<p>Повторно использовать существующие стандартные криптопримитивы, а не придумывать новые шифры. Но сама композиция протокола и новый storage adapter требуют независимого review до production. Свой «2 из 3» quorum не вводится под видом доказанного консенсуса.</p>
+<h2>12. Что уже проверено на этом этапе</h2>
+<ul>
+<li>Пять примеров CR валидны, 22 опасных входных случая отвергнуты статической схемой. Offline mode, legacy downgrade и E2E без view/trust/witness запрещены.</li>
+<li>40 reference checks Python: AEAD/подписи/контекст, read-key-only подделка, hidden removal, replay/fork, verified floor, nonce, advancing head, no-op и повтор принятого checkpoint.</li>
+<li>Восемь cross-language проверок Node WebCrypto: canonical bytes, Unicode/escaping, Ed25519, HKDF/AES-GCM, envelope hash и witness proof.</li>
+<li>Это дизайн-векторы и in-memory CAS модель, не готовый SDK, witness, durable ledger, browser UI или реальный operator. Ротации и восстановление authority log этой моделью не доказаны; Go parity еще впереди.</li>
+<li>Новых сервисов, Helm/CRD установок, миграций и серверных изменений в этом обновлении нет.</li>
+</ul>
+<h2>13. План после просмотра</h2>
+<ol>
+<li>Этап 2 - каркас типов/operator и интерфейсов witness/ledger с новым контрактом, без преждевременного production.</li>
+<li>Криптографический этап - новый codec и доверенный publisher workflow, реальная межъязыковая совместимость и signed reader wraps.</li>
+<li>API/sync этап - staged snapshots, witness commit, полный view и checkpoint перед Secret.</li>
+<li>Отказы/HA - реальный storage adapter, policy/key rotations, restore с внешним ledger, network partition и отсутствие offline fallback.</li>
+<li>Живой прогон, независимый security review, управляемая миграция и только затем выпуск.</li>
+</ol>
+<p>Это расширяет состав работы: witness, его независимое хранилище и trusted writer теперь часть безопасного e2e2, а не опциональная косметика. Конкретное хранилище оценивается по зафиксированным требованиям до обещания production-гарантий. До вашего просмотра к этапу 2 не переходим.</p>
+<h2>Файлы и первичные основания</h2>
+<p>Рядом: contract.json, resource.schema.json, e2e2.protocol.json, e2e2.schema.json, examples, публичные synthetic vectors и воспроизводимые design checks. Полные правила байтов/полей - в JSON-контракте; этот HTML самодостаточен и не загружает внешние ресурсы.</p>
+<ul>
+<li><a href="https://www.rfc-editor.org/rfc/rfc8785.html">RFC 8785: JSON canonicalization</a></li>
+<li><a href="https://www.rfc-editor.org/rfc/rfc8032.html">RFC 8032: Ed25519</a></li>
+<li><a href="https://www.rfc-editor.org/rfc/rfc5869.html">RFC 5869: HKDF</a></li>
+<li><a href="https://csrc.nist.gov/pubs/sp/800/38/d/final">NIST SP 800-38D: GCM и associated data</a></li>
+</ul></main></body></html>

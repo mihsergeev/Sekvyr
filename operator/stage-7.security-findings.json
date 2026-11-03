@@ -1,0 +1,35 @@
+{
+  "stage": 7,
+  "productionDeployment": false,
+  "operatorImage": "sha256:d328c35df0557ace446628172658d463e05eae0afeb2c11d283f090a80b21652",
+  "previousOperatorImage": "sha256:960d66695ae8faf3f020a83e183e3b17a3efde9091f393c525351e2ebe4ef881",
+  "backendImage": "sha256:3e25b4aa6b85e5b1b1b828a6e5ff38f721d824a493f421f95566d4ba2eb5aa59",
+  "scanner": "Trivy 0.76.1",
+  "scope": "HIGH and CRITICAL, including unfixed vulnerabilities; package inventory findings do not prove application reachability",
+  "operator": {"analyzedGoBinaries": 5, "highCritical": 0, "reachableGoVulnerabilities": 0},
+  "backend": {
+    "operatingSystem": "Debian 13.7 (trixie)",
+    "osPackagesAnalyzed": 88,
+    "pythonPackagesAnalyzed": 36,
+    "agentGoBinariesAnalyzed": 2,
+    "pythonHighCritical": 0,
+    "agentGoHighCritical": 0,
+    "critical": 0,
+    "highPackageMatches": 45,
+    "uniqueHighCVEs": 9,
+    "matchesWithPublishedFixedDebianVersion": 0,
+    "status": "completed-with-known-findings",
+    "assessment": "Existing trial backend retained for acceptance. No vulnerability exclusion or false-positive waiver added. Production exploitability and runtime-base hardening remain open review items; no production readiness approval is inferred."
+  },
+  "findings": [
+    {"id": "CVE-2026-76642", "sourcePackage": "util-linux", "debianTrixie": "vulnerable; no-dsa", "source": "https://security-tracker.debian.org/tracker/CVE-2026-76642"},
+    {"id": "CVE-2026-78408", "sourcePackage": "util-linux", "debianTrixie": "vulnerable; no-dsa", "source": "https://security-tracker.debian.org/tracker/CVE-2026-78408"},
+    {"id": "CVE-2026-78409", "sourcePackage": "util-linux", "debianTrixie": "vulnerable; no-dsa; upstream vulnerable-code version note requires reachability review", "source": "https://security-tracker.debian.org/tracker/CVE-2026-78409"},
+    {"id": "CVE-2026-78410", "sourcePackage": "util-linux", "debianTrixie": "vulnerable; no-dsa", "source": "https://security-tracker.debian.org/tracker/CVE-2026-78410"},
+    {"id": "CVE-2026-54369", "sourcePackage": "acl", "debianTrixie": "vulnerable; point release update pending", "source": "https://security-tracker.debian.org/tracker/CVE-2026-54369"},
+    {"id": "CVE-2025-69720", "sourcePackage": "ncurses", "debianTrixie": "vulnerable; no-dsa; affected infocmp CLI does not establish reachability through the panel", "source": "https://security-tracker.debian.org/tracker/CVE-2025-69720"},
+    {"id": "CVE-2026-119373", "sourcePackage": "sqlite3", "debianTrixie": "vulnerable; no fixed package; upstream 3.54.0 has the fix", "source": "https://security-tracker.debian.org/tracker/CVE-2026-119373"},
+    {"id": "CVE-2026-16742", "sourcePackage": "systemd", "debianTrixie": "vulnerable; no-dsa; affected systemd-homed does not establish reachability from installed shared libraries", "source": "https://security-tracker.debian.org/tracker/CVE-2026-16742"},
+    {"id": "CVE-2026-9538", "sourcePackage": "perl", "debianTrixie": "vulnerable; postponed", "source": "https://security-tracker.debian.org/tracker/CVE-2026-9538"}
+  ]
+}

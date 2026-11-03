@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sekvyr operator — установка и bootstrap</title>
+<style>:root{color-scheme:light dark;--bg:#fff;--fg:#1b2a36;--box:#f1f5f8;--line:#cbd6df;--muted:#506575}*{box-sizing:border-box}body{max-width:1020px;margin:auto;padding:26px 22px 60px;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,sans-serif}h1{font-size:1.8rem;line-height:1.25}h2{font-size:1.25rem;margin-top:1.8em}a{color:inherit}pre,.note{padding:15px;border:1px solid var(--line);background:var(--box)}pre{white-space:pre-wrap;font-size:13px}code{overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}td,th{border:1px solid var(--line);padding:9px;text-align:left;vertical-align:top}.small{color:var(--muted);font-size:.9em}@media(prefers-color-scheme:dark){:root{--bg:#101b25;--fg:#e1ebf3;--box:#1b2b39;--line:#40596d;--muted:#afc1d0}}@media(max-width:620px){body{padding:18px 12px;font-size:15px}h1{font-size:1.4rem}table{font-size:13px}}@media print{:root{--bg:#fff;--fg:#000;--box:#fff;--line:#888;--muted:#333}body{max-width:none;padding:0;font-size:10.5pt}h2{break-after:avoid}pre,tr,.note{break-inside:avoid}}</style>
+<p><a href="install.en.html">English</a> · <a href="operations.ru.html">Эксплуатация и восстановление</a> · <a href="../stage-7.ru.html">Фактическая приемка этапа 7</a></p>
+<h1>Установка и независимый bootstrap</h1>
+<p class="note"><strong>Документация неопубликованного RC.</strong> Оператор, чарт Helm и офлайн-инструмент <code>sekvyr-provision</code>: <code>0.1.0-rc.1</code>; соответствующий сервер панели: <code>1.1.0-rc.1</code>. Подставьте проверенную версию чарта вместо <code>&lt;REVIEWED_VERSION&gt;</code> и дайджест проверенного образа вместо <code>&lt;REVIEWED_DIGEST&gt;</code> (<code>sha256:</code> и 64 шестнадцатеричных символа). Отдельно проверьте контрольную сумму <code>sekvyr-provision</code>. Опубликованная панель 1.0.3 не поддерживает новый API E2E2. Подписанный агент 1.0.3 остается без изменений.</p>
+
+<h2>1. Выберите профиль и границы доверия</h2>
+<table><tr><th>Профиль</th><th>Что требуется</th><th>Что не обещается</th></tr>
+<tr><td>Plain, без HA</td><td>Явный Plain binding, закрепленная TLS-панель, новая авторизация, полный проверенный ответ, административные identity/trust/state.</td><td>Подлинность издателя независимо от панели, anti-rollback, witness freshness, HA fencing.</td></tr>
+<tr><td>E2E2, без HA</td><td>Подписанные snapshots и read wraps, независимо закрепленные publisher/witness keys и положительный minimum checkpoint, постоянный state.</td><td>HA fencing или автоматическое восстановление потерянного state.</td></tr>
+<tr><td>E2E2 HA trial</td><td>Предыдущие условия + отдельный canonical journal/gateway, fencer/admission, signed enrollment и initialize/recover, все цели заранее созданы и UID-pinned. Одна установка — один log/view.</td><td>Production WORM, независимые fault domains, HA для Plain или безопасность при Byzantine/root-компрометации.</td></tr></table>
+<p>По умолчанию <code>sync.enabled=false</code>, <code>rollout.enabled=false</code>, <code>ha.enabled=false</code>. Sync и rollout включаются отдельно. Pod Ready означает готовность процесса: актуальность данных проверяют по CR status и фактическому приложению.</p>
+
+<h2>2. Подготовьте namespace, TLS и права</h2>
+<p>Одна установка работает в одном доверенном административном namespace. Запретите посторонним создавать Pod и изменять bootstrap, Store, CR, target и ServiceAccount: доступ к Pod/Secret может раскрыть ключи и уже расшифрованные данные. Non-HA sync имеет namespace-scoped Secret CREATE, который Kubernetes RBAC не умеет ограничить по имени; runtime дополнительно проверяет allowlist и ownership. HA не имеет CREATE Secret. Secret list/watch/delete и Pod delete оператору не требуются; Deployment get/patch появляются только с rollout opt-in.</p>
+<p>К запуску runtime подготовьте namespace и три разных Opaque Secret: immutable P256 identity, immutable trust, mutable state. Для HA trust сначала резервируется, затем заполняется и становится immutable по церемонии раздела 6, пока operator остановлен. Сохраните UID из ответов CREATE. Замена объекта под тем же именем не сохраняет его identity. Не передавайте private keys, JWT, пароли или содержимое trust в Helm values: values входят в историю release. Для внешних SA/Lease задайте <code>create=false</code> и известные UID; chart не делает lookup/TOFU и не принимает их под управление Helm.</p>
+<p>Готовый <code>sekvyr-provision</code> подписывает артефакты существующего протокола; писать собственный signer не требуется. Файловые команды поддерживают Linux. Заранее подготовьте принадлежащий текущему UID приватный каталог <code>/secure/provision</code> mode 0700. Все входы и вложенные каталоги приватны, пути в JSON относительны этому каталогу, файлы обычно 0600. Symlink, hardlink, FIFO, выход за каталог и перезапись запрещены. Существующий output, включая частично записанный, требует разбора и не усыновляется повторным запуском.</p>
+<pre># keygen-node.json (private 0600):
+{"role":"node"}
+/secure/sekvyr-provision version
+/secure/sekvyr-provision keygen --work-dir /secure/provision \
+  --input keygen-node.json --output node
+# node/private.pem: P256 PKCS8; node/public.json: public fingerprint.
+# public-node.json: {"role":"node","private_file":"node/private.pem"}
+/secure/sekvyr-provision public --work-dir /secure/provision \
+  --input public-node.json --output node-public-copy</pre>
+<p>Для HA ceremony независимо выполните keygen с одной ролью за вызов: <code>admin</code>, <code>publisher</code>, <code>witness</code>, <code>fencer</code>, <code>read</code>; каждому запросу и output задайте новое имя. Ed25519 роли дают private.pem/public.json, read дает только read-key.bin (32 случайных байта). Не собирайте все роли на сервере: команды выполняют соответствующие владельцы, передают только нужные public/ciphertext artifacts. Не генерируйте новый node при восстановлении прежней identity. Private manifests, plaintext и CREATE receipts остаются вне Git, shell history и Helm values. Для Plain/non-HA keygen/public также пригодны, но bootstrap/recovery ниже требуют HA.</p>
+<p>Node fingerprint — <code>p256-sha256:</code> + SHA-256 SEC1 uncompressed public point (65 bytes), не хеш PEM или SPKI. Все реплики используют один закрепленный node key. TLS origins — точные HTTPS origins без credentials/path/query/fragment. Пользовательские CA задаются immutable ConfigMap с UID и <code>derSetSHA256</code> по алгоритму installation, не хешом текста PEM. Отсутствие CA reference использует system roots. Fencer admission certificate должен включать DNS <code>service.namespace.svc</code>; одного <code>.svc.cluster.local</code> недостаточно.</p>
+<p>Разрешите только нужные DNS и направления: operator → Kubernetes API/panel; E2E2 → witness; HA operator/fencer/witness → gateway; gateway → storage; API server → admission. У inter-namespace peer namespaceSelector и podSelector соединяются в одном peer (AND); API/admission IP paths отдельно закрепляются точными IP/портами. Chart не устанавливает NetworkPolicy. Проверяйте реальные разрешенные и запрещенные соединения; port-forward и наличие YAML не доказывают CNI isolation.</p>
+
+<h2>3. Bootstrap Plain</h2>
+<p>Зарегистрируйте в панели независимо полученные issuer, audience <code>sekvyr</code>, public JWKS; выдайте machine identity namespace + SA name только нужный environment/path. Backend использует offline JWKS, а не TokenReview. Runtime SA UID pins — отдельная проверка; удаление Pod не отзывает JWT мгновенно. E2E-проект не допускается как Plain.</p>
+<p>Данные immutable trust Secret для чистого Plain строго имеют форму ниже. Этот JSON не подписывается автоматически: его доверие обеспечивают независимая подготовка, разрешенные origins и точный immutable Secret UID.</p>
+<pre>{
+  "schemaVersion": 1,
+  "protocol": "plain-v1",
+  "installationID": "&lt;INSTALLATION_UUID&gt;",
+  "bootstrapGeneration": 1,
+  "namespace": "secret-sync",
+  "serviceAccount": "operator-reader",
+  "panelOrigin": "https://panel.example.invalid",
+  "nodePublicKeyFingerprint": "p256-sha256:&lt;PUBLIC_POINT_SHA256&gt;"
+}</pre>
+<p>В mutable state Secret ключ <code>installation.json</code> содержит только <code>installationID</code> и <code>bootstrapGeneration</code>. Для новой non-HA установки второй ключ <code>state.json</code>:</p>
+<pre>{"version":1,"installationID":"&lt;INSTALLATION_UUID&gt;","bootstrapGeneration":1,
+ "trustBundleUID":"&lt;TRUST_SECRET_UID&gt;",
+ "nodeFingerprint":"p256-sha256:&lt;PUBLIC_POINT_SHA256&gt;","bindings":{}}</pre>
+<p>Не используйте этот пустой state для восстановления прежней установки. В HA initialize второй ключ первоначально отсутствует: его создаст только рассмотренный signed recovery, описанный ниже.</p>
+
+<h2>4. Values и первый CR</h2>
+<p>Сохраните полный рассмотренный values-файл приватно. Ниже минимальная non-HA Plain конфигурация с внешними SA и Lease; отсутствующие параметры берутся из рассмотренного chart.</p>
+<pre>image:
+  repository: ghcr.io/mihsergeev/sekvyr-operator
+  digest: "&lt;REVIEWED_DIGEST&gt;"
+replicas: 1
+serviceAccount: {create: false, uid: "&lt;SA_UID&gt;"}
+leaderElection: {id: operator-leader, create: false, uid: "&lt;LEASE_UID&gt;"}
+configuration: {retain: true}
+sync: {enabled: true}
+rollout: {enabled: false, allowedDeployments: []}
+ha: {enabled: false}
+installation:
+  installationID: "&lt;INSTALLATION_UUID&gt;"
+  namespace: secret-sync
+  serviceAccount: operator-reader
+  bootstrapGeneration: 1
+  allowedPanelOrigins: ["https://panel.example.invalid"]
+  allowedWitnessOrigins: []
+  identityKeySecret: {name: operator-node, uid: "&lt;NODE_SECRET_UID&gt;", key: node.key}
+  trustBundleSecret: {name: operator-trust, uid: "&lt;TRUST_SECRET_UID&gt;", key: trust.json}
+  stateSecret: {name: operator-state, uid: "&lt;STATE_SECRET_UID&gt;", key: installation.json}
+  protectedSecretNames: []
+  protectedSecretUIDs: []
+  protectedPrefixes: [sh.helm.release.v1.]
+  caConfigMaps: []
+  allowedTargetSecrets: [application-env]</pre>
+<p>Администратор устанавливает только рассмотренные CRD <code>secrets.sekvyr.ru/v1alpha1</code>. Helm install ставит CRD из chart, если их еще нет; upgrade не является процедурой обновления CRD. Для уже администрируемых CRD используйте <code>--skip-crds</code>. До install проверьте отсутствие release и его новых имен; не применяйте take-ownership/force.</p>
+<pre>CHART='/secure/sekvyr-operator-&lt;REVIEWED_VERSION&gt;.tgz'
+helm show chart "$CHART"
+helm lint "$CHART" -f /secure/operator-values.yaml
+helm template secret-sync "$CHART" --namespace secret-sync \
+  --include-crds -f /secure/operator-values.yaml &gt; /secure/reviewed-render.yaml
+# Рассмотреть CRD, RBAC, refs, immutable ConfigMap и полный Pod template.
+helm install secret-sync "$CHART" --namespace secret-sync \
+  -f /secure/operator-values.yaml --wait --timeout 180s</pre>
+<p>После появления CRD создайте Store, затем перенесите его UID из сохраненного CREATE receipt в SekvyrSecret. Не копируйте fictional UID из design examples.</p>
+<pre>apiVersion: secrets.sekvyr.ru/v1alpha1
+kind: SekvyrStore
+metadata: {name: application-secrets, namespace: secret-sync}
+spec:
+  endpoint: {url: https://panel.example.invalid}
+  bindings:
+    - id: "&lt;BINDING_UUID&gt;"
+      name: runtime
+      resourceName: application-runtime
+      source: {group: demo, project: sample, environment: trial, pathPrefix: /runtime}
+      selection: {mode: All}
+      encryption: {mode: Plain}
+      target: {name: application-env, type: Opaque, deletionPolicy: Retain, allowEmpty: false}
+      rollout: {allowedDeployments: []}
+---
+apiVersion: secrets.sekvyr.ru/v1alpha1
+kind: SekvyrSecret
+metadata: {name: application-runtime, namespace: secret-sync}
+spec:
+  storeRef: {name: application-secrets, uid: "&lt;STORE_CREATE_UID&gt;"}
+  binding: runtime
+  refreshIntervalSeconds: 60
+  suspend: false
+  rollout: {enabled: false, deployments: []}</pre>
+<p>Применяйте эти документы отдельно: UID Store еще не существует до CREATE. Проверяйте <code>observedGeneration</code>, <code>observedStoreUID/Generation</code>, свежие <code>lastAttemptTime == lastSuccessfulSyncTime</code> и DataCurrent. Для Plain <code>WitnessReady=Unknown / NotApplicablePlain</code>, checkpoint отсутствует. Только после этого запускайте потребителя envFrom; volume reload должен читать каталог целиком без subPath и не смешивать поколения.</p>
+
+<h2>5. Независимый bootstrap E2E2 и read wraps</h2>
+<ol>
+<li>Доверенный publisher хранит AES read key отдельно от Ed25519 signing key. Operator получает только read key через signed encrypted wrapper для своего P256 node key. Пароль проекта и publisher private key серверу/оператору не отправляются. Общий writer password дает криптографическую способность подписывать каждому его владельцу; роль UI не отменяет ее.</li>
+<li>По независимому каналу подтвердите publisher/witness/admin public keys и fingerprints, scope realm/project/environment/view/log, genesis hash и положительный minimum checkpoint. Не получайте первый trust из той же потенциально подмененной панели. Скомпрометированный publisher JavaScript тоже находится в границе доверия.</li>
+<li>Соберите strict schemaVersion 2 trust по <a href="../internal/verification/bootstrap.go">actual wire</a>: installation/node pins и viewTrust, привязанный к Store UID + binding ID. <a href="../design/examples/bootstrap-public.example.json">Public design example</a> не является deployable trust: поля description/exampleOnly и placeholders не проходят strict parser.</li>
+<li>В unreleased panel создайте view; передайте publisher-signed полный encrypted snapshot, а не отдельный key patch. После канонического commit и fresh witness proof индексируйте hash. Owner выдает signed reader wrap конкретной machine; одновременно нужны разрешение whole environment/path и explicit view grant. API <code>/api/e2e2/views</code>, <code>/envelopes</code>, <code>/index</code>, <code>/readers</code> не приписываются panel 1.0.3.</li>
+<li>Для отдельного нового E2E2 binding используйте <code>{mode: E2E, protocol: e2e2, trustKey: runtime-view, freshness: {mode: WitnessCurrent}}</code> и <code>source.viewId</code>. Encryption/trust reference существующего binding неизменяемы: это не patch прежнего Plain binding. Установка разрешает точные panel/witness origins и CA. E2E1/offline/polling fallback нет.</li>
+</ol>
+<p>Используйте <code>sekvyr-provision</code>: <a href="../internal/provision/README.html">контракт команд</a>, <a href="../internal/provision/types.go">точные JSON request types</a>. keygen/public готовят ключи; genesis/snapshot/transition создают подписанные offline artifacts. <strong>bootstrap/recovery сейчас требуют HA E2E2 config</strong>: это не Plain/non-HA installer или lost-state restore. Non-HA использует strict trust/state wire и отдельно рассмотренную административную установку. Harness keys/vectors остаются публичными fixtures; готовая UI-кнопка bootstrap не обещается.</p>
+
+<h2>6. HA trial: от offline genesis до первого sync</h2>
+<p>Одна установка обслуживает один log/view. Ниже порядок для новой generation 1, не процедура восстановления старого state. Команды provision не вызывают сеть, Kubernetes или storage commit. Все показанные request-файлы и вложенные protocol bodies подготовьте приватно до вызова; подставьте рассмотренные значения. Все поля request обязательны, включая <code>pending</code> и пустой <code>state_file</code>; nullable protocol union fields остаются явными <code>null</code>. Дубликаты, неизвестные поля и неверный регистр отвергаются.</p>
+<h3>6.1. Genesis и независимый pin</h3>
+<p>Подготовьте <code>genesis-body.json</code> по <a href="../internal/journal/types.go">journal.GenesisBody / Authority</a>: format=sekvyr-journal-genesis-v1, точный scope из пяти UUID, panel_origin, начальная authority revision/epochs, отдельные public admin/publisher/witness/fencer keys и recovery_from=null для нового log. У journal.Key только key_id/public_key, не весь provision public descriptor. Genesis подписывает независимый admin, не панель.</p>
+<pre># genesis-request.json
+{"body_file":"genesis-body.json","admin_key_file":"admin/private.pem",
+ "admin_public_file":"admin/public.json"}
+/secure/sekvyr-provision genesis --work-dir /secure/provision \
+  --input genesis-request.json --output genesis</pre>
+<p>Выходы: record.json, records.json и registration.json. Genesis проходит Sign → Replay. Независимо подтвердите original admin public key, log ID, genesis hash и minimum cursor; сохраните reviewed-registration.json отдельно от сервера. Для нового log floor может указывать genesis sequence 0, но runtime trust потребует положительный snapshot. Зафиксируйте каждый последующий floor по отдельному проверенному receipt; никогда не снижайте его по ответу панели.</p>
+<p>Отдельно разверните рассмотренные gateway/storage и witness с TLS/mTLS и собственными service identities. Operator не получает upstream S3 credential или admin key. Actual initialization CLI:</p>
+<pre>/secure/sekvyr-witness canonical-init \
+  --config /secure/canonical-witness.json \
+  --registration /secure/provision/genesis/record.json \
+  --allow-trial-canonical-ledger</pre>
+<p>Это уже online административная команда, не часть offline provision. Сохраните CAS receipt и полный подписанный chain от genesis. При потерянном ответе сначала выясните результат прежнего CAS, не повторяйте новый init. Для каждой следующей команды укажите independently reviewed registration, полный bounded массив Record и точный ожидаемый final cursor:</p>
+<pre>"chain": {
+  "registration_file": "reviewed-registration.json",
+  "records_file": "reviewed-complete-records.json",
+  "expected_cursor": {"journal_sequence":"&lt;DECIMAL_SEQUENCE&gt;",
+                      "record_hash":"&lt;EXACT_RECORD_HASH&gt;"}
+}</pre>
+<p>Не подставляйте CurrentState JSON вместо массива signed records. Provision проверяет signatures, непрерывность, hash floor на его позиции и exact final cursor. Он не узнает, что в живом журнале уже существует более новый head; online CAS/floor gates остаются обязательными.</p>
+<h3>6.2. Первый полный snapshot и read wrap</h3>
+<p>В matching backend зарегистрируйте view и machine permissions. Доверенный publisher готовит <a href="../internal/e2e2/types.go">Header и Plaintext</a>: тот же scope, первый sequence=1, previous_hash=64 нуля, action=initial, intent=publish, protocol=e2e2, suite=HKDF-SHA256+A256GCM+Ed25519, current epochs/key ID, точный entry_count, parents=[] и restored_from=null. Входной snapshot_salt задайте пустой строкой: SealSnapshot генерирует случайные salt/nonce. Values — полный JSON Plaintext с format=sekvyr-e2e2-values-v1, context и отсортированными entries path/name/value; это не исполняемый .env и не patch отдельных ключей.</p>
+<pre># snapshot-request.json
+{"pending":false,
+ "chain":{"registration_file":"reviewed-registration.json",
+          "records_file":"reviewed-complete-records.json",
+          "expected_cursor":{"journal_sequence":"&lt;DECIMAL_SEQUENCE&gt;",
+                             "record_hash":"&lt;EXACT_RECORD_HASH&gt;"}},
+ "header_file":"header.json","plaintext_file":"values.json",
+ "read_key_file":"read/read-key.bin",
+ "publisher_key_file":"publisher/private.pem",
+ "publisher_public_file":"publisher/public.json",
+ "recipient_public_file":"node/public.json"}
+/secure/sekvyr-provision snapshot --work-dir /secure/provision \
+  --input snapshot-request.json --output snapshot-1</pre>
+<p>Выходы: envelope.json, reader-wrap.json, candidate.json и, при current epochs, record.json. Подпись, Decrypt и точное совпадение plaintext проверяются до записи. Wrapper шифрует AES key для явно выбранного node public key; private node/signing key и plaintext панели не передают. <code>committed=false</code> в candidate означает offline-подготовку, а не отказ или доказательство commit.</p>
+<p>В panel API отдельно stage envelope, выполните canonical witness commit по exact cursor, получите fresh witness proof/index и выдайте signed wrapper конкретной machine через readers grant. Проверьте полученный hash/sequence и экспортируйте полный подписанный chain. Первый положительный canonical snapshot должен существовать <strong>до bootstrap</strong>, иначе trust с положительным minimum checkpoint не пройдет parser. Для HA используйте canonical journal profile, не development filesystem ledger.</p>
+<h3>6.3. UID receipts, reservation и unsigned bootstrap</h3>
+<p>Остановите operator: replicas=0/maintenance. Администратор создает namespace, разные SA, Lease, Store/CR, зарезервированные target и Deployment; приложение пока replicas=0. Сохраните настоящие UID из CREATE и текущие resourceVersion. Node Secret можно сразу создать immutable из готового private.pem. Для trust действует отдельная reservation/seal церемония: сначала создайте <strong>mutable Opaque reservation</strong> с реальным UID; это еще не доверенный runtime trust. State остается mutable с marker и без state.json. Фиктивный trust UID, lookup/TOFU и запуск operator с reservation запрещены.</p>
+<p>Подготовьте config по <a href="../internal/installation/config.go">installation.Config</a> с HA config, CA/Secret pins и настоящими UID. В <code>binding.json</code> передайте одну привязку из Store в формате <a href="../api/v1alpha1/types.go">Go JSON</a>. Если в <code>target</code> явно указано <code>allowEmpty: false</code>, опустите поле только в копии для CLI: Go не сериализует это значение по умолчанию. При <code>true</code> поле сохраните. uid-receipts.json имеет ровно <code>{"enrollment": &lt;journal.Enrollment&gt;, "binding": &lt;recovery.Binding&gt;}</code>. В Enrollment включите весь точный canonical-sorted AllowedObjects набор, разные SA/UID и Lease ref; в Binding — Store/CR names/UID/generations, binding/view/target и Identity. Только для bootstrap разрешена явная пустая Identity: инструмент вычислит существующий Go JSON BindingIdentity. Это не JCS и не подпись.</p>
+<pre># bootstrap-request.json
+{"chain":{"registration_file":"reviewed-registration.json",
+          "records_file":"reviewed-complete-records.json",
+          "expected_cursor":{"journal_sequence":"&lt;DECIMAL_SEQUENCE&gt;",
+                             "record_hash":"&lt;EXACT_RECORD_HASH&gt;"}},
+ "config_file":"ha-installation-input.json","receipts_file":"uid-receipts.json",
+ "binding_file":"binding.json","node_public_file":"node/public.json",
+ "trust_key":"runtime-view","publisher_key_id":"&lt;PUBLISHER_KEY_ID&gt;"}
+/secure/sekvyr-provision bootstrap --work-dir /secure/provision \
+  --input bootstrap-request.json --output bootstrap-1</pre>
+<p>Полученные installation.json, trust.json, state-marker.json и нормализованный receipts.json — <strong>unsigned административные материалы</strong>. Администратор одним UID/resourceVersion CAS заполняет trust reservation точными trust.json bytes и ставит immutable=true. Затем независимо перечитывает UID, immutable, type и точные bytes; проверяет node/state/CA refs. Immutable Secret перезаписывать нельзя. UID/RV mismatch означает остановку; новый bootstrap возможен только по отдельной административной процедуре. Helm получает только refs, не эти payload/keys.</p>
+<h3>6.4. Signed enrollment, затем exact-cursor initialize</h3>
+<p>Независимый admin готовит <a href="../internal/journal/types.go">TransitionBody</a>: kind=enroll-installation, текущие scope/genesis/expected cursor/previous_authority_digest, authority с revision+1 и неизменными остальными полями, enrollment из проверенных receipts, activating_envelope=null, recovery_from=null. Инструмент подписывает и проверяет полный candidate Replay:</p>
+<pre># enroll-request.json
+{"chain":{"registration_file":"reviewed-registration.json",
+          "records_file":"reviewed-complete-records.json",
+          "expected_cursor":{"journal_sequence":"&lt;DECIMAL_SEQUENCE&gt;",
+                             "record_hash":"&lt;EXACT_RECORD_HASH&gt;"}},
+ "body_file":"enrollment-body.json","admin_key_file":"admin/private.pem"}
+/secure/sekvyr-provision transition --work-dir /secure/provision \
+  --input enroll-request.json --output enrollment-1</pre>
+<p>Доставьте <code>transition.json</code> через отдельно авторизованный mTLS <code>POST /v2/logs/{log}/transitions</code> (не record.json); server проверяет exact CAS. Сохраните commit receipt, новый chain и cursor. Не генерируйте заново transition после lost acknowledgment. После enrollment bootstrap output остается тем же по snapshot/ключам, но initialize chain/body обязаны закрепить <strong>новый post-enrollment cursor</strong>.</p>
+<p>Установите reviewed chart с ha.enabled=true, ha.trial=true, ha.maintenance=true, replicas=0, fencer replicas &gt;=2. managedObjects, bootstrapSubjects, SA/Lease/material pins и admission scope соответствуют подписанному enrollment; bootstrap subject только явный admin. Identity/trust уже immutable и проверены. Для initialize body используйте <a href="../internal/recovery/plan.go">recovery.Body</a>: operation=initialize, новый recovery_id, previous_bootstrap_generation=0, previous_state_secret_uid="", bootstrap_generation=1, exact current cursor/snapshot, реальные pins, нормализованный Binding.Identity, SHA-256 пустых state.json bytes, allow_rollout=false и expiry не более 24 часов вперед. Сам state.json пока отсутствует.</p>
+<pre># initialize-request.json
+{"chain":{"registration_file":"reviewed-registration.json",
+          "records_file":"reviewed-complete-records.json",
+          "expected_cursor":{"journal_sequence":"&lt;POST_ENROLL_SEQUENCE&gt;",
+                             "record_hash":"&lt;POST_ENROLL_RECORD_HASH&gt;"}},
+ "config_file":"bootstrap-1/installation.json",
+ "receipts_file":"bootstrap-1/receipts.json","binding_file":"binding.json",
+ "body_file":"initialize-body.json","state_file":"",
+ "admin_key_file":"admin/private.pem"}
+/secure/sekvyr-provision recovery --work-dir /secure/provision \
+  --input initialize-request.json --output initialize-1
+
+export KUBECONFIG=/secure/admin.kubeconfig
+/secure/sekvyr-checkpoint-recovery \
+  --installation-file=/secure/provision/bootstrap-1/installation.json \
+  --plan=/secure/provision/initialize-1/plan.json \
+  --envelope=/secure/provision/snapshot-1/envelope.json \
+  --reader-wrap=/secure/provision/snapshot-1/reader-wrap.json \
+  --allow-trial-canonical-ledger</pre>
+<p>Provision выполняет Sign → recovery.Verify по проверенной offline цепочке. Native checkpoint-recovery отдельно проверяет текущие online journal/witness и реальные Kubernetes refs. Ожидается CheckpointRecoveryComplete; до него нельзя выдавать установку за активную. Сначала подтвердите completed state, target UID/bytes и отсутствие старого pending intent, затем запустите приложение и reviewed Helm upgrade с ha.maintenance=false, replicas=2 и sync.enabled=true. Требуйте свежие условия/checkpoint и фактическое чтение приложением. Rollout остается OFF; --enable-rollout recovery не передается.</p>
+<h3>6.5. Дальнейшие публикации</h3>
+<p>Каждая snapshot-команда получает новую полную plaintext-конфигурацию и следующую snapshot sequence/previous hash; chain cursor относится ко всем journal records, поэтому это другой счетчик. Snapshot/wrap не являются commit. При ротации read/publisher epochs или restore нужен pending=true: canonical record не экспортируется, затем admin transition с тем же activating envelope проходит полный Replay и online CAS. Подробности — <a href="operations.ru.html">эксплуатация</a>. Standalone wrap-only команды нет: snapshot создает wrapper вместе со следующим snapshot. Не создавайте лишний head, чтобы скрыть устаревшие status или потерянный ответ.</p>
+
+<h2>Покрытие, а не обещание совместимости</h2>
+<p>Этап 7 проверил Linux amd64: Kubernetes <code>v1.34.1+k0s</code> с образом <code>960d…</code> и kind <code>v1.37.0</code> с диагностическим <code>d328…</code>. Финальные d328/readiness timeout=10 на 1.34 не повторялись. ARM64, новые RC, другие minors/storage engines требуют своих проверок. Backend stage7 — unreleased digest <code>3e25…</code>; опубликованный agent 1.0.3 проверен неизмененным только в Plain init/sidecar regression. Полные hashes и retained incomplete attempts находятся в <a href="../stage-7.validation-results.json">evidence</a>.</p>
+<p class="note">Cleanup этапа 7 сохранил чужие Docker resources, но strict глобальный network audit был FAIL: остались пустые IPv6 raw chains / 3 nft objects / kernel anycast route. Пользователь явно принял остаток; исходные sysctl не были сняты, точное восстановление хоста не заявляется. Перед новым Docker/kind trial отдельно фиксируйте sysctl/IPv6 flags+anycast/firewall/routes и полный image inventory. Не повторяйте испытание на общем хосте без отдельного плана cleanup. WSL clock backsteps наблюдались, их источник не установлен; временные guards не ослаблялись.</p>
+</html>

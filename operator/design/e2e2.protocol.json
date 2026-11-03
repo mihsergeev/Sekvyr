@@ -1,0 +1,196 @@
+{
+  "documentStatus": "stage-3-runtime-code-review-candidate",
+  "protocol": "e2e2",
+  "profile": "WholeView-WitnessCurrent-v1",
+  "date": "2026-11-01",
+  "scope": {
+    "unit": "complete materialized publishable view; independent random 32-byte read key per view and epoch",
+    "authorization": "a read-key holder can decrypt every entry in that view; target selection is not per-key cryptographic ACL",
+    "readers": "machines get read key only, never a publisher private key",
+    "publishers": "separate random Ed25519 signing authority; distinct read and publish password wrapping domains. Possession of publish key is publication authority; shared key does not provide per-user attribution or threshold approval",
+    "compromisedClient": "trusted independently distributed writer client required; malicious JavaScript from a compromised panel can use unlocked keys"
+  },
+  "algorithms": {
+    "keyAgreement": "existing reader node P-256",
+    "kdf": "HKDF-SHA256",
+    "aead": "AES-256-GCM, nonce 12 bytes, tag 16 bytes",
+    "signature": "pure Ed25519, 32-byte public key, 64-byte signature",
+    "hash": "SHA-256",
+    "noAlgorithmNegotiation": true,
+    "canonicalization": "RFC8785 JCS restricted fixed-ASCII-property schema; UTF-8 without BOM; no duplicate/unknown properties, floats, NaN, unpaired surrogates; counters decimal strings (uint64). Metadata paths/names NFC canonical; values unchanged exact Unicode scalar sequences.",
+    "counterRules": "uint64 canonical decimal 0..18446744073709551615; no leading zero; sequences start at1; epoch>=1; overflow stops publication",
+    "encodings": "UUID lowercase canonical; hashes lowercase hex64; binary fields canonical unpadded Base64url, exact decoded lengths checked",
+    "entryOrdering": "strict increasing UTF-8 tuple(path,name); duplicate tuples forbidden; paths canonical segment-aware POSIX; reject rather than silently normalize",
+    "limits": {
+      "plaintextBytes": 8388608,
+      "envelopeBytes": 16777216,
+      "entries": 1024,
+      "parents": 16,
+      "targetDecodedValueBytes": 1048576
+    },
+    "parentOrdering": "parent refs ordered by UTF-8 UUID tuple; duplicate source contexts forbidden, even with different sequence/hash",
+    "metadata": "paths and names must be NFC; reject Unicode categories Cc,Cf,Cs including DEL/C1/bidi/zero-width; values are unchanged Unicode scalar strings"
+  },
+  "envelope": {
+    "headerFields": [
+      "protocol",
+      "suite",
+      "intent",
+      "realm_id",
+      "project_id",
+      "environment_id",
+      "view_id",
+      "log_id",
+      "sequence",
+      "previous_hash",
+      "read_key_epoch",
+      "publisher_policy_epoch",
+      "publisher_key_id",
+      "snapshot_salt",
+      "entry_count",
+      "action",
+      "restored_from",
+      "parents"
+    ],
+    "bodyFields": [
+      "header",
+      "nonce",
+      "ciphertext"
+    ],
+    "fields": [
+      "body",
+      "signature"
+    ],
+    "derivation": "snapshotKey=HKDF-SHA256(IKM=viewReadKey32,salt=decode(snapshot_salt)[32],info=UTF8('sekvyr-e2e2/snapshot-key/v1')||0x00||JCS(header),L=32)",
+    "encryption": "ciphertext=AES-256-GCM(snapshotKey,decode(nonce)[12],JCS(plaintext),AAD=UTF8('sekvyr-e2e2/snapshot-aad/v1')||0x00||JCS(header)); tag appended",
+    "signing": "signature=Ed25519.Sign(publisherKey,UTF8('sekvyr-e2e2/publish/v1')||0x00||JCS(body))",
+    "hash": "envelopeHash=hex(SHA256(UTF8('sekvyr-e2e2/envelope-hash/v1')||0x00||JCS(envelope))); includes signature, excludes witness receipts",
+    "plaintext": "complete context + complete ordered entries array. Names/paths/values are jointly authenticated inside whole ciphertext. entry_count must match.",
+    "nonces": "fresh CSPRNG salt32 and nonce12 for every new encryption attempt, including CAS rebase. Retrying identical already-staged immutable envelope is idempotent and reuses exact bytes.",
+    "noPlaintextDigests": "never publish hashes of plaintext/low-entropy values. Envelope hashes cover randomized ciphertext.",
+    "initial": "sequence1 previous_hash=64 zeroes; registration genesis seq0/hash0 is not a consumable snapshot",
+    "restore": "explicit user-authorized restore is a NEW sequence with fresh encryption, action=restore, restored_from=old envelopeHash; never moves head backward"
+  },
+  "readKeyWrap": {
+    "format": "new e2e2 wrapper endpoint, no e2e1 auto-fallback",
+    "recipient": "node public-key fingerprint independently verified",
+    "context": "protocol + realm/project/environment/view/log UUIDs + readKeyEpoch + publisherPolicyEpoch + recipient fingerprint",
+    "algorithm": "fresh P256 ephemeral ECDH -> HKDF-SHA256(salt32, info=UTF8('sekvyr-e2e2/reader-wrap-key/v1')||0x00||JCS(context)) -> AES-256-GCM(nonce12,AAD=UTF8('sekvyr-e2e2/reader-wrap-aad/v1')||0x00||JCS(context))",
+    "payload": "only viewReadKey32 and exact bound context; no project-wide master key or publisher private key",
+    "payloadWire": "JCS({format:'sekvyr-e2e2-read-key-v1',context:exact signed WrapContext,read_key:canonical unpadded Base64url of32 bytes}); exact fields only; plaintext <=2048 bytes, ciphertext <=2064 bytes; no publisher private material",
+    "p256Encoding": "uncompressed SEC1 public point, exactly65 bytes; recipient_fingerprint='p256-sha256:'+lowercase hex SHA256 of these65 bytes. Existing node key is supplied as one unencrypted PKCS8 PEM P-256 key and is never generated or replaced by the reader.",
+    "signature": "Ed25519.Sign(publisherKey, UTF8('sekvyr-e2e2/reader-wrap-sign/v1')||0x00||JCS(body)); publisher policy and epoch must be independently trusted",
+    "verification": "verify allowed publisher signature/policy, recipient, UUIDs and current read-key epoch before unwrapping; AEAD context must match signed canonical snapshot",
+    "rotation": "new node key requires new wrappers, not automatic trust reset. Revoking a view reader requires fresh read-key epoch and wrappers for remaining readers; old disclosed data cannot be recalled.",
+    "wireFields": [
+      "body.context",
+      "body.ephemeral_public",
+      "body.salt",
+      "body.nonce",
+      "body.ciphertext",
+      "signature"
+    ],
+    "memory": "unwrapped view key lives in memory only; no raw view key or publish secret in CR/status/logs/temp files"
+  },
+  "publication": {
+    "states": [
+      "Draft",
+      "Proposal",
+      "Staged",
+      "WitnessCommitted",
+      "Indexed"
+    ],
+    "authoritativeCommit": "successful conditional append to canonical witness ledger; panel current pointer is derived only",
+    "steps": [
+      "fetch fresh witness head and verify canonical base by hash",
+      "decrypt trusted base and apply explicit reviewed diff; never reconstruct from unsigned server fields",
+      "approver unlocks publisher key, verifies full final view and re-encrypts/signs",
+      "stage immutable envelope under computed hash in panel",
+      "witness checks downloadable staged exact hash, publisher signature and registered source/policy",
+      "witness atomically CAS-appends seq=head+1,prev=headHash,newHash to durable independent ledger",
+      "panel indexes committed head; interrupted indexing is recovered by exact hash"
+    ],
+    "conflicts": "only one successor per canonical head. Conflict requires refetch, visible diff and explicit new confirmation; no automatic semantic rebase/signing",
+    "crashAfterCommit": "witness-committed hash remains canonical if panel pointer update fails. Fetch by hash is mandatory. Missing bytes -> CanonicalSnapshotUnavailable; no older-head fallback.",
+    "proposals": "separate intent/domain; proposals and pending versions are never published snapshots. Final approver signs complete snapshot after approval. Legacy approve_version cannot publish e2e2.",
+    "businessCompleteness": "signature proves completeness of publisher-approved set, not truth of unsigned source. Trusted base must come from witness.",
+    "multiView": "CAS is per-view. No atomic cross-view publication in first profile; edits/revocation/parent propagation require explicit publication of every affected view."
+  },
+  "witness": {
+    "component": "one logical independent checkpoint-witness, not panel and not an operator-local mutable checkpoint. HA uses verified linearizable storage, no custom quorum protocol.",
+    "trust": "witness verify key,epoch,logID,initial min checkpoint and allowed publisher policy provisioned independently; never learned solely from panel",
+    "headAPI": "POST /v1/logs/{log_id}/head-challenge with fresh 32-byte request_nonce; signed response uses sekvyr-e2e2/head/v1 domain over JCS(body), exact schema",
+    "readPrivacy": "head API exposes only opaque identifiers, revisions and ciphertext-derived hashes; no secret values, names or AES keys. Read checkpoints are public metadata; TLS, rate limits and optional network restriction apply.",
+    "commitAPI": "POST /v1/logs/{log_id}/commits expected=(witnessEpoch,seq,hash,policyEpoch), new envelopeHash; validates staged envelope against fixed registered origin, no arbitrary fetch URL or redirects",
+    "ledger": "independent non-overwritable append-only canonical journal with linearizable ReadHead and conditional AppendIfHead, unique sequence and previous hash. Cache/SQL index is derivative, not authority.",
+    "durability": "ledger append must be durably acknowledged before commit receipt or fresh head response. Signing/cache cannot get ahead of ledger. ReadHead must not use stale replica/cache.",
+    "restore": "rebuild witness state from external canonical journal; never restore canonical head solely from panel/operator backups. If journal consistency/freshness cannot be established, witness not ready and cannot sign fresh head.",
+    "externalAnchorRequirement": "storage adapter must prove immutability/conditional append, durable monotonic reads and independence from panel/operator restores. An ordinary periodically backed-up database alone does not satisfy this profile.",
+    "rootBoundary": "if witness keys plus ALL canonical journal/independent checkpoints are compromised or rolled back together, protocol cannot detect the lost history. No infinite witness chain or absolute all-roots-rollback promise.",
+    "administrativeAPI": "log registration, writer/witness policy changes and log reset require independent administrative authority; panel credential alone cannot register or reset trust",
+    "noAvailabilityGuarantee": "withholding/disappearing staged ciphertext can cause denial of service even after commit; cannot forge a canonical old head",
+    "floorProof": "head request includes trusted floor=(seq,hash); ledger validates that exact canonical historical record and signs verified floor in fresh head proof. Higher head alone is not proof that an arbitrary pinned older hash was canonical.",
+    "ledgerAuthority": "canonical journal includes root log registration/genesis and ALL authority transitions: publisher keysets and policy activations/revocations, read-key epochs, witness key/epoch transitions and administrative recovery. Authorization state is derived from verified journal, never restored cache/config alone.",
+    "transitions": "administrative events need pinned independent recovery/admin authority signatures and conditional append. Policy activation plus canonical new snapshot is one ledger transition; head-only rebuild cannot resurrect a revoked signer.",
+    "crossRules": "head seq/hash/readKeyEpoch/policyEpoch must equal chosen envelope; no epoch0 for seq>0, uint64 bounds apply to proof/floor; ledger forbids epoch decrease and enforces registered allowed policy/read-key transitions",
+    "trustAssumption": "WitnessCurrent assumes an honest independently administered witness plus authentic linearizable ledger and uncompromised verification/signing trust. A malicious witness with valid signing authority may lie about freshness to a new/restored reader even without rolling back the journal. Single witness is not Byzantine tolerance."
+  },
+  "reader": {
+    "default": "WitnessCurrent required; no offline fallback",
+    "bootstrap": "independent signed/admin trust bundle binds IDs, node key, publisher policy, witness key/epoch/logID and minimum seq/hash checkpoint. Genesis not TOFU.",
+    "steps": [
+      "request fresh signed witness head with nonce and trusted floor=max(bootstrap checkpoint,local high-watermark); verify signed exact floor and all identifiers",
+      "reject below local high-watermark, same seq/different hash or mismatched trust/policy/epoch",
+      "fetch exact canonical hash; validate schema,JCS limits,signature,context and wrapping key",
+      "decrypt entire view and validate complete canonical entries and count",
+      "request second fresh nonce head using first head as verified floor; if advanced discard candidate and retry at most3 times",
+      "durably persist accepted checkpoint before target mutation",
+      "derive selected deterministic target bytes; atomically persist data+opaque revision+accepted checkpoint+eligible rollout intent only if bytes changed",
+      "report sanitized status; never label witness failure or older target as current"
+    ],
+    "headRetries": 3,
+    "headRequestTimeoutSeconds": 30,
+    "commitRace": "latest at the second linearizable witness check, not guaranteed latest at subsequent Kubernetes write or forever; later commits converge by polling",
+    "checkpoint": "namespace/installation + realm/project/environment/view/log + witnessEpoch + readKeyEpoch + policyEpoch + seq + envelopeHash. Same seq accepted only same hash.",
+    "crashRecovery": "if watermark persisted before target write, repeat same or newer canonical head only, recheck witness before writing. Never decrease watermark; pending old intent cannot bypass strict-current gate after restore.",
+    "noOp": "new envelope for same plaintext advances accepted checkpoint but leaves target data revision and rollout unchanged",
+    "unavailable": "preserve existing Secret per Retain availability policy, Ready/DataCurrent=false, no fresh application or new rollout; new target not created from cached stale data",
+    "restore": "fresh installation or lost/restored local state obtains current witness proof >= independent bootstrap checkpoint; StateMissing requires explicit restore/rebootstrap, never TOFU",
+    "applicationBoundary": "does not erase values already in app memory/env and cannot prevent an admin/etcd restore from exposing an older existing Kubernetes Secret before reconciliation. Strong startup freshness needs separate admission/app gate; not promised here.",
+    "pendingRollout": "E2E2 pending intent also needs successful strict-current reconciliation; new panel/witness failure freezes pending restarts. Ordinary Plain mode retains its separately specified behavior.",
+    "stateAtomicity": "checkpoint advances durably before target write; target write atomically records accepted seq/hash and eligible rollout intent. State/target mismatch is never inferred successful from labels; rerun strict verification or require admin recovery."
+  },
+  "inheritance": {
+    "model": "full materialized views; immutable signed parent snapshot references, no server-side merging after signature",
+    "propagation": "parent update requires explicit child/view republish by authorized writer. UI shows DependencyPublicationRequired. Current canonical child is the last explicitly published materialization, not automatically latest parent.",
+    "renames": "realm/project/environment/view UUIDs remain stable across route renames. Renaming a field/path requires re-encryption and a new snapshot. Delete+recreate gets new UUID/log registration.",
+    "folders": "partial cryptographic access needs separate view+readKey; operator local selection is not secrecy boundary"
+  },
+  "lifecycle": {
+    "migration": "trusted client verifies explicit v1 source baseline, decrypts current approved values, creates new view key/publisher authority, signs initial e2e2 full view, commits to witness, installs independent trust bundle, then atomically switches mode. v1 history not authenticated retroactively.",
+    "legacy": "existing e2e1 projects/agents keep old explicit mode; e2e2 readers reject e2e1/plaintext. Old agents receive UpgradeRequired for e2e2, never downgraded values.",
+    "writerRotation": "independent authority authorizes new signing policy, stages new-signed snapshot+reader wrappers, atomically activates policy+head at witness, updates trust bundle. Old key cannot sign future canonical commits.",
+    "readRotation": "new independent view read key, epoch+1, full new ciphertext, new wrappers for retained readers; commit new sequence; no header-only epoch bump.",
+    "recovery": "no panel-initiated epoch/reset. Unrecoverable history requires explicit independently authorized new log/trust epoch, audited migration, consumers stopped until new trust installed."
+  },
+  "implementationImpact": [
+    "new witness module/service and durable external ledger adapter",
+    "stable realm/project/environment/view/log UUIDs; immutable envelopes and staged/committed state",
+    "new full-snapshot APIs and typed errors; legacy per-key write/approve/import/copy/rename/restore refused for e2e2",
+    "trusted writer distribution and separate read/publish key bundles",
+    "SDK new e2e2 codec, signature and witness verifier; legacy e2e1 isolated",
+    "operator strict current-head gate, durable checkpoint and E2E2 trust schema",
+    "migration and independent security review required before production release"
+  ],
+  "referenceCoverage": "design reference model fixes read-key and publisher policy epoch=1; Go codec/wrapper/witness/reader are now implemented and tested separately. No proof of actual rotation workflow, revoked-signer ledger restore, ledger durability, real panel transport or production security audit",
+  "stage3": {
+    "implementation": "operator/internal/e2e2, internal/witness/PinnedVerifier, internal/verification/Reader and independent bootstrap decoder",
+    "trustKeys": "independently pinned Ed25519 keys must be canonical nonidentity prime-subgroup points; maintained edwards25519 group library checks points, standard crypto/ed25519 signs/verifies",
+    "freshness": "Reader creates fresh CSPRNG nonces internally, verifies exact floor=max(bootstrap, trusted local checkpoint), exact canonical hash/full snapshot/wrap, then a second independent proof. Up to3 attempts; highest observed verified floor is retained during retries. No caller-provided head is accepted as current without signed proof.",
+    "stateBoundary": "local checkpoint input must already be bound to installationID/bootstrapGeneration/trust identity by the state adapter. nil denotes an explicitly authorized new bootstrap; lost or replaced state must never silently become nil. Persistence and target writes remain stage4.",
+    "publisherBoundary": "SealSnapshot and WrapReader are explicit in-process cryptographic building blocks, not a trusted writer UI, approval service, network staging client or witness commit workflow. They do not fetch unsigned source data or automatically rebase/sign.",
+    "interop": "Node24 built-in HKDF has a1024-byte info limit. Independent test reference implements exact RFC5869 via WebCrypto HMAC and verifies long JCS header info including16 parents against Python/Go; wire/KDF inputs unchanged. This is not a production JS or browser UI claim.",
+    "integrationGate": "controller retains its stage2 fail-closed behavior and RBAC; no live source fetch, target Secret mutation, checkpoint persistence or rollout is enabled by stage3",
+    "noZeroizationClaim": "temporary mutable key buffers are cleared where practical; immutable strings, runtime copies and garbage collection prevent a guaranteed complete memory erasure claim"
+  }
+}

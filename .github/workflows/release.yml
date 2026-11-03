@@ -1,7 +1,7 @@
 name: Release
 
 # По тегу vX.Y.Z собирает и публикует в GHCR образы панели (backend, frontend)
-# и образ агента для Kubernetes. Сначала проверка: тег стоит на коммите из main,
+# и образ агента для Kubernetes. Сначала проверка: тег стоит на публичном main,
 # версия в коде та же, самопроверка чистая, подпись агента сходится с
 # agent/pubkey.txt, а агент, собранный так же, как в образе панели, - с
 # подписанным agent/manifest.json. Образ, который отвечал бы 500 вместо агента,
@@ -17,6 +17,18 @@ on:
 permissions: {}
 
 jobs:
+  # Local reusable workflow references run from this exact tag commit.
+  # They need no inherited secrets and cannot publish packages.
+  functional-ci:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  operator-ci:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/operator.yml
+
   verify:
     runs-on: ubuntu-latest
     permissions:
@@ -24,19 +36,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Вся история: по ней видно, есть ли коммит тега в main.
+          # Вся история: проверяем существующую ветку выпуска main.
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
-      # Тег можно поставить на коммит, которого нет в main: с ветки, которую не
-      # смотрели и где CI не проходил. Выпуском он стал бы образом для всех.
-      - name: Tag is on main
+      # В выпуск попадают только коммиты из рассмотренной ветки main.
+      - name: Tag belongs to the public release branch
         run: |
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "tag $GITHUB_REF_NAME ($GITHUB_SHA) is not on main" >&2
+          ref=refs/remotes/origin/main
+          if ! git show-ref --verify --quiet "$ref" || ! git merge-base --is-ancestor "$GITHUB_SHA" "$ref"; then
+            echo "tag $GITHUB_REF_NAME ($GITHUB_SHA) is not on the release branch main" >&2
             exit 1
           fi
 
@@ -47,8 +59,7 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           backend=$(grep -m1 '^version = ' backend/pyproject.toml | cut -d'"' -f2)
           frontend=$(grep -m1 '"version":' frontend/package.json | cut -d'"' -f4)
-          base="${tag%%-*}"
-          if [ "$backend" != "$base" ] || [ "$frontend" != "$base" ]; then
+          if [ "$backend" != "$tag" ] || [ "$frontend" != "$tag" ]; then
             echo "tag $GITHUB_REF_NAME, backend $backend, frontend $frontend" >&2
             exit 1
           fi
@@ -70,7 +81,10 @@ jobs:
           python ops/agent_release.py --compare agent-out
 
   publish:
-    needs: verify
+    needs: [verify, functional-ci, operator-ci]
+    # This coupled panel/operator RC is promoted from the reviewed OCI
+    # archives. Tag validation may run, but must not publish a rebuilt image.
+    if: github.ref_name != 'v1.1.0-rc.1'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -81,13 +95,6 @@ jobs:
           persist-credentials: false
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      - name: Log in to GHCR
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       # :latest переезжает только на выпуск vX.Y.Z. Предрелиз (v1.1.0-rc1) с ним
       # стал бы образом по умолчанию для всех, кто ставит панель без версии.
@@ -105,42 +112,217 @@ jobs:
 
       # VERSION и REVISION уходят в метки образа (org.opencontainers.image.*):
       # по ним видно, из какого выпуска и коммита образ.
-      - name: Backend
+      # Панель сохраняет прежний single-platform scope. До всех scan gates
+      # build только загружает локальные образы; registry push здесь запрещен.
+      - name: Build backend locally
+        id: backend
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: backend/Dockerfile
-          push: true
+          platforms: linux/amd64
+          load: true
+          push: false
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             REVISION=${{ github.sha }}
-          tags: |
-            ghcr.io/${{ steps.meta.outputs.owner }}/sekvyr-backend:${{ steps.meta.outputs.version }}
-            ${{ steps.meta.outputs.final == 'true' && format('ghcr.io/{0}/sekvyr-backend:latest', steps.meta.outputs.owner) || '' }}
+          tags: sekvyr-release-backend:candidate
 
-      - name: Frontend
+      - name: Build frontend locally
+        id: frontend
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./frontend
-          push: true
+          platforms: linux/amd64
+          load: true
+          push: false
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             REVISION=${{ github.sha }}
-          tags: |
-            ghcr.io/${{ steps.meta.outputs.owner }}/sekvyr-frontend:${{ steps.meta.outputs.version }}
-            ${{ steps.meta.outputs.final == 'true' && format('ghcr.io/{0}/sekvyr-frontend:latest', steps.meta.outputs.owner) || '' }}
+          tags: sekvyr-release-frontend:candidate
 
-      # Агент собирается кросс-компиляцией на платформе сборщика, эмуляция
-      # для arm64 не нужна: в последнем слое только копирование бинаря.
-      - name: Agent image for Kubernetes
+      # Агент имеет собственную подписанную версию. Выпуск одной панели не
+      # перепубликует прежний agent tag и не меняет его revision/latest.
+      # Совместный выпуск агента возможен только с совпадающей новой версией;
+      # независимый agent release требует отдельной подготовки.
+      # Кросс-компиляция не требует эмуляции: foreign runtime только COPY.
+      # Каждая архитектура загружается отдельно и проверяется до любого push.
+      - name: Build agent amd64 locally
+        id: agent_amd64
+        if: steps.meta.outputs.version == steps.meta.outputs.agent
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./agent
-          platforms: linux/amd64,linux/arm64
-          push: true
+          platforms: linux/amd64
+          load: true
+          push: false
           build-args: |
             VERSION=${{ steps.meta.outputs.agent }}
             REVISION=${{ github.sha }}
-          tags: |
-            ghcr.io/${{ steps.meta.outputs.owner }}/sekvyr-agent:${{ steps.meta.outputs.agent }}
-            ${{ steps.meta.outputs.final == 'true' && format('ghcr.io/{0}/sekvyr-agent:latest', steps.meta.outputs.owner) || '' }}
+          tags: sekvyr-release-agent:amd64
+
+      - name: Build agent arm64 locally
+        id: agent_arm64
+        if: steps.meta.outputs.version == steps.meta.outputs.agent
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./agent
+          platforms: linux/arm64
+          load: true
+          push: false
+          build-args: |
+            VERSION=${{ steps.meta.outputs.agent }}
+            REVISION=${{ github.sha }}
+          tags: sekvyr-release-agent:arm64
+
+      - name: Verify local image identities, platforms and release labels
+        env:
+          BACKEND_ID: ${{ steps.backend.outputs.imageid }}
+          FRONTEND_ID: ${{ steps.frontend.outputs.imageid }}
+          AGENT_AMD64_ID: ${{ steps.agent_amd64.outputs.imageid }}
+          AGENT_ARM64_ID: ${{ steps.agent_arm64.outputs.imageid }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          AGENT_VERSION: ${{ steps.meta.outputs.agent }}
+        run: |
+          set -euo pipefail
+          verify() {
+            local id="$1" platform="$2" version="$3"
+            [[ "$id" =~ ^sha256:[0-9a-f]{64}$ ]]
+            docker image inspect "$id" | jq -e --arg id "$id" --arg platform "$platform" \
+              --arg version "$version" --arg revision "$GITHUB_SHA" '
+              length == 1 and .[0].Id == $id and
+              (.[0].Os + "/" + .[0].Architecture) == $platform and
+              .[0].Config.Labels["org.opencontainers.image.version"] == $version and
+              .[0].Config.Labels["org.opencontainers.image.revision"] == $revision' >/dev/null
+          }
+          verify "$BACKEND_ID" linux/amd64 "$VERSION"
+          verify "$FRONTEND_ID" linux/amd64 "$VERSION"
+          if [ "$VERSION" = "$AGENT_VERSION" ]; then
+            verify "$AGENT_AMD64_ID" linux/amd64 "$AGENT_VERSION"
+            verify "$AGENT_ARM64_ID" linux/arm64 "$AGENT_VERSION"
+          fi
+
+      # Scan точных local IDs, без remote fallback и без исключения unfixed.
+      # Все четыре условных gate завершаются ДО login/первого registry write.
+      - name: Scan backend before publication
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IMAGE_SRC: docker
+          TRIVY_PLATFORM: linux/amd64
+          TRIVY_IGNORE_UNFIXED: "false"
+        with:
+          image-ref: ${{ steps.backend.outputs.imageid }}
+          severity: HIGH,CRITICAL
+          version: v0.76.1
+          ignore-unfixed: false
+          exit-code: "1"
+
+      - name: Scan frontend before publication
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IMAGE_SRC: docker
+          TRIVY_PLATFORM: linux/amd64
+          TRIVY_IGNORE_UNFIXED: "false"
+        with:
+          image-ref: ${{ steps.frontend.outputs.imageid }}
+          severity: HIGH,CRITICAL
+          version: v0.76.1
+          ignore-unfixed: false
+          exit-code: "1"
+
+      - name: Scan agent amd64 before publication
+        if: steps.meta.outputs.version == steps.meta.outputs.agent
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IMAGE_SRC: docker
+          TRIVY_PLATFORM: linux/amd64
+          TRIVY_IGNORE_UNFIXED: "false"
+        with:
+          image-ref: ${{ steps.agent_amd64.outputs.imageid }}
+          severity: HIGH,CRITICAL
+          version: v0.76.1
+          ignore-unfixed: false
+          exit-code: "1"
+
+      - name: Scan agent arm64 before publication
+        if: steps.meta.outputs.version == steps.meta.outputs.agent
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IMAGE_SRC: docker
+          TRIVY_PLATFORM: linux/arm64
+          TRIVY_IGNORE_UNFIXED: "false"
+        with:
+          image-ref: ${{ steps.agent_arm64.outputs.imageid }}
+          severity: HIGH,CRITICAL
+          version: v0.76.1
+          ignore-unfixed: false
+          exit-code: "1"
+
+      - name: Log in to GHCR after every scan passed
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the scanned panel images without rebuilding
+        env:
+          OWNER: ${{ steps.meta.outputs.owner }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          FINAL: ${{ steps.meta.outputs.final }}
+          BACKEND_ID: ${{ steps.backend.outputs.imageid }}
+          FRONTEND_ID: ${{ steps.frontend.outputs.imageid }}
+        run: |
+          set -euo pipefail
+          publish() {
+            local id="$1" repository="ghcr.io/$OWNER/sekvyr-$2"
+            [[ "$id" =~ ^sha256:[0-9a-f]{64}$ ]]
+            test "$(docker image inspect -f '{{.Id}}' "$id")" = "$id"
+            docker tag "$id" "$repository:$VERSION"
+            test "$(docker image inspect -f '{{.Id}}' "$repository:$VERSION")" = "$id"
+            docker push "$repository:$VERSION"
+            if [ "$FINAL" = true ]; then
+              docker tag "$id" "$repository:latest"
+              test "$(docker image inspect -f '{{.Id}}' "$repository:latest")" = "$id"
+              docker push "$repository:latest"
+            fi
+          }
+          publish "$BACKEND_ID" backend
+          publish "$FRONTEND_ID" frontend
+
+      - name: Push scanned agent platforms and compose their immutable manifest
+        if: steps.meta.outputs.version == steps.meta.outputs.agent
+        env:
+          OWNER: ${{ steps.meta.outputs.owner }}
+          AGENT_VERSION: ${{ steps.meta.outputs.agent }}
+          FINAL: ${{ steps.meta.outputs.final }}
+          AGENT_AMD64_ID: ${{ steps.agent_amd64.outputs.imageid }}
+          AGENT_ARM64_ID: ${{ steps.agent_arm64.outputs.imageid }}
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/$OWNER/sekvyr-agent"
+          for arch in amd64 arm64; do
+            if [ "$arch" = amd64 ]; then id="$AGENT_AMD64_ID"; else id="$AGENT_ARM64_ID"; fi
+            [[ "$id" =~ ^sha256:[0-9a-f]{64}$ ]]
+            test "$(docker image inspect -f '{{.Id}}' "$id")" = "$id"
+            test "$(docker image inspect -f '{{.Os}}/{{.Architecture}}' "$id")" = "linux/$arch"
+            reference="$repository:$AGENT_VERSION-$arch"
+            docker tag "$id" "$reference"
+            test "$(docker image inspect -f '{{.Id}}' "$reference")" = "$id"
+            docker push "$reference"
+          done
+          digest_for() {
+            docker image inspect -f '{{json .RepoDigests}}' "$1" | jq -er --arg repository "$repository" '
+              [.[] | select(split("@")[0] == $repository)] | unique |
+              if length == 1 then .[0] else error("Expected one pushed platform digest") end'
+          }
+          amd64=$(digest_for "$AGENT_AMD64_ID")
+          arm64=$(digest_for "$AGENT_ARM64_ID")
+          [[ "${amd64##*@}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${arm64##*@}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test "$amd64" != "$arm64"
+          docker buildx imagetools inspect "$amd64" --raw | jq -e --arg id "$AGENT_AMD64_ID" '.config.digest == $id' >/dev/null
+          docker buildx imagetools inspect "$arm64" --raw | jq -e --arg id "$AGENT_ARM64_ID" '.config.digest == $id' >/dev/null
+          tags=(--tag "$repository:$AGENT_VERSION")
+          if [ "$FINAL" = true ]; then tags+=(--tag "$repository:latest"); fi
+          docker buildx imagetools create "${tags[@]}" "$amd64" "$arm64"

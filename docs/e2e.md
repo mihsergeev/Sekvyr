@@ -2,6 +2,13 @@
 
 [Русская версия](e2e.ru.md)
 
+> **Scope: legacy E2E1 and agent 1.0.3.** This page describes that protocol,
+> including its rotation limitations. New E2E2 uses separate unreleased APIs in
+> panel `1.1.0-rc.1` and operator/chart `0.1.0-rc.1`, with independently pinned
+> trust and signed snapshots/wraps. Published panel `1.0.3` does not provide those
+> APIs. There is no automatic E2E1 migration or reuse of its trust as E2E2 trust;
+> see the [E2E2 RC guide](../operator/docs/install.en.html).
+
 An ordinary project is encrypted by the panel itself: with an environment key
 wrapped by the root key. Which has an honest consequence, written down in the
 threat model: whoever gets an unsealed panel gets the values.

@@ -1,0 +1,40 @@
+# Design example only: CRDs do not exist yet. Apply only after stage 2.
+apiVersion: secrets.sekvyr.ru/v1alpha1
+kind: SekvyrStore
+metadata:
+  name: application-secrets
+  namespace: apps
+spec:
+  endpoint:
+    url: https://sekvyr.example.com
+  bindings:
+    - id: 22222222-2222-4222-8222-222222222222
+      name: billing-prod
+      resourceName: billing-runtime
+      source:
+        group: acme
+        project: billing
+        environment: prod
+        pathPrefix: /runtime
+        viewId: 66666666-6666-4666-8666-666666666666
+      selection:
+        mode: Keys
+        keys:
+          - path: /runtime
+            name: DB_PASSWORD
+            targetKey: DB_PASSWORD
+            required: true
+      encryption:
+        mode: E2E
+        protocol: e2e2
+        trustKey: billing-prod-view
+        freshness:
+          mode: WitnessCurrent
+      target:
+        name: billing-env
+        type: Opaque
+        deletionPolicy: Retain
+        allowEmpty: false
+      rollout:
+        allowedDeployments:
+          - billing-api

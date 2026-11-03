@@ -1,0 +1,63 @@
+{{- if .Values.ha.enabled }}
+{{- $name := printf "%s-fencer" .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- $clusterName := printf "%s-%s" ($name | trunc 40 | trimSuffix "-") (printf "%s/%s" .Release.Namespace .Values.installation.installationID | sha256sum | trunc 12) }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: {{ $name }}, namespace: {{ .Release.Namespace }}}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    resourceNames: [{{ .Values.installation.serviceAccount | quote }}, {{ .Values.ha.fencer.serviceAccount.name | quote }}]
+    verbs: [get]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [{{ .Values.leaderElection.id | quote }}]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames:
+      - {{ .Values.ha.fencer.signingKeySecret.name | quote }}
+      - {{ .Values.ha.fencer.tlsSecret.name | quote }}
+      - {{ .Values.ha.fencer.gatewayClientSecret.name | quote }}
+    verbs: [get]
+  {{- range $kind := list "Secret" "Deployment" }}
+  {{- $names := list }}
+  {{- range $.Values.ha.managedObjects }}{{- if eq .kind $kind }}{{- $names = append $names .name }}{{- end }}{{- end }}
+  {{- if $names }}
+  - apiGroups: [{{ if eq $kind "Secret" }}""{{ else }}apps{{ end }}]
+    resources: [{{ if eq $kind "Secret" }}secrets{{ else }}deployments{{ end }}]
+    resourceNames:
+      {{- range $names }}
+      - {{ . | quote }}
+      {{- end }}
+    verbs: [get, patch]
+  {{- end }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: {{ $name }}, namespace: {{ .Release.Namespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $name }}}
+subjects: [{kind: ServiceAccount, name: {{ .Values.ha.fencer.serviceAccount.name }}, namespace: {{ .Release.Namespace }}}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: {{ $clusterName }}}
+rules:
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [{{ .Release.Namespace | quote }}]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: {{ $clusterName }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $clusterName }}}
+subjects: [{kind: ServiceAccount, name: {{ .Values.ha.fencer.serviceAccount.name }}, namespace: {{ .Release.Namespace }}}]
+{{- end }}

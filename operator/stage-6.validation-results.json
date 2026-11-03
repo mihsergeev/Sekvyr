@@ -1,0 +1,528 @@
+{
+  "stage": 6,
+  "verificationDate": "2026-11-02",
+  "timezone": "Europe/Moscow",
+  "status": "passed",
+  "nextStageStarted": false,
+  "published": false,
+  "productionDeployment": false,
+  "profile": "trial-canonical-journal-v1",
+  "operatorImageDigest": "sha256:491a91cc9aead9c6bbacfb33850a04928e512ad890057cb1183e1aed536ebd8b",
+  "backendImageDigest": "sha256:3e25b4aa6b85e5b1b1b828a6e5ff38f721d824a493f421f95566d4ba2eb5aa59",
+  "operator": {
+    "compiler": "go1.27.3 linux/amd64",
+    "allPackages": "passed with count=1",
+    "format": "passed",
+    "vet": "passed",
+    "moduleIntegrity": "all modules verified",
+    "race": {
+      "status": "passed",
+      "allPackagesChecked": 12,
+      "finalJournalAndFencingAfterAdmissionFix": "passed"
+    },
+    "fuzz": {
+      "status": "passed",
+      "requestedSeconds": 10,
+      "executions": 240622
+    },
+    "govulncheck": {
+      "version": "v1.9.0",
+      "result": "No vulnerabilities found"
+    },
+    "projectSelfcheck": "passed",
+    "diffWhitespace": "passed"
+  },
+  "backend": {
+    "status": "passed",
+    "uniqueTestsPassed": 629,
+    "sqlitePassed": 614,
+    "postgresOnlyPassed": 15,
+    "postgresRunPassed": 31,
+    "postgresRunRepeatedSQLiteCoverage": 16
+  },
+  "chart": {
+    "status": "passed",
+    "testsPassed": 14,
+    "helm": "v4.3.1"
+  },
+  "harness": {
+    "status": "passed",
+    "testsPassed": 131,
+    "skipped": 0,
+    "helm": "v4.3.1",
+    "securityAreas": [
+      "mutation and UID guards",
+      "real chart/schema rendering",
+      "exclusive reviewed candidates and lost acknowledgements",
+      "all rotation callbacks",
+      "checkpoint recovery",
+      "process and runtime watchdog control",
+      "exact image identity",
+      "HA request correlation and activation",
+      "bounded log redaction scan"
+    ]
+  },
+  "liveE2E": {
+    "status": "passed_with_stated_limits",
+    "kubernetes": "v1.34.1+k0s",
+    "scope": "One isolated test installation with actual TLS panel/PostgreSQL, canonical S3 journal gateway, two witness processes, two fencers, two operators and an envFrom Deployment",
+    "passed": [
+      "Native conditional S3 race: one winner, one version and retained COMPLIANCE version deletion denied",
+      "Exact object version and content survive storage Pod replacement",
+      "Gateway mTLS capabilities and unsafe operation denials; extra versions and delete markers fail closed on separate fault logs",
+      "Two actual witnesses race for one canonical slot and replay identical state",
+      "Gateway and witness restart preserve full journal replay",
+      "Signed native CLI initialize completes before the application starts; initial data verified without a historical restart",
+      "One selected data change creates exactly one new ReplicaSet and Pod with updated environment",
+      "New ciphertext with equal selected bytes preserves data revision and creates no extra ReplicaSet",
+      "Panel, witness and fencer outages preserve the verified Secret and application, with no restart on recovery",
+      "Wrong-audience and unbound tokens are rejected; valid bound leader token is accepted",
+      "Fourteen actual RBAC probes confirm exact operator privileges and forbidden broader access",
+      "Gateway outage blocks new data changes and preserves the application",
+      "One witness outage permits a fresh equal-value commit; returning witness replays the same state",
+      "Partial barriers leave the grant inactive, deny ordinary writes and recover without a restart after exact permission restoration",
+      "Old protected checkpoint restored into the same Secret UID with a new resourceVersion fails closed while witnesses are unavailable and heals only to the fresh journal head",
+      "Stale derived panel index cannot replace a fresh witness hash and is restored with an exact compare-and-swap",
+      "Runtime pilot pauses and resumes the same owned standby container, preserving application data and boot identity",
+      "Same Pod with a new running container and new process Lease identity accepts the same bound token for the new holder and rejects the old holder with exact LeaseMismatch",
+      "A genuinely already-approved external stale write receives actual storage CAS 409 after another replica installs every current barrier and activation, with the original owner still alive and paused; test Lease expiry is explicitly accelerated from fifteen to two seconds and the new leader restores fifteen seconds",
+      "Missing state produces StateMissing and DataCurrent False without changing selected data, revision or the application",
+      "Signed recovery completes in bootstrap generation two with new immutable references and a fresh successful sync, preserving the application and invalidating old rollout intent",
+      "Publisher, read, witness, administrator, fencer and node key rotations, followed by a fresh read-key rotation after the node change, pass actual retired-key negative checks",
+      "Both witness processes use the new signer and the panel receives its witness pin through a separate explicit configuration change",
+      "Signed recovery completes in bootstrap generation three using the rotated node, trust, state and fencer references with no historical rollout",
+      "A normal changed-value publication under the new keys creates exactly one new owned ReplicaSet and Pod with updated environment",
+      "A later equal-value publication under the new keys advances the canonical snapshot and fresh checkpoint without changing the opaque revision, Pod or ReplicaSet"
+    ],
+    "pending": [],
+    "networkPartition": "Not verified: the unique Pod tag did not enter the Cilium security identity, so a bounded deny-policy preflight did not block the diagnostic connection. Exact fault resources were removed. The core stale-owner case uses a live paused process with an already-approved pending write and makes no network-partition claim.",
+    "notAcceptedAsGreen": [
+      "Timeout instead of a storage CAS conflict",
+      "A held background write instead of the uniquely correlated external request",
+      "A missing containerID treated as a new process",
+      "Network policy YAML without an actual blocked connection"
+    ],
+    "passedGroupCount": 23,
+    "evidenceGroups": [
+      {
+        "description": "Two actual S3 processes conditional CAS; retained version delete denied",
+        "facts": {
+          "productInstalled": false,
+          "storageConformance": {
+            "crossGatewayConditionalWinners": 1,
+            "lockedVersionDeleteDenied": true,
+            "production": false,
+            "requiresSeparateJournalGateway": true,
+            "versionsAfterRace": 1
+          }
+        },
+        "id": "storage-cas",
+        "status": "PASS"
+      },
+      {
+        "description": "Acknowledged exact object version survived component restart",
+        "facts": {
+          "acknowledgedVersionSurvivedComponentRestart": true,
+          "initialPostRestartReadUnavailable": true,
+          "powerLossOrIndependentDomainProven": false,
+          "storageDeploymentRestartPerformed": true
+        },
+        "id": "storage-restart",
+        "status": "PASS"
+      },
+      {
+        "description": "mTLS profiles, unsafe APIs denied, duplicate version and delete marker fail closed",
+        "facts": {
+          "deleteMarker": {
+            "gatewayFailClosed": true,
+            "primaryLogUnaffected": true
+          },
+          "duplicateVersion": {
+            "gatewayFailClosed": true,
+            "primaryLogUnaffected": true
+          },
+          "gateway": {
+            "deleteVersionMultipartAndS3ProxyRoutesDenied": true,
+            "freshNonceJournalRoundTrip": true,
+            "production": false,
+            "retainedGenesisLogsInitialized": 4,
+            "runtimeProfilesCannotInitialize": 4,
+            "unconditionalPutDenied": true,
+            "unregisteredClientDenied": true
+          }
+        },
+        "id": "gateway-boundary",
+        "status": "PASS"
+      },
+      {
+        "description": "Two real witness processes: exactly one concurrent commit winner and same replay",
+        "facts": {
+          "canonicalJournalAdvancedExactlyOnce": true,
+          "conditionalCommitWinners": 1,
+          "production": false,
+          "replicaReplayAgreement": true,
+          "twoRealWitnessProcesses": true
+        },
+        "id": "witness-cas",
+        "status": "PASS"
+      },
+      {
+        "description": "Gateway and witness restart replay current independent journals",
+        "facts": {
+          "bothIndependentLogStatesPreserved": true,
+          "freshExternalReplaySucceeded": true,
+          "gatewayAndWitnessRestarted": true,
+          "physicalFaultDomainIndependenceProven": false,
+          "production": false
+        },
+        "id": "journal-restart",
+        "status": "PASS"
+      },
+      {
+        "description": "Own runtime role probes reach journal and cannot reach upstream S3",
+        "facts": {
+          "credentialsMountedInProbe": false,
+          "directS3TCPDenied": true,
+          "positiveJournalTCP": true,
+          "production": false
+        },
+        "id": "runtime-storage-network",
+        "status": "PASS"
+      },
+      {
+        "description": "Same-role runtime verified gateway mTLS and own Kubernetes read operations",
+        "facts": {
+          "api": [
+            {
+              "bounded": true,
+              "status": 200
+            },
+            {
+              "bounded": true,
+              "status": 200
+            },
+            {
+              "bounded": true,
+              "status": 200
+            },
+            {
+              "bounded": true,
+              "status": 200
+            }
+          ],
+          "journal": {
+            "bounded": true,
+            "status": 200
+          }
+        },
+        "id": "fencer-runtime-tls",
+        "status": "PASS"
+      },
+      {
+        "description": "Actual panel Kubernetes JWT login/report/view, staged first envelope and enrollment",
+        "facts": {
+          "actualInitialCanonicalCommit": true,
+          "actualPanelBootstrap": true,
+          "enrollmentCommitted": true,
+          "operatorStarted": false,
+          "production": false
+        },
+        "id": "panel-bootstrap",
+        "status": "PASS"
+      },
+      {
+        "description": "Signed Go initialization before first application start",
+        "facts": {
+          "historicalRolloutRequested": false,
+          "initialAppConsumedVerifiedBytes": true,
+          "initialReplicasetCount": 1,
+          "production": false,
+          "signedInitializationComplete": true
+        },
+        "id": "signed-initialize",
+        "status": "PASS"
+      },
+      {
+        "description": "Final image ready; two operator and fencer replicas, no historical rollout",
+        "facts": {
+          "finalImageAllFiveDeploymentsReady": true,
+          "initialDataCurrent": true,
+          "noHistoricalApplicationRollout": true,
+          "production": false,
+          "signedInitializeComplete": true,
+          "twoOperatorTwoFencerReady": true
+        },
+        "id": "ha-initialize",
+        "status": "PASS"
+      },
+      {
+        "description": "Six initial/change/equality/panel/witness/fencer actual cases",
+        "facts": {
+          "appProof": {
+            "newReplicaSetCount": 1,
+            "podTemplateOnlyOwnRestartAnnotation": true
+          },
+          "production": false
+        },
+        "id": "data-equal-outages",
+        "status": "PASS"
+      },
+      {
+        "description": "Bound tokens, wrong audience/unbound denials, exact operator RBAC probes",
+        "facts": {
+          "production": false,
+          "rbac": {
+            "fencerDeploymentPatchDenied": true,
+            "fencerPrivateMaterialDenied": true,
+            "operatorRBACTestedOperations": 14,
+            "secretCreateListWatchDeleteDenied": true
+          },
+          "tokenReview": {
+            "UnboundTokenRejected": true,
+            "currentBoundLeaderAccepted": true,
+            "wrongAudienceRejected": true
+          }
+        },
+        "id": "token-rbac",
+        "status": "PASS"
+      },
+      {
+        "description": "Gateway outage fail closed; no application restart on recovery",
+        "facts": {
+          "freshCurrentRecovered": true,
+          "gatewayOutageObservedDataCurrentFalse": true,
+          "noDataRevisionOrApplicationRestart": true,
+          "production": false
+        },
+        "id": "gateway-outage",
+        "status": "PASS"
+      },
+      {
+        "description": "One witness down while fresh current progresses; restarted replay agrees",
+        "facts": {
+          "equalDataNoRevisionOrRestart": true,
+          "oneWitnessUnavailableFreshDataProgress": true,
+          "production": false,
+          "restartedWitnessReplayAgreement": true
+        },
+        "id": "one-witness",
+        "status": "PASS"
+      },
+      {
+        "description": "Partial barriers cannot activate a grant or authorize ordinary data write",
+        "facts": {
+          "activationAbsentUntilAllBarriers": true,
+          "barrierFailureHTTP": 409,
+          "inactiveOrdinaryWriteHTTP": 403,
+          "partialBarrierProgressObserved": true,
+          "production": false,
+          "recoveryNoExtraRestart": true
+        },
+        "id": "partial-barrier",
+        "status": "PASS"
+      },
+      {
+        "description": "Same state UID/new Kubernetes RV restoration and derived panel-index rollback",
+        "facts": {
+          "derivedIndexRestoredByExactCAS": true,
+          "derivedIndexRollbackIgnoredFreshExactHashWins": true,
+          "freshWitnessHealsForwardNoHistoricalRollout": true,
+          "production": false,
+          "rawEtcdResourceVersionRewindTested": false,
+          "restoredCiphertextServerTested": false,
+          "sameUIDNewResourceVersionStateRestore": true,
+          "witnessOutageDataCurrentFalseNoDataWriteOrRestart": true
+        },
+        "id": "old-state-and-index",
+        "status": "PASS"
+      },
+      {
+        "description": "Exact own containerd task paused and resumed under independent watchdog",
+        "facts": {
+          "applicationNoRestart": true,
+          "exactSameRuntimeResumed": true,
+          "production": false,
+          "runtimePauseActuallyConfirmed": true,
+          "unrelatedTasksUntouched": true,
+          "watchdogSolePauseIssuer": true
+        },
+        "id": "runtime-pause",
+        "status": "PASS"
+      },
+      {
+        "description": "Same Pod new process; same bound token new holder valid, old holder LeaseMismatch",
+        "facts": {
+          "applicationNotRestarted": true,
+          "newLeaseProcessIdentity": true,
+          "oldHolderHTTP": 409,
+          "production": false,
+          "samePodNewProcessOldHolderDenied": true,
+          "samePodUIDNewContainerObserved": true,
+          "sameTokenNewHolderHTTP": 200,
+          "standbyPausedForControlledCase": true,
+          "termSignalAcknowledged": true
+        },
+        "id": "same-pod-process",
+        "status": "PASS"
+      },
+      {
+        "description": "Genuine allowed held request after paused-owner takeover rejected HTTP409",
+        "facts": {
+          "alreadyApprovedLateWriteHTTP": 409,
+          "boundedLeaseExpiryInjected": true,
+          "differentReplicaActivatedCanonicalGrant": true,
+          "genuineUpstreamAllowHeld": true,
+          "natural15SecondFailoverClaimed": false,
+          "oldPodAPIPartitionActuallyObserved": false,
+          "oldRuntimeTaskAlivePausedDuringTakeover": true,
+          "production": false,
+          "sameObjectStorageCASRejectedOldWrite": true,
+          "stopTheWorldOldOwnerTested": true
+        },
+        "id": "late-approved-cas",
+        "status": "PASS"
+      },
+      {
+        "description": "Missing-state fail closed then signed generation2 recovery without historical rollout",
+        "facts": {
+          "bootstrapGeneration": 2,
+          "missingStateFailClosed": true,
+          "production": false,
+          "sameDataNoHistoricalRollout": true,
+          "signedRecoveryComplete": true,
+          "twoFencerReplicas": true,
+          "twoOperatorReplicas": true
+        },
+        "id": "missing-state-recovery",
+        "status": "PASS"
+      },
+      {
+        "description": "Role rotations, retired key denials, generation3 recovery and one new-data rollout",
+        "facts": {
+          "bootstrapGeneration": 3,
+          "production": false,
+          "productionIndependentStorageClaim": false
+        },
+        "id": "all-key-rotations",
+        "rotationCases": [
+          "01-publisher",
+          "02-read",
+          "03-witness",
+          "04-admin",
+          "05-fencer",
+          "07-final-read",
+          "old-publisher",
+          "old-read-key-cannot-decrypt",
+          "old-witness-process-no-signing-fallback",
+          "old-admin",
+          "old-fencer",
+          "old-read-key-cannot-decrypt",
+          "old-node-cannot-unwrap-final-key",
+          "explicit-generation-recovery-no-historical-rollout",
+          "new-current-keys-one-normal-rollout"
+        ],
+        "status": "PASS"
+      },
+      {
+        "description": "Fresh equal publication with new keys creates no extra application RS/Pod",
+        "facts": {
+          "bootstrapGeneration": 3,
+          "newKeysEqualPublicationVerifiedFresh": true,
+          "noExtraOwnedReplicaSetOrPod": true,
+          "opaqueRevisionUnchanged": true,
+          "production": false
+        },
+        "id": "new-key-equality",
+        "status": "PASS"
+      },
+      {
+        "description": "Bounded retained own current/previous logs and own public CR status scan",
+        "facts": {
+          "canaryCount": 5,
+          "complete": true,
+          "confirmedLeaks": 0,
+          "incompleteStreams": 0,
+          "knownPatterns": 492,
+          "logStreams": 25,
+          "production": false,
+          "secretCount": 100,
+          "statusObjects": 2,
+          "truncatedStreams": 0
+        },
+        "id": "actual-logs-status-privacy",
+        "status": "PASS"
+      }
+    ]
+  },
+  "privacy": {
+    "status": "passed",
+    "candidateFilesScanned": 249,
+    "confirmedSecretsOrInternalData": 0,
+    "gitleaksRawExitCode": 1,
+    "gitleaksRawFindings": 4,
+    "gitleaksReview": "All four matches are intentionally public deterministic crypto test vectors; exact regeneration and the public 45-snapshot/20-wrap corpus checks passed",
+    "internalDataScannerReview": "All five groups are public SDK and test method identifiers, a synthetic test UID and public AWS regions; no real internal data",
+    "scannerAllowlistChanges": false,
+    "finalScan": "passed with manually verified public synthetic findings",
+    "runtimeLogsAndStatus": {
+      "canaryCount": 5,
+      "complete": true,
+      "confirmedLeaks": 0,
+      "incompleteStreams": 0,
+      "knownPatterns": 492,
+      "logStreams": 25,
+      "production": false,
+      "secretCount": 100,
+      "statusObjects": 2,
+      "truncatedStreams": 0
+    },
+    "internalDataScannerRawFindingGroups": 5
+  },
+  "cleanup": {
+    "privateBuildWorkerStopped": true,
+    "privateBuildProcessAndEndpointVerified": true,
+    "privateBuildNamespaceRunningTasks": 0,
+    "trialKubernetesResources": "removed",
+    "initialBaselineWorkloads": 53,
+    "finalBaselineVerification": "passed",
+    "generatedPrivateFixturesRemoved": true,
+    "baselineWorkloadCount": 53,
+    "baselineWorkloadUIDsAndSpecsUnchanged": true,
+    "baselineWorkloadsBelowReady": 0,
+    "copiedAdminKubeconfigRemoved": true,
+    "exactProcessPidfdSignals": 0,
+    "nodeCount": 1,
+    "ownClusterScopedResourcesAbsent": true,
+    "ownControlledTasksAbsent": true,
+    "ownNamespaceCountRemoved": 7,
+    "ownRuntimeWatchdogsRemaining": 0,
+    "ownScopedForwardsRemaining": 0,
+    "privateFixturesRemoved": true,
+    "production": false,
+    "readyNodeCount": 1,
+    "remainingTrialNamespaces": 0,
+    "remainingTrialPersistentVolumes": 0,
+    "status": "PASS",
+    "fullBaselineSnapshotsRemoved": 1,
+    "independentRootReadOnlyVerification": true,
+    "pinnedClusterResourcesChecked": 5
+  },
+  "limitations": [
+    "One test cluster does not prove independent production storage, administrator or backup fault domains",
+    "Trial Object Lock is not a physical WORM certification and a component restart is not a power-loss test",
+    "One honest logical witness is assumed; no Byzantine quorum or malicious operator/administrator tolerance is claimed",
+    "The profile supports one log, view and target Secret per installation, and Deployment workloads",
+    "Kubernetes resourceVersion CAS and honest API server behavior are assumed; no surviving approved request through raw etcd revision rewind is claimed",
+    "Journal verification and Kubernetes CAS are separate operations; no cross-system transaction or exactly-once workload restart is claimed",
+    "Only the stated Kubernetes and test storage/runtime combination is exercised",
+    "A real Cilium network partition was not demonstrated; the core stale-owner fault model is a live paused process with a pending approved write",
+    "The final approved-write CAS proof explicitly accelerates test Lease expiry; it is not a natural fifteen-second failover timing claim",
+    "Stage 7 has not started; no release or production deployment performed"
+  ],
+  "buildSourceSnapshot": {
+    "status": "passed",
+    "filesCompared": 187,
+    "differentFiles": 0,
+    "scope": "All operator Go sources including tests, module files and Dockerfile, plus backend app and migrations"
+  }
+}

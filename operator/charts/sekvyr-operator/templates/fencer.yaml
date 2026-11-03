@@ -1,0 +1,147 @@
+{{- if .Values.ha.enabled }}
+{{- $name := printf "%s-fencer" .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- $objects := dict }}
+{{- range .Values.ha.managedObjects }}
+{{- $_ := set $objects (printf "%s|%s|%s|%s" .apiVersion .kind .namespace .name) (dict "api_version" .apiVersion "kind" .kind "namespace" .namespace "name" .name "uid" .uid) }}
+{{- end }}
+{{- $ordered := list }}
+{{- range keys $objects | sortAlpha }}{{- $ordered = append $ordered (get $objects .) }}{{- end }}
+{{- $materials := list .Values.ha.fencer.signingKeySecret (dict "name" .Values.ha.fencer.tlsSecret.name "uid" .Values.ha.fencer.tlsSecret.uid "key" "tls.crt") .Values.ha.fencer.gatewayClientSecret }}
+{{- $server := dict "trial" true "installation_id" .Values.installation.installationID "log_id" .Values.ha.config.journal.log_id "minimum_cursor" .Values.ha.config.journal.minimum_cursor "namespace" .Release.Namespace "namespace_uid" .Values.ha.namespaceUID "operator_service_account_uid" .Values.ha.operatorServiceAccountUID "lease_uid" .Values.ha.leaseUID "fencer_service_account" .Values.ha.fencer.serviceAccount.name "fencer_service_account_uid" .Values.ha.fencer.serviceAccount.uid "bootstrap_subjects" .Values.ha.fencer.bootstrapSubjects "managed_objects" $ordered "material_pins" $materials }}
+{{- $journal := dict "format" "sekvyr-journal-client-config-v1" "origin" .Values.ha.config.gatewayOrigin "ca_file" "/etc/sekvyr/gateway-ca/ca.crt" "client_cert_file" "/etc/sekvyr/gateway-client/tls.crt" "client_key_file" "/etc/sekvyr/gateway-client/tls.key" "registrations" (list .Values.ha.config.journal) }}
+{{- $configName := printf "%s-config-%s" ($name | trunc 36 | trimSuffix "-") (printf "%s%s" ($server | toJson) ($journal | toJson) | sha256sum | trunc 12) }}
+{{- if .Values.ha.fencer.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.ha.fencer.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+automountServiceAccountToken: false
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $configName }}
+  namespace: {{ .Release.Namespace }}
+  {{- if .Values.configuration.retain }}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
+immutable: true
+data:
+  config.json: {{ $server | toJson | quote }}
+  client.json: {{ $journal | toJson | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.ha.fencer.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sekvyr-fencer
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sekvyr-fencer
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        secrets.sekvyr.ru/trial-role: fencer
+    spec:
+      serviceAccountName: {{ .Values.ha.fencer.serviceAccount.name }}
+      automountServiceAccountToken: false
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: fencer
+          image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [/sekvyr-fencer]
+          args:
+            - --allow-trial-fencing=true
+            - --config=/etc/sekvyr/fencer/config.json
+            - --journal-config=/etc/sekvyr/journal/client.json
+            - --signing-key=/etc/sekvyr/fencer-key/{{ .Values.ha.fencer.signingKeySecret.key }}
+            - --tls-cert=/etc/sekvyr/fencer-tls/tls.crt
+            - --tls-key=/etc/sekvyr/fencer-tls/tls.key
+            - --listen=:9443
+          ports: [{name: https, containerPort: 9443}]
+          readinessProbe:
+            httpGet: {scheme: HTTPS, path: /readyz, port: https}
+            timeoutSeconds: {{ int .Values.ha.fencer.readinessTimeoutSeconds }}
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+          livenessProbe:
+            httpGet: {scheme: HTTPS, path: /healthz, port: https}
+            timeoutSeconds: 1
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: configuration, mountPath: /etc/sekvyr/fencer, readOnly: true}
+            - {name: journal-config, mountPath: /etc/sekvyr/journal, readOnly: true}
+            - {name: signing-key, mountPath: /etc/sekvyr/fencer-key, readOnly: true}
+            - {name: tls, mountPath: /etc/sekvyr/fencer-tls, readOnly: true}
+            - {name: gateway-ca, mountPath: /etc/sekvyr/gateway-ca, readOnly: true}
+            - {name: gateway-client, mountPath: /etc/sekvyr/gateway-client, readOnly: true}
+            - {name: kube-api, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+      volumes:
+        - name: configuration
+          configMap: {name: {{ $configName }}, defaultMode: 0440, items: [{key: config.json, path: config.json}]}
+        - name: journal-config
+          configMap: {name: {{ $configName }}, defaultMode: 0440, items: [{key: client.json, path: client.json}]}
+        - name: signing-key
+          secret:
+            secretName: {{ .Values.ha.fencer.signingKeySecret.name }}
+            defaultMode: 0440
+            items: [{key: {{ .Values.ha.fencer.signingKeySecret.key }}, path: {{ .Values.ha.fencer.signingKeySecret.key }}}]
+        - name: tls
+          secret: {secretName: {{ .Values.ha.fencer.tlsSecret.name }}, defaultMode: 0440, items: [{key: tls.crt, path: tls.crt}, {key: tls.key, path: tls.key}]}
+        - name: gateway-ca
+          configMap:
+            name: {{ .Values.ha.config.gatewayCAConfigMapRef.name }}
+            defaultMode: 0440
+            items: [{key: {{ .Values.ha.config.gatewayCAConfigMapRef.key }}, path: ca.crt}]
+        - name: gateway-client
+          secret:
+            secretName: {{ .Values.ha.fencer.gatewayClientSecret.name }}
+            defaultMode: 0440
+            items: [{key: {{ .Values.ha.fencer.gatewayClientSecret.key }}, path: tls.crt}, {key: {{ .Values.ha.fencer.gatewayClientKeyKey }}, path: tls.key}]
+        - name: kube-api
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken: {path: token, expirationSeconds: 3600}
+              - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: ca.crt}]}
+              - downwardAPI:
+                  items: [{path: namespace, fieldRef: {apiVersion: v1, fieldPath: metadata.namespace}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app.kubernetes.io/name: sekvyr-fencer
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  ports: [{name: https, port: 9443, targetPort: https}]
+{{- end }}

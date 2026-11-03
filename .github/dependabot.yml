@@ -32,13 +32,19 @@ updates:
     schedule:
       interval: weekly
 
-  # Одной группой на три каталога: golang стоит и в backend/Dockerfile, и в
-  # agent/Dockerfile, и меняться он должен в обоих сразу.
+  - package-ecosystem: gomod
+    directory: /operator
+    schedule:
+      interval: weekly
+
+  # Версии Docker-образов обновляются общей группой для всех каталогов.
+  # golang в backend, agent и operator должен меняться согласованно.
   - package-ecosystem: docker
     directories:
       - /backend
       - /frontend
       - /agent
+      - /operator
     schedule:
       interval: weekly
     groups:

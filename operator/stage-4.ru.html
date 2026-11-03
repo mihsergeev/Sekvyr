@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sekvyr operator — этап 4</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#1c2836;--muted:#526376;--box:#f2f5f8;--line:#d0d9e3;--link:#155c9b;--ok:#13683d;--warn:#87530b}*{box-sizing:border-box}body{max-width:1060px;margin:auto;padding:30px 22px 60px;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,sans-serif}h1{font-size:1.8rem;line-height:1.25}h2{font-size:1.25rem;margin-top:2rem}p{margin:.8rem 0}a{color:var(--link)}code{font:0.9em ui-monospace,monospace;overflow-wrap:anywhere}.gate,.boundary{background:var(--box);padding:15px 18px;border-left:5px solid var(--ok)}.boundary{border-color:var(--warn)}table{border-collapse:collapse;width:100%;margin:1rem 0}th,td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}th{background:var(--box)}li{margin:.4rem 0}.muted{color:var(--muted)}pre{padding:16px;border:1px solid var(--line);background:var(--box);overflow:auto;font-size:13px}.scroll{overflow:auto}.ok{color:var(--ok);font-weight:650}@media(prefers-color-scheme:dark){:root{--bg:#121b25;--fg:#e0e8f0;--muted:#acbacb;--box:#1c2a38;--line:#41566a;--link:#8fcaff;--ok:#85dda9;--warn:#edbb6c}}@media(max-width:620px){body{padding:18px 13px 40px;font-size:15px}h1{font-size:1.45rem}table{font-size:13px}th,td{padding:8px}}@media print{:root{--bg:#fff;--fg:#000;--muted:#333;--box:#fff;--line:#999;--link:#000;--ok:#000;--warn:#000}body{max-width:none;padding:0;font-size:10.5pt}.gate,.boundary{border:1px solid #777}pre{white-space:pre-wrap}tr{break-inside:avoid}h2{break-after:avoid}}
+</style>
+<h1>Sekvyr operator: результат этапа 4</h1>
+<p>Реализована цепочка <strong>API панели → независимый witness → проверка E2E2 → долговечный checkpoint → Kubernetes Secret</strong>. Синхронизация включается явно: <code>sync.enabled=true</code>. По умолчанию она выключена.</p>
+<p class="gate"><strong>Этап 4 проверен на реальном тестовом Kubernetes.</strong> Все 15 сценариев живого E2E прошли. Этап 5 не начат. Перезапуск приложений оператором, выпуск, публикация и production rollout не выполнялись. Дальнейшая работа требует решения пользователя.</p>
+<h2>Что реализовано</h2>
+<div class="scroll"><table><thead><tr><th>Компонент</th><th>Поведение</th></tr></thead><tbody>
+<tr><td>API панели и миграция 0028</td><td>Стабильные UUID realm/project/environment/view/log, неизменяемые envelope по hash, явные reader grants и подписанные обертки ключа. Машинное чтение требует действующей личности и полного права на окружение. Панель не получает E2E2 read key или закрытый ключ publisher.</td></tr>
+<tr><td>Публикация</td><td>Доверенный publisher подписывает и размещает полный ciphertext. Witness отдельно проверяет подпись, область, эпохи, предыдущий hash и точный CAS. Индекс панели обновляется только после свежего подписанного witness proof и остается производным указателем.</td></tr>
+<tr><td>Сервис witness</td><td>Отдельный HTTPS-процесс, отдельный ключ и том. Offline genesis подписывает независимый администратор; runtime закрепляет его hash и ключ. Полный replay журнала, межпроцессная блокировка, исключающее создание записи и fsync до ответа. Сетевого reset/register/delete API нет.</td></tr>
+<tr><td>Транспорт</td><td>Точные разрешенные HTTPS origins, UID и DER pins доверенных CA, запрет redirect и прокси из окружения, ограничения времени и размера. Вход по projected ServiceAccount JWT; публичный ключ ноды отправляется отдельно от значений.</td></tr>
+<tr><td>Checkpoint</td><td>Предварительно созданный Secret с закрепленным UID. State связан с installation ID, bootstrap generation, trust bundle UID, ключом ноды, Store/binding/CR/target UID. Принятый high-watermark сохраняется через resourceVersion CAS <strong>до</strong> изменения целевого Secret.</td></tr>
+<tr><td>Целевой Secret</td><td>Только разрешенные имена в одном namespace. Чужие объекты не принимаются по labels или revision. Полный снимок проверяется до выбора ключей. Данные, непрозрачная случайная revision, checkpoint и неактивный rollout intent записываются вместе.</td></tr>
+<tr><td>Повторная синхронизация</td><td>Равные фактические данные сохраняют revision; новый canonical ciphertext может продвинуть checkpoint без перезагрузки приложения. Отказ чтения или проверки не меняет Secret. Ошибка записи target не откатывает уже сохраненный checkpoint; неоднозначный результат требует повторной сверки или административного восстановления. DataCurrent становится false, история последнего успешного применения сохраняется.</td></tr>
+<tr><td>Статус и RBAC</td><td>Статус ребенка закрепляет наблюденные UID/generation Store. Успех от старой конфигурации, suspended или deleting CR не считается текущим. DataCurrent отделен от готовности rollout. Нет прав list/watch/patch/delete для Secret и нет прав менять приложения.</td></tr>
+</tbody></table></div>
+<h2>Проверки</h2>
+<div class="scroll"><table><thead><tr><th>Проверка</th><th>Фактический результат</th></tr></thead><tbody>
+<tr><td>Все backend-тесты, Linux/Python 3.12</td><td class="ok">609 passed; отдельно все 15 PostgreSQL-only тестов — PASS, включая миграцию до 0028, downgrade и конкурентные операции. Всего 624 пройденных теста.</td></tr>
+<tr><td>Go</td><td class="ok">Все пакеты: go test и go vet; go mod verify. Race detector для codec, witness, verifier, witness service, transport, syncer, controller и panel auth — PASS.</td></tr>
+<tr><td>Враждебный JSON и зависимости</td><td class="ok">Fuzz smoke — PASS. govulncheck — No vulnerabilities found.</td></tr>
+<tr><td>CRD/Helm</td><td class="ok">9 проверок schema, генерации, Helm rendering и ограниченного RBAC — PASS.</td></tr>
+<tr><td>Живой Kubernetes 1.34.1, k0s</td><td class="ok">15/15 — PASS, exit 0: настоящие панель/PostgreSQL, отдельный TLS witness, оператор и pod с Secret volume. Проверены также UID/generation привязки сводного статуса Store.</td></tr>
+<tr><td>Защита публичных материалов</td><td class="ok">Проверены новые и измененные исходники, HTML и JSON: подтвержденных секретов, внутренних имен и адресов нет. JSON и локальные ссылки отчета проверены; внешних ресурсов HTML нет.</td></tr>
+</tbody></table></div>
+<p>Первый тестовый запуск обнаружил ошибку harness: возвращенный инициализацией ключ распечатывания панели не сохранялся для рестарта. Ошибка исправлена, повторный полный прогон выполнен с чистой установкой и новым журналом. Требование распечатывания панели сохранено; восстановление после ее отключения прошло через штатный TLS API.</p>
+<h2>Пройденные сценарии живой приемки</h2>
+<ul>
+<li>Первый подписанный снимок доходит до настоящего Secret и читается приложением.</li>
+<li>Обновление значений подхватывается приложением с прежними boot ID и PID. Canary читает пару файлов через один разрешенный каталог AtomicWriter <code>..data</code>.</li>
+<li>Новый ciphertext с тем же plaintext продвигает checkpoint, сохраняя revision и счетчик reload.</li>
+<li>Подмена подписи, ciphertext, старый envelope и fork отклоняются; предыдущие принятые данные сохраняются. Устаревший индекс панели не выбирает head.</li>
+<li>Остановка панели и witness помечает данные как нетекущие, сохраняя последний Secret. После восстановления проверяется свежий canonical head.</li>
+<li>Рестарт оператора сохраняет ключ ноды и checkpoint. Потеря или замена state с прежним именем не приводит к новому автоматическому bootstrap.</li>
+<li>Чужой Secret остается неизменным. Проверяются фактические запреты RBAC, отсутствие секретов в логах и публичном CR status.</li>
+</ul>
+<h2>Границы результата</h2>
+<p class="boundary"><strong>Это еще не production readiness.</strong> Реализован явный профиль <code>development-filesystem-not-worm</code>, требующий <code>--allow-development-filesystem-ledger</code>. Обычная файловая система не защищает журнал от привилегированного удаления или физического отката. Для production требуется отдельно проверенная независимость неизменяемого журнала и его restore-domain.</p>
+<ul>
+<li>Тестовое приложение само умеет перечитывать Secret volume. Произвольное приложение должно поддерживать такой reload; переменные окружения уже работающего процесса от обновления Secret не изменяются.</li>
+<li>Оператор не перезапускает Deployment. Rollout intent имеет <code>eligible=false</code>; опциональный перезапуск относится к этапу 5.</li>
+<li>HA fencing, ротации ключей/полномочий и полные процедуры восстановления остаются для этапа 6. Текущий сервис отклоняет неподдерживаемые переходы полномочий.</li>
+<li>Транзакции между CR, Store, state и target нет. Повторная проверка полномочий уменьшает окно гонки, но не обещает мгновенный отзыв уже выполняющейся записи.</li>
+<li>Потеря state и неоднозначный crash после создания target требуют явного административного восстановления. Оператор не восстанавливает доверие из labels или annotations.</li>
+<li>Панель после рестарта может требовать штатного распечатывания. Последние значения в уже работающем приложении при этом сохраняются.</li>
+<li>Проверен один тестовый Kubernetes 1.34.1. Остальные Kubernetes/storage комбинации этим прогоном не подтверждены.</li>
+<li>Синхронизация этого этапа реализована для E2E2. Plain/E2E1 runtime оператора, интерфейс управления publisher/grants, миграции существующих проектов и UI совместимости не входят в результат. Legacy emergency export явно отказывает при наличии E2E2 views.</li>
+<li>Успешный reconcile не стирает старые значения из памяти приложения и не предотвращает показ старого уже существующего Secret при административном restore etcd. Для строгой свежести при старте потребуется отдельный admission/app gate.</li>
+<li>Совместный откат всех независимых корней доверия и журнала невозможно обнаружить этим протоколом. Независимый trusted publisher также обязателен: вредоносный код интерфейса панели не должен получать разблокированные publisher keys.</li>
+</ul>
+<h2>Окружение после тестов</h2>
+<p>Ресурсы обоих удаленных тестовых запусков убраны: восемь namespace, два тестовых CRD и связанные persistent volumes отсутствуют. Независимая проверка подтвердила Ready всех нод и штатных workloads. Временные port-forward и отдельный процесс сборки остановлены; сгенерированные ключи, пароли и копии административного kubeconfig удалены из обоих каталогов тестов.</p>
+<p>Локальный kind от первой попытки пока недоступен: WSL не отвечает даже на отдельный короткий probe. Общая перезагрузка WSL и очистка чужих ресурсов не выполнялись. Этот локальный остаток не использовался как доказательство успешного E2E.</p>
+<h2>Контракт и исходники</h2>
+<p>После обновления canary: один reload, ноль ошибок чтения конфигурации и ноль рестартов контейнера; durable checkpoint достиг sequence 3. После намеренной замены state итоговые Ready/DataCurrent стали false — это ожидаемое завершение отрицательного теста.</p>
+<p><a href="stage-4.contract.json">Машиночитаемый контракт этапа 4</a>; <a href="tests/stage4/README.html">повторение E2E</a>; <a href="internal/witnessservice/README.html">профиль witness и HTTP API</a>; <a href="stage-4.validation-results.json">сводка проверок</a>.</p>
+<p>Основные каталоги: <code>backend/app/e2e2.py</code>, <code>backend/app/api/e2e2.py</code>, <code>operator/internal/{transport,syncer,witnessservice,controller}</code>, <code>operator/charts/sekvyr-operator</code>, <code>operator/tests/stage4</code>.</p>
+<p class="muted">Все тестовые учетные данные, сертификаты и закрытые ключи создаются вне репозитория. Адрес стенда, имя ноды и служебные пути в этот отчет не включены. Изменения не опубликованы.</p>
+</html>

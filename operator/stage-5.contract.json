@@ -1,0 +1,60 @@
+{
+  "stage": 5,
+  "protocol": "e2e2",
+  "release": false,
+  "defaultEnabled": false,
+  "enablement": {
+    "installation": "Helm sync.enabled=true, rollout.enabled=true and exact rollout.allowedDeployments; --enable-rollout must match administrative rolloutEnabled and requires --enable-sync",
+    "request": "SekvyrSecret.spec.rollout.enabled=true with explicit Deployment names",
+    "authorization": "Every requested name must be in both the Store binding allowlist and the independent installation allowlist",
+    "namespace": "Only the installation namespace",
+    "workloads": "Deployment only; no StatefulSet/DaemonSet/hooks/Pod deletion/scale"
+  },
+  "eligibility": {
+    "trigger": "A complete currently verified snapshot changes selected data bytes of an existing managed Secret",
+    "initialCreate": "Inactive intent; no application restart",
+    "equalData": "Preserve opaque revision and do not create new eligibility, including equal plaintext in a newly encrypted canonical envelope",
+    "enableOrResume": "Does not create historical eligibility. Generation/context changes invalidate older pending intent",
+    "revision": "Random opaque 128-bit identifier, not a plaintext hash",
+    "atomicTargetWrite": "Complete data, revision, accepted checkpoint and exact intent annotation are written together after protected authorization CAS"
+  },
+  "protectedAuthority": {
+    "location": "Existing UID-pinned state Secret state.json; Record.rollout is optional for older state",
+    "authorization": "Full versioned intent, canonical metadata hash, cancelled flag and per-Deployment applied receipts",
+    "binding": ["installation/bootstrap generation", "CR UID and generation", "Store UID and generation", "binding ID", "target Secret UID", "opaque data revision", "exact Deployment names and observed UIDs"],
+    "order": "Persist prepared authorization before target write. Before every workload patch, confirm protected exact head, target UID, verified target bytes and matching public revision/intent",
+    "untrustedMarkers": "Public Secret/Deployment annotations cannot create or reconstruct eligibility. Forged, missing or mismatched authority fails closed",
+    "completion": "Applied receipts prevent a removed or altered completion annotation from causing another patch for the same authorization",
+    "partialWrite": "Crash after patch before receipt may recover from the exact existing marker. Ambiguous state-ahead/target-ahead writes fail closed and can require administrative repair",
+    "formatting": "Guard and Result String/GoString redact captured verified values"
+  },
+  "deployment": {
+    "consumption": "Actual envFrom.secretRef, env.valueFrom.secretKeyRef, or mounted Secret/projected Secret volume in regular or init containers. Unmounted volumes, labels and imagePullSecrets do not count",
+    "identity": "A known UID is not repinned within the same CR/Store generation context and target-name list, even after completion/cancellation or public marker tampering",
+    "reauthorization": "Changing CR/Store generation is a new administrative authorization context and may establish current Deployment UIDs. Hostile namespace multi-tenancy is not supported",
+    "deferredObservation": "If an authorized data update cannot observe a Deployment UID, its protected candidate can resolve the exact allowed name once after fresh verification. This first observation may restart an application created after the Secret update; no creation-time freshness heuristic is claimed",
+    "patch": "Fresh uncached GET, JSON Patch tests for exact UID and resourceVersion, then only own Pod-template annotation",
+    "annotation": "secrets.sekvyr.ru/restart-<target Secret UID>",
+    "value": "Opaque data revision",
+    "preserved": ["images", "commands", "environment", "replicas", "strategy", "other annotations"],
+    "paused": "Block workload patch while preserving successful Secret synchronization",
+    "progress": "Observe current generation and replica convergence. An old failed generation does not block one attempt for a new authorized revision; a current failed revision is not repeatedly patched"
+  },
+  "debounce": {"scope": "One binding/target Secret, not a transaction across several Secrets", "quietSeconds": 5, "maximumSeconds": 30, "deadline": "min(last actual change + 5s, first incomplete authorized change + 30s)", "persistence": "Intent timestamps are durable; operator restart does not reset the deadline"},
+  "sourceFailures": {
+    "availability": "Panel/witness outage, sealed panel or rate limiting freezes pending E2E2 rollout. Every retry requires a new successful strict-current Reader; no cached proof fallback",
+    "terminalDenial": "Explicit fixed AccessDenied/AuthenticationDenied/ScopeDenied invalidates the matching protected pending authorization; stale cancellation cannot cancel a newer context",
+    "suspendOrDelete": "No source fetch or workload patch. The next context must match before any pending rollout can execute"
+  },
+  "status": "DataCurrent describes verified Secret synchronization; RolloutReady independently describes requested rollout authorization/progress. Ready requires both when rollout is requested",
+  "rbac": "Only when enabled: apps/deployments get and patch with exact resourceNames. No Deployment update/list/watch, scale or Pod-delete grants",
+  "coexistence": "Choose one controller to restart a given application for this Secret. Existing external reloaders can independently cause extra restarts; the operator does not change their configuration. The E2E fixture explicitly opts out of Stakater Reloader only on its own Deployment",
+  "limitations": [
+    "No cross-object atomic transaction or exactly-once rollout guarantee",
+    "No instantaneous revocation/fencing or HA guarantee; these remain for stage 6",
+    "Development filesystem witness is not WORM and does not prove independent production restore storage",
+    "No automatic recovery/reset from lost protected state or replaced target identity",
+    "Older stage-4 binaries may reject the additional state fields; downgrade migration/release compatibility is not claimed",
+    "No production deployment, publication or stage-6 work is authorized by this result"
+  ]
+}

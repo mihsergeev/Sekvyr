@@ -1,0 +1,547 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sekvyr.ru/spec/e2e2/v1/design.schema.json",
+  "title": "E2E2 envelopes, reader payloads and head proofs",
+  "description": "Protocol shape only; byte-canonicalization, signatures, checkpoints and witness authorization require independent semantic verification.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Envelope"
+    },
+    {
+      "$ref": "#/$defs/HeadProof"
+    },
+    {
+      "$ref": "#/$defs/Plaintext"
+    },
+    {
+      "$ref": "#/$defs/ReaderWrap"
+    },
+    {
+      "$ref": "#/$defs/ReaderPayload"
+    }
+  ],
+  "$defs": {
+    "ReaderPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {"const": "sekvyr-e2e2-read-key-v1"},
+        "context": {"$ref": "#/$defs/ReaderWrap/properties/body/properties/context"},
+        "read_key": {
+          "type": "string",
+          "minLength": 43,
+          "maxLength": 43,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      },
+      "required": ["format", "context", "read_key"]
+    },
+    "Envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "header": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "protocol": {
+                  "const": "e2e2"
+                },
+                "suite": {
+                  "const": "HKDF-SHA256+A256GCM+Ed25519"
+                },
+                "intent": {
+                  "const": "publish"
+                },
+                "realm_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "project_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "environment_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "view_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "log_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "sequence": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,19}$"
+                },
+                "previous_hash": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "read_key_epoch": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,19}$"
+                },
+                "publisher_policy_epoch": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,19}$"
+                },
+                "publisher_key_id": {
+                  "type": "string",
+                  "pattern": "^ed25519-sha256:[0-9a-f]{64}$"
+                },
+                "snapshot_salt": {
+                  "type": "string",
+                  "minLength": 43,
+                  "maxLength": 43,
+                  "pattern": "^[A-Za-z0-9_-]+$"
+                },
+                "entry_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1024
+                },
+                "action": {
+                  "enum": [
+                    "initial",
+                    "update",
+                    "restore",
+                    "rotate-read-key",
+                    "migrate"
+                  ]
+                },
+                "restored_from": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  ]
+                },
+                "parents": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "realm_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      },
+                      "project_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      },
+                      "environment_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      },
+                      "view_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      },
+                      "log_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      },
+                      "sequence": {
+                        "type": "string",
+                        "pattern": "^[1-9][0-9]{0,19}$"
+                      },
+                      "envelope_hash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    },
+                    "required": [
+                      "realm_id",
+                      "project_id",
+                      "environment_id",
+                      "view_id",
+                      "log_id",
+                      "sequence",
+                      "envelope_hash"
+                    ]
+                  },
+                  "maxItems": 16,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "protocol",
+                "suite",
+                "intent",
+                "realm_id",
+                "project_id",
+                "environment_id",
+                "view_id",
+                "log_id",
+                "sequence",
+                "previous_hash",
+                "read_key_epoch",
+                "publisher_policy_epoch",
+                "publisher_key_id",
+                "snapshot_salt",
+                "entry_count",
+                "action",
+                "restored_from",
+                "parents"
+              ],
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "action": {
+                        "const": "restore"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "restored_from": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "restored_from": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "nonce": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 16,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "ciphertext": {
+              "type": "string",
+              "minLength": 22,
+              "maxLength": 12000000,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          },
+          "required": [
+            "header",
+            "nonce",
+            "ciphertext"
+          ]
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 86,
+          "maxLength": 86,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      },
+      "required": [
+        "body",
+        "signature"
+      ]
+    },
+    "HeadProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": "sekvyr-e2e2-head-v1"
+            },
+            "realm_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "project_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "environment_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "view_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "log_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "witness_epoch": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,19}$"
+            },
+            "sequence": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "envelope_hash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "read_key_epoch": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "publisher_policy_epoch": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "request_nonce": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "witness_key_id": {
+              "type": "string",
+              "pattern": "^ed25519-sha256:[0-9a-f]{64}$"
+            },
+            "floor_sequence": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "floor_hash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "format",
+            "realm_id",
+            "project_id",
+            "environment_id",
+            "view_id",
+            "log_id",
+            "witness_epoch",
+            "sequence",
+            "envelope_hash",
+            "read_key_epoch",
+            "publisher_policy_epoch",
+            "request_nonce",
+            "witness_key_id",
+            "floor_sequence",
+            "floor_hash"
+          ]
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 86,
+          "maxLength": 86,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      },
+      "required": [
+        "body",
+        "signature"
+      ]
+    },
+    "Plaintext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "sekvyr-e2e2-values-v1"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "realm_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "project_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "environment_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "view_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "log_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          "required": [
+            "realm_id",
+            "project_id",
+            "environment_id",
+            "view_id",
+            "log_id"
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^/"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "value": {
+                "type": "string",
+                "maxLength": 200000
+              }
+            },
+            "required": [
+              "path",
+              "name",
+              "value"
+            ]
+          },
+          "maxItems": 1024,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "format",
+        "context",
+        "entries"
+      ]
+    },
+    "ReaderWrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "context": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "protocol": {
+                  "const": "e2e2-reader-key-v1"
+                },
+                "realm_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "project_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "environment_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "view_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "log_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "read_key_epoch": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,19}$"
+                },
+                "publisher_policy_epoch": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,19}$"
+                },
+                "publisher_key_id": {
+                  "type": "string",
+                  "pattern": "^ed25519-sha256:[0-9a-f]{64}$"
+                },
+                "recipient_fingerprint": {
+                  "type": "string",
+                  "pattern": "^p256-sha256:[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "protocol",
+                "realm_id",
+                "project_id",
+                "environment_id",
+                "view_id",
+                "log_id",
+                "read_key_epoch",
+                "publisher_policy_epoch",
+                "publisher_key_id",
+                "recipient_fingerprint"
+              ]
+            },
+            "ephemeral_public": {
+              "type": "string",
+              "minLength": 87,
+              "maxLength": 87,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "salt": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "nonce": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 16,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "ciphertext": {
+              "type": "string",
+              "minLength": 22,
+              "maxLength": 2752,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          },
+          "required": [
+            "context",
+            "ephemeral_public",
+            "salt",
+            "nonce",
+            "ciphertext"
+          ]
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 86,
+          "maxLength": 86,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      },
+      "required": [
+        "body",
+        "signature"
+      ]
+    }
+  }
+}

@@ -31,3 +31,9 @@ CHANGELOG.internal.ru.md
 **/*.key
 **/*.unseal
 **/*.sealed
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.kdbx
+# The panel image only copies backend and agent sources.
+operator/

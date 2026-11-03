@@ -1,0 +1,1118 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "image",
+    "replicas",
+    "nodeSelector",
+    "serviceAccount",
+    "leaderElection",
+    "configuration",
+    "auth",
+    "sync",
+    "rollout",
+    "installation",
+    "resources",
+    "ha"
+  ],
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "digest",
+        "pullPolicy"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253,
+          "pattern": "^[a-z0-9][a-z0-9./:_-]*$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": [
+            "IfNotPresent",
+            "Always",
+            "Never"
+          ]
+        }
+      }
+    },
+    "replicas": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "nodeSelector": {
+      "type": "object",
+      "maxProperties": 16,
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 63
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["create", "uid"],
+      "properties": {
+        "create": {"type": "boolean"},
+        "uid": {"type": "string", "pattern": "^(|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"}
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["retain"],
+      "properties": {"retain": {"type": "boolean"}}
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokenExpirationSeconds"],
+      "properties": {"tokenExpirationSeconds": {"type": "integer", "minimum": 600, "maximum": 3600}}
+    },
+    "leaderElection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "create",
+        "uid"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/name"
+        },
+        "create": {"type": "boolean"},
+        "uid": {"type": "string", "pattern": "^(|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"}
+      }
+    },
+    "sync": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "rollout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "allowedDeployments"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "allowedDeployments": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/name"
+          }
+        }
+      }
+    },
+    "installation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installationID",
+        "namespace",
+        "serviceAccount",
+        "bootstrapGeneration",
+        "allowedPanelOrigins",
+        "allowedWitnessOrigins",
+        "identityKeySecret",
+        "trustBundleSecret",
+        "stateSecret",
+        "protectedSecretNames",
+        "protectedSecretUIDs",
+        "protectedPrefixes",
+        "caConfigMaps",
+        "allowedTargetSecrets"
+      ],
+      "properties": {
+        "installationID": {
+          "$ref": "#/definitions/uuid"
+        },
+        "namespace": {
+          "type": "string",
+          "maxLength": 63,
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+        },
+        "serviceAccount": {
+          "$ref": "#/definitions/name"
+        },
+        "bootstrapGeneration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "allowedPanelOrigins": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/origin"
+          }
+        },
+        "allowedWitnessOrigins": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/origin"
+          }
+        },
+        "identityKeySecret": {
+          "$ref": "#/definitions/secretPin"
+        },
+        "trustBundleSecret": {
+          "$ref": "#/definitions/secretPin"
+        },
+        "stateSecret": {
+          "$ref": "#/definitions/secretPin"
+        },
+        "protectedSecretNames": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/name"
+          }
+        },
+        "protectedSecretUIDs": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/uuid"
+          }
+        },
+        "protectedPrefixes": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253,
+            "pattern": "^[a-z0-9.-]+$"
+          }
+        },
+        "allowedTargetSecrets": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/name"
+          }
+        },
+        "caConfigMaps": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "uid",
+              "key",
+              "derSetSHA256"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "#/definitions/name"
+              },
+              "uid": {
+                "$ref": "#/definitions/uuid"
+              },
+              "key": {
+                "$ref": "#/definitions/dataKey"
+              },
+              "derSetSHA256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          }
+        },
+        "witnessCAConfigMapRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "key"
+          ],
+          "properties": {
+            "name": {
+              "$ref": "#/definitions/name"
+            },
+            "key": {
+              "$ref": "#/definitions/dataKey"
+            }
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requests",
+        "limits"
+      ],
+      "properties": {
+        "requests": {
+          "$ref": "#/definitions/quantities"
+        },
+        "limits": {
+          "$ref": "#/definitions/quantities"
+        }
+      }
+    },
+    "ha": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "trial": {
+          "type": "boolean"
+        },
+        "maintenance": {
+          "type": "boolean"
+        },
+        "namespaceUID": {
+          "type": "string"
+        },
+        "operatorServiceAccountUID": {
+          "type": "string"
+        },
+        "leaseUID": {
+          "type": "string"
+        },
+        "managedObjects": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "apiVersion": {
+                "type": "string",
+                "enum": [
+                  "v1",
+                  "apps/v1"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "Secret",
+                  "Deployment"
+                ]
+              },
+              "namespace": {
+                "type": "string",
+                "maxLength": 63
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 253
+              },
+              "uid": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "trial": {
+              "type": "boolean"
+            },
+            "fencerOrigin": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "allowedFencerOrigins": {
+              "type": "array",
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 2048
+              }
+            },
+            "fencerCAConfigMapRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "maxLength": 253
+                },
+                "key": {
+                  "type": "string",
+                  "maxLength": 253,
+                  "not": {
+                    "enum": [
+                      ".",
+                      ".."
+                    ]
+                  }
+                }
+              }
+            },
+            "gatewayOrigin": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "gatewayCAConfigMapRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "maxLength": 253
+                },
+                "key": {
+                  "type": "string",
+                  "maxLength": 253,
+                  "not": {
+                    "enum": [
+                      ".",
+                      ".."
+                    ]
+                  }
+                }
+              }
+            },
+            "gatewayClientSecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "maxLength": 253
+                },
+                "uid": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string",
+                  "maxLength": 253,
+                  "not": {
+                    "enum": [
+                      ".",
+                      ".."
+                    ]
+                  }
+                }
+              }
+            },
+            "gatewayClientKeyKey": {
+              "type": "string",
+              "maxLength": 253,
+              "not": {
+                "enum": [
+                  ".",
+                  ".."
+                ]
+              }
+            },
+            "journal": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "log_id": {
+                  "type": "string"
+                },
+                "genesis_hash": {
+                  "type": "string"
+                },
+                "admin_public_key": {
+                  "type": "string"
+                },
+                "minimum_cursor": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "journal_sequence": {
+                      "type": "string"
+                    },
+                    "record_hash": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "fencer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "readinessTimeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 30},
+            "replicas": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3
+            },
+            "serviceAccount": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "create": {"type": "boolean"},
+                "name": {
+                  "type": "string",
+                  "maxLength": 253
+                },
+                "uid": {
+                  "type": "string"
+                }
+              }
+            },
+            "signingKeySecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "maxLength": 253
+                },
+                "uid": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string",
+                  "maxLength": 253,
+                  "not": {
+                    "enum": [
+                      ".",
+                      ".."
+                    ]
+                  }
+                }
+              }
+            },
+            "tlsSecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "maxLength": 253
+                },
+                "uid": {
+                  "type": "string"
+                }
+              }
+            },
+            "gatewayClientSecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "maxLength": 253
+                },
+                "uid": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string",
+                  "maxLength": 253,
+                  "not": {
+                    "enum": [
+                      ".",
+                      ".."
+                    ]
+                  }
+                }
+              }
+            },
+            "gatewayClientKeyKey": {
+              "type": "string",
+              "maxLength": 253,
+              "not": {
+                "enum": [
+                  ".",
+                  ".."
+                ]
+              }
+            },
+            "bootstrapSubjects": {
+              "type": "array",
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "username": {
+                    "type": "string",
+                    "maxLength": 253
+                  },
+                  "uid": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "webhook": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "serviceName": {
+              "type": "string",
+              "maxLength": 63
+            },
+            "caBundle": {
+              "type": "string",
+              "maxLength": 131072
+            },
+"retiredStateSecrets": {
+              "type": "array",
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "uid"],
+                "properties": {
+                  "name": {"type": "string", "minLength": 1, "maxLength": 253, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"},
+                  "uid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "enabled"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"replicas": {"const": 0}}, "required": ["replicas"]},
+      "then": {"properties": {"ha": {"required": ["enabled", "maintenance"], "properties": {
+        "enabled": {"const": true}, "maintenance": {"const": true}
+      }}}, "required": ["ha"]}
+    },
+    {
+      "if": {"properties": {"ha": {"properties": {"maintenance": {"const": true}}, "required": ["maintenance"]}}, "required": ["ha"]},
+      "then": {"properties": {"replicas": {"const": 0}, "ha": {"properties": {"enabled": {"const": true}}, "required": ["enabled"]}}}
+    },
+    {
+      "if": {
+        "properties": {
+          "sync": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          }
+        },
+        "required": [
+          "sync"
+        ]
+      },
+      "then": {
+        "properties": {
+          "installation": {
+            "properties": {
+              "allowedTargetSecrets": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "rollout": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          }
+        },
+        "required": [
+          "rollout"
+        ]
+      },
+      "then": {
+        "properties": {
+          "sync": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "rollout": {
+            "properties": {
+              "allowedDeployments": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ha": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          }
+        },
+        "required": [
+          "ha"
+        ]
+      },
+      "then": {
+        "properties": {
+          "ha": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "enabled",
+              "trial",
+              "namespaceUID",
+              "operatorServiceAccountUID",
+              "leaseUID",
+              "managedObjects",
+              "config",
+              "fencer",
+              "webhook"
+            ],
+            "properties": {
+              "enabled": {
+                "const": true
+              },
+              "trial": {
+                "const": true
+              },
+              "maintenance": {
+                "type": "boolean"
+              },
+              "namespaceUID": {
+                "$ref": "#/definitions/uuid"
+              },
+              "operatorServiceAccountUID": {
+                "$ref": "#/definitions/uuid"
+              },
+              "leaseUID": {
+                "$ref": "#/definitions/uuid"
+              },
+              "managedObjects": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 64,
+                "uniqueItems": true,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "apiVersion",
+                    "kind",
+                    "namespace",
+                    "name",
+                    "uid"
+                  ],
+                  "properties": {
+                    "apiVersion": {
+                      "type": "string",
+                      "enum": [
+                        "v1",
+                        "apps/v1"
+                      ]
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "Secret",
+                        "Deployment"
+                      ]
+                    },
+                    "namespace": {
+                      "type": "string",
+                      "maxLength": 63,
+                      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                    },
+                    "name": {
+                      "$ref": "#/definitions/name"
+                    },
+                    "uid": {
+                      "$ref": "#/definitions/uuid"
+                    }
+                  }
+                }
+              },
+              "config": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "trial",
+                  "fencerOrigin",
+                  "allowedFencerOrigins",
+                  "fencerCAConfigMapRef",
+                  "gatewayOrigin",
+                  "gatewayCAConfigMapRef",
+                  "gatewayClientSecret",
+                  "gatewayClientKeyKey",
+                  "journal"
+                ],
+                "properties": {
+                  "trial": {
+                    "const": true
+                  },
+                  "fencerOrigin": {
+                    "$ref": "#/definitions/origin"
+                  },
+                  "allowedFencerOrigins": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 64,
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/definitions/origin"
+                    }
+                  },
+                  "fencerCAConfigMapRef": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "key"
+                    ],
+                    "properties": {
+                      "name": {
+                        "$ref": "#/definitions/name"
+                      },
+                      "key": {
+                        "$ref": "#/definitions/dataKey"
+                      }
+                    }
+                  },
+                  "gatewayOrigin": {
+                    "$ref": "#/definitions/origin"
+                  },
+                  "gatewayCAConfigMapRef": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "key"
+                    ],
+                    "properties": {
+                      "name": {
+                        "$ref": "#/definitions/name"
+                      },
+                      "key": {
+                        "$ref": "#/definitions/dataKey"
+                      }
+                    }
+                  },
+                  "gatewayClientSecret": {
+                    "$ref": "#/definitions/secretPin"
+                  },
+                  "gatewayClientKeyKey": {
+                    "$ref": "#/definitions/dataKey"
+                  },
+                  "journal": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "log_id",
+                      "genesis_hash",
+                      "admin_public_key",
+                      "minimum_cursor"
+                    ],
+                    "properties": {
+                      "log_id": {
+                        "$ref": "#/definitions/uuid"
+                      },
+                      "genesis_hash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "admin_public_key": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{43}$"
+                      },
+                      "minimum_cursor": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "journal_sequence",
+                          "record_hash"
+                        ],
+                        "properties": {
+                          "journal_sequence": {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]{0,19})$"
+                          },
+                          "record_hash": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "fencer": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "replicas",
+                  "serviceAccount",
+                  "signingKeySecret",
+                  "tlsSecret",
+                  "gatewayClientSecret",
+                  "gatewayClientKeyKey",
+                  "bootstrapSubjects"
+                ],
+                "properties": {
+                  "readinessTimeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 30},
+                  "replicas": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3
+                  },
+                  "serviceAccount": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "uid"
+                    ],
+                    "properties": {
+                      "create": {"type": "boolean"},
+                      "name": {
+                        "$ref": "#/definitions/name"
+                      },
+                      "uid": {
+                        "$ref": "#/definitions/uuid"
+                      }
+                    }
+                  },
+                  "signingKeySecret": {
+                    "$ref": "#/definitions/secretPin"
+                  },
+                  "tlsSecret": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "uid"
+                    ],
+                    "properties": {
+                      "name": {
+                        "$ref": "#/definitions/name"
+                      },
+                      "uid": {
+                        "$ref": "#/definitions/uuid"
+                      }
+                    }
+                  },
+                  "gatewayClientSecret": {
+                    "$ref": "#/definitions/secretPin"
+                  },
+                  "gatewayClientKeyKey": {
+                    "$ref": "#/definitions/dataKey"
+                  },
+                  "bootstrapSubjects": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "username",
+                        "uid"
+                      ],
+                      "properties": {
+                        "username": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "uid": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "webhook": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "serviceName",
+                  "caBundle"
+                ],
+                "properties": {
+                  "serviceName": {
+                    "type": "string",
+                    "maxLength": 63,
+                    "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+                  },
+                  "caBundle": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 131072,
+                    "pattern": "^[A-Za-z0-9+/]+=*$"
+                  },
+      "retiredStateSecrets": {
+                    "type": "array",
+                    "maxItems": 16,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["name", "uid"],
+                      "properties": {
+                        "name": {"type": "string", "minLength": 1, "maxLength": 253, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"},
+                        "uid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "sync": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "replicas": {
+            "anyOf": [{"const": 0}, {"minimum": 2}]
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "dataKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "not": {
+        "enum": [
+          ".",
+          ".."
+        ]
+      }
+    },
+    "origin": {
+      "type": "string",
+      "minLength": 9,
+      "maxLength": 2048,
+      "pattern": "^https://[^/?#@]+$"
+    },
+    "secretPin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "uid",
+        "key"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/definitions/name"
+        },
+        "uid": {
+          "$ref": "#/definitions/uuid"
+        },
+        "key": {
+          "$ref": "#/definitions/dataKey"
+        }
+      }
+    },
+    "quantities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cpu",
+        "memory"
+      ],
+      "properties": {
+        "cpu": {
+          "type": "string",
+          "pattern": "^[0-9]+(m)?$"
+        },
+        "memory": {
+          "type": "string",
+          "pattern": "^[0-9]+(Ki|Mi|Gi)?$"
+        }
+      }
+    }
+  }
+}

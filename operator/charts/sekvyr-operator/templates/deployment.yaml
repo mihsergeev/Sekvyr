@@ -1,0 +1,161 @@
+{{- if not (regexMatch "^sha256:[a-f0-9]{64}$" .Values.image.digest) -}}
+{{- fail "image.digest must be an explicit sha256 digest" -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sekvyr-operator.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sekvyr-operator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sekvyr-operator
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sekvyr-operator
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        {{- if .Values.ha.enabled }}
+        secrets.sekvyr.ru/trial-role: operator
+        {{- end }}
+    spec:
+      serviceAccountName: {{ .Values.installation.serviceAccount }}
+      automountServiceAccountToken: false
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: operator
+          image: {{ printf "%s@%s" .Values.image.repository (required "image.digest is mandatory; floating images are forbidden" .Values.image.digest) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --installation-file=/etc/sekvyr/installation/installation.json
+            - --namespace={{ .Values.installation.namespace }}
+            - --service-account={{ .Values.installation.serviceAccount }}
+            - --leader-elect=true
+            - --leader-election-id={{ .Values.leaderElection.id }}
+            - --health-probe-bind-address=:8081
+            - --metrics-bind-address=0
+            - --enable-sync={{ .Values.sync.enabled }}
+            - --enable-rollout={{ .Values.rollout.enabled }}
+            - --panel-token-file=/var/run/secrets/sekvyr-panel/token
+            {{- if .Values.ha.enabled }}
+            - --fencer-token-file=/var/run/secrets/sekvyr-fencer/token
+          env:
+            - name: SEKVYR_POD_UID
+              valueFrom:
+                fieldRef: {fieldPath: metadata.uid}
+            - name: SEKVYR_POD_NAME
+              valueFrom:
+                fieldRef: {fieldPath: metadata.name}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: probes
+              containerPort: 8081
+          # Process readiness only. Resource DataCurrent/Ready are separate.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probes
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: installation
+              mountPath: /etc/sekvyr/installation
+              readOnly: true
+            - name: identity
+              mountPath: /etc/sekvyr/identity
+              readOnly: true
+            - name: trust
+              mountPath: /etc/sekvyr/trust
+              readOnly: true
+            - name: kube-api
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+            - name: panel-api
+              mountPath: /var/run/secrets/sekvyr-panel
+              readOnly: true
+            {{- if .Values.ha.enabled }}
+            - name: fencer-api
+              mountPath: /var/run/secrets/sekvyr-fencer
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: installation
+          configMap:
+            name: {{ include "sekvyr-operator.configName" . }}
+            defaultMode: 0440
+            items:
+              - key: installation.json
+                path: installation.json
+        - name: identity
+          secret:
+            secretName: {{ .Values.installation.identityKeySecret.name }}
+            defaultMode: 0440
+            items:
+              - key: {{ .Values.installation.identityKeySecret.key }}
+                path: {{ .Values.installation.identityKeySecret.key }}
+        - name: trust
+          secret:
+            secretName: {{ .Values.installation.trustBundleSecret.name }}
+            defaultMode: 0440
+            items:
+              - key: {{ .Values.installation.trustBundleSecret.key }}
+                path: {{ .Values.installation.trustBundleSecret.key }}
+        - name: kube-api
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        apiVersion: v1
+                        fieldPath: metadata.namespace
+        - name: panel-api
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  audience: sekvyr
+                  expirationSeconds: {{ .Values.auth.tokenExpirationSeconds }}
+                  path: token
+        {{- if .Values.ha.enabled }}
+        - name: fencer-api
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  audience: sekvyr-fence
+                  expirationSeconds: {{ .Values.auth.tokenExpirationSeconds }}
+                  path: token
+        {{- end }}

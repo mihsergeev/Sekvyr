@@ -1,0 +1,11 @@
+{{- if .Values.leaderElection.create }}
+# Runtime has no Lease create/delete permission.
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: {{ .Values.leaderElection.id }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sekvyr-operator.labels" . | nindent 4 }}
+spec: {}
+{{- end }}

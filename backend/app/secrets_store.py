@@ -30,6 +30,7 @@ from app.models import (
     EnvKey,
     EnvSnapshot,
     EnvSnapshotItem,
+    E2E2View,
     Project,
     Secret,
     SecretVersion,
@@ -201,6 +202,11 @@ async def lock_env(session: AsyncSession, env_id: int) -> None:
     # окружения советовала бы восстанавливать базу из бэкапа, хотя база цела.
     if found is None:
         raise EnvironmentGone()
+    # Legacy mutations cannot bypass explicit signed E2E2 publication through
+    # imports, approval, copy, rename or restore routes that receive IDs in bodies.
+    if await session.scalar(select(E2E2View.id).where(E2E2View.environment_id == env_id).limit(1)):
+        from app.e2e2 import Rejected
+        raise Rejected("UpgradeRequired", 409)
     # Строки, загруженные до блокировки, могли устареть: пока запрос ждал,
     # другой переименовал, удалил или вернул ключ. SQLAlchemy отдает прежний
     # объект с прежними полями, и запись по нему расходилась с базой: версия

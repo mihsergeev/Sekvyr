@@ -17,7 +17,10 @@ import ast
 import io
 import json
 import os
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
+import stat
+import subprocess
 import sys
 
 PROBLEMS: list[str] = []
@@ -33,8 +36,55 @@ def fail(area: str, msg: str) -> None:
     PROBLEMS.append(f"[{area}] {msg}")
 
 
+class SourceReadError(OSError):
+    """Fixed safe error; never include input bytes or an upstream exception."""
+
+
+def _source_path(path: str) -> Path:
+    candidate = Path(path)
+    # Also deny Windows case/trailing-dot/ADS spellings before any filesystem
+    # operation. The inventory itself never accepts an ADS/drive-relative path.
+    if candidate.name.split(":", 1)[0].rstrip(" .").casefold() == "agent-signing-key.txt":
+        raise SourceReadError("protected signing material is not source")
+    root = Path.cwd().resolve()
+    candidate = candidate if candidate.is_absolute() else root / candidate
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        raise SourceReadError("source path escaped the repository") from None
+    if not relative.parts or ".." in relative.parts:
+        raise SourceReadError("source path escaped the repository")
+    current = root
+    for part in relative.parts:
+        current = current / part
+        info = current.lstat()
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0):
+            raise SourceReadError("source links are not read")
+    if not stat.S_ISREG(info.st_mode):
+        raise SourceReadError("source input is not a regular file")
+    if info.st_nlink != 1:
+        raise SourceReadError("hardlinked source inputs are not read")
+    if not candidate.resolve().is_relative_to(root):
+        raise SourceReadError("source path escaped the repository")
+    return candidate
+
+
 def read(path: str) -> str:
-    return io.open(path, encoding="utf-8").read()
+    source = _source_path(path)
+    before = source.lstat()
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        raise SourceReadError("source links changed before opening")
+    descriptor = os.open(source, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        opened = os.fstat(descriptor)
+        # Recheck after opening and BEFORE reading, including parent links.
+        current = _source_path(path).lstat()
+        if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1 or current.st_nlink != 1 or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino) or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
+            raise SourceReadError("source identity changed before reading")
+        with io.open(descriptor, encoding="utf-8", closefd=False) as stream:
+            return stream.read()
+    finally:
+        os.close(descriptor)
 
 
 # ------------------------------------------------- 1. длина пароля
@@ -258,20 +308,44 @@ def check_agent_signature() -> None:
 
 
 # ------------------------------------------------- 6. версия
+def valid_semver(version: str) -> bool:
+    number = r"(?:0|[1-9][0-9]*)"
+    # Numeric prerelease identifiers cannot have leading zeros (SemVer 2.0.0).
+    identifier = rf"(?:{number}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+    semantic = rf"{number}\.{number}\.{number}(?:-{identifier}(?:\.{identifier})*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    return re.fullmatch(semantic, version) is not None
+
+
 def check_version() -> None:
     """Версия живет в четырех местах сразу. Разъезжается она молча: панель
     показывает в "Обзоре" одно, changelog обещает другое, а при частичном
     обновлении (собрали фронт, забыли бэкенд) поди пойми, что именно работает."""
     found = {
-        "backend/pyproject.toml": re.search(r'^version = "([\d.]+)"', read("backend/pyproject.toml"), re.M),
-        "backend/app/config.py": re.search(r'version: str = "([\d.]+)"', read("backend/app/config.py")),
-        "frontend/package.json": re.search(r'"version": "([\d.]+)"', read("frontend/package.json")),
-        "CHANGELOG.md": re.search(r"^## \[([\d.]+)\]", read("CHANGELOG.md"), re.M),
+        "backend/pyproject.toml": re.search(r'^version = "([^"\r\n]+)"$', read("backend/pyproject.toml"), re.M),
+        "backend/app/config.py": re.search(r'^    version: str = "([^"\r\n]+)"$', read("backend/app/config.py"), re.M),
+        "frontend/package.json": re.search(r'^  "version": "([^"\r\n]+)",$', read("frontend/package.json"), re.M),
+        "CHANGELOG.md": re.search(r"^## \[([^\]\r\n]+)\]", read("CHANGELOG.md"), re.M),
     }
     versions = {path: m.group(1) if m else "?" for path, m in found.items()}
-    if len(set(versions.values())) > 1:
+    if any(not valid_semver(version) for version in versions.values()):
+        fail("версия", f"отсутствует или неверный SemVer: {versions}")
+    elif len(set(versions.values())) > 1:
         fail("версия", f"разошлась: {versions}")
 
+
+
+def check_operator_version() -> None:
+    """Independent operator/chart/provision versions must identify one candidate."""
+    declared = read("operator/VERSION").strip()
+    sources = {
+        "chart version": re.search(r"^version: ([^\r\n]+)$", read("operator/charts/sekvyr-operator/Chart.yaml"), re.M),
+        "chart appVersion": re.search(r"^appVersion: ([^\r\n]+)$", read("operator/charts/sekvyr-operator/Chart.yaml"), re.M),
+        "image default": re.search(r"^ARG VERSION=([^\r\n]+)$", read("operator/Dockerfile"), re.M),
+        "provision": re.search(r'^const Version = "([^"\r\n]+)"$', read("operator/internal/provision/types.go"), re.M),
+    }
+    versions = {path: m.group(1) if m else "?" for path, m in sources.items()}
+    if not valid_semver(declared) or any(value != declared for value in versions.values()):
+        fail("operator версия", f"неверная или разошлась: {declared}, {versions}")
 
 
 # ------------------------------------------------- 7. охрана маршрутов
@@ -313,13 +387,14 @@ ROUTE_RE = re.compile(
 def _routes(src: str) -> list[tuple[str, str, str]]:
     """(метод, путь, тело функции) для каждого маршрута файла."""
     out: list[tuple[str, str, str]] = []
-    for match in re.finditer(r'@router\.(get|post|put|patch|delete)\(\s*"([^"]*)"', src):
+    for match in re.finditer(r'@(?:router|machine_router)\.(get|post|put|patch|delete)\(\s*"([^"]*)"', src):
         method, path = match.group(1), match.group(2)
         start = src.find("def ", match.end())
         if start < 0:
             continue
-        nxt = src.find("@router.", start)
-        body = src[start : nxt if nxt > 0 else len(src)]
+        following = re.search(r'@(?:router|machine_router)\.', src[start:])
+        nxt = start + following.start() if following else len(src)
+        body = src[start:nxt]
         out.append((method, path, body))
     return out
 
@@ -338,10 +413,22 @@ def check_routes_are_guarded() -> None:
         for method, path, body in _routes(src):
             if (name, path) in OPEN_ROUTES:
                 continue
+            if name == "e2e2.py" and method == "get" and path == "/witness/views/{view_id}/envelopes/{envelope_hash}":
+                # This single ciphertext-only route has a separate administrative
+                # service credential, with an exact view allowlist. Never make the
+                # whole E2E2 router public or accept its credential as a machine.
+                guarded = (
+                    "_witness: WitnessService" in body
+                    and "WitnessService = Annotated[None, Depends(witness_service)]" in src
+                    and re.search(r'def witness_service\([^)]*\).*?:\s*\n\s*if not e2e2\.witness_fetch_allowed\([^\n]*\):\s*\n\s*reject\("AuthRejected", 401\)', src)
+                )
+                if not guarded:
+                    fail("охрана", "e2e2.py: witness ciphertext route has no scoped service authentication dependency")
+                continue
             # В машинном контуре вход свой: не учетка, а машинная личность.
             required = (
                 r"CurrentMachine"
-                if name == "machine.py"
+                if name == "machine.py" or (name == "e2e2.py" and (path == "/capabilities" or path.startswith("/e2e2/")))
                 else r"(CurrentUser|OwnerUser|MaintainerUser)"
             )
             if not re.search(required, body):
@@ -555,7 +642,7 @@ def check_agent_build_image() -> None:
     """
     images = {
         "backend/Dockerfile": re.search(
-            r"^FROM (golang:\S+) AS agent", read("backend/Dockerfile"), re.M
+            r"^FROM (?:--platform=\S+ )?(golang:\S+) AS agent", read("backend/Dockerfile"), re.M
         ),
         "agent/Dockerfile": re.search(
             r"^FROM (?:--platform=\S+ )?(golang:\S+) AS build", read("agent/Dockerfile"), re.M
@@ -865,23 +952,60 @@ def check_python_hashes() -> None:
 _INVISIBLE = re.compile("[\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2069\\ufeff]")
 _TEXT_EXT = (".py", ".ts", ".tsx", ".go", ".sh", ".md", ".yml", ".yaml", ".json", ".html",
              ".css", ".conf", ".toml", ".ini", ".txt", ".mako", ".example")
-_SKIP_DIRS = {"node_modules", ".venv", "dist", "__pycache__", ".git", "logos"}
+
+
+def _source_inventory() -> list[str]:
+    """Git defines source scope; never walk local ignored key/backup files."""
+    root = Path.cwd().resolve()
+    try:
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, check=True, timeout=30)
+        if Path(os.fsdecode(top.stdout).strip()).resolve() != root:
+            raise SourceReadError("selfcheck requires the repository root")
+        result = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            capture_output=True, check=True, timeout=30)
+        if result.stdout and not result.stdout.endswith(b"\0"):
+            raise SourceReadError("incomplete Git source inventory")
+        names = []
+        for raw in result.stdout.split(b"\0")[:-1]:
+            name = os.fsdecode(raw)
+            if not name or "\\" in name or ":" in name or PurePosixPath(name).is_absolute() or PureWindowsPath(name).drive or any(part in ("", ".", "..") for part in name.split("/")):
+                raise SourceReadError("invalid Git source path")
+            names.append(name)
+        return sorted(set(names))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        raise SourceReadError("safe Git source inventory unavailable") from None
 
 
 def check_invisible_chars() -> None:
-    for root, dirs, files in os.walk("."):
-        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
-        for name in files:
-            if not name.endswith(_TEXT_EXT) and name not in ("Dockerfile", ".env.example"):
-                continue
-            path = os.path.join(root, name)
-            try:
-                text = read(path)
-            except (UnicodeDecodeError, OSError):
-                continue
-            for number, line in enumerate(text.split("\n"), 1):
-                if _INVISIBLE.search(line):
-                    fail("невидимые символы", f"{path}:{number}: замените на \\uXXXX")
+    try:
+        paths = _source_inventory()
+    except SourceReadError:
+        fail("невидимые символы", "безопасный Git-инвентарь исходников недоступен")
+        return
+    for path in paths:
+        try:
+            _source_path(path)  # Validate links even when the suffix is binary.
+        except FileNotFoundError:
+            continue
+        except OSError:
+            fail("невидимые символы", "отказано в небезопасном чтении исходника")
+            continue
+        name = PurePosixPath(path).name
+        if not name.endswith(_TEXT_EXT) and name not in ("Dockerfile", ".env.example"):
+            continue
+        try:
+            text = read(path)
+        except FileNotFoundError:
+            # Tracked source may be intentionally deleted in the working tree.
+            continue
+        except UnicodeDecodeError:
+            continue
+        except OSError:
+            fail("невидимые символы", "отказано в небезопасном чтении исходника")
+            continue
+        for number, line in enumerate(text.split("\n"), 1):
+            if _INVISIBLE.search(line):
+                fail("невидимые символы", f"{path}:{number}: замените на \\uXXXX")
 
 
 def main() -> int:
@@ -898,6 +1022,7 @@ def main() -> int:
         check_actions_are_listed,
         check_no_browser_dialogs,
         check_version,
+        check_operator_version,
         check_brand_colors,
         check_sealed_format,
         check_ops_scripts,

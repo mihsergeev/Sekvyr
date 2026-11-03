@@ -38,7 +38,7 @@ if [ "$(id -u)" = "0" ]; then
         fi
     fi
 
-    exec gosu sekvyr "$@"
+    exec su-exec sekvyr "$@"
 fi
 
 # Уже не root (в compose задан user:) - просто запускаемся.

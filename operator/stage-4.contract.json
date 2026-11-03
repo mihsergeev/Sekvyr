@@ -1,0 +1,68 @@
+{
+  "stage": 4,
+  "release": false,
+  "protocol": "e2e2",
+  "enablement": "Explicit --enable-sync and Helm sync.enabled=true; default remains disabled",
+  "panel": {
+    "migration": "0028_e2e2_views",
+    "ownerRoutes": [
+      "POST /api/e2e2/views",
+      "POST /api/e2e2/views/{view}/envelopes",
+      "POST /api/e2e2/views/{view}/readers",
+      "DELETE /api/e2e2/views/{view}/readers/{machine}",
+      "POST /api/e2e2/views/{view}/index"
+    ],
+    "machineRoutes": [
+      "GET /api/v1/machine/capabilities",
+      "GET /api/v1/machine/e2e2/views/{view}/envelopes/{hash}",
+      "GET /api/v1/machine/e2e2/views/{view}/reader-wrap?envelope_hash={hash}"
+    ],
+    "witnessFetchRoute": "GET /api/e2e2/witness/views/{view}/envelopes/{hash}",
+    "witnessFetchAuthorization": "Separate file-backed bearer, constant-time comparison and administratively fixed view allowlist; cannot read wrappers, stage, index or mutate values",
+    "identities": "Immutable realm/project/environment/view/log UUIDs mapped to an existing complete environment",
+    "readerAuthorization": "Live machine identity, current owner policy, explicit view grant and full environment read permission; no partial-view ciphertext filtering",
+    "immutability": "Hash-addressed canonical signed envelopes; index derived from a fresh independently verified witness head",
+    "keyBoundary": "Panel stores ciphertext and publisher-signed reader wrappers, never receives the E2E2 read key or publisher private key",
+    "legacy": "E2E2 environments reject legacy reads/writes and legacy emergency export; no implicit E2E1 or plaintext migration",
+    "sealedPanel": "Existing unseal guard remains required for machine envelope/wrapper reads; restart recovery may require an administrator to unseal the panel"
+  },
+  "witness": {
+    "profile": "development-filesystem-not-worm",
+    "productionReady": false,
+    "requiredFlag": "--allow-development-filesystem-ledger",
+    "initialization": "Offline independently signed genesis with exact administrative genesis hash and public-key pins; no runtime registration/reset API",
+    "authority": "Full journal replay under per-log interprocess lock; O_EXCL CAS append, file and directory fsync before acceptance proof",
+    "separation": "Deployment requirement: separate signing key and volume excluded from panel/operator restore domain; separate development volumes alone do not prove production restore independence",
+    "routes": ["GET /v1/capabilities", "POST /v1/logs/{log}/head-challenge", "POST /v1/logs/{log}/commits"],
+    "headProof": "Fresh 32-byte nonce, exact scope, canonical floor, sequence/hash and pinned witness epoch/key",
+    "commit": "Exact expected head CAS and independently validated publisher-signed envelope; response alone is not a trusted checkpoint",
+    "failClosed": "Missing/torn/gapped journal, bad genesis/signatures/links, stale CAS, unsupported authority transition or replay capacity exceeded",
+    "limits": {"recordsPerLogIncludingGenesis": 4096, "replayBytes": 536870912, "concurrentRequests": 4}
+  },
+  "checkpoint": {
+    "container": "Administratively precreated mutable Opaque Kubernetes Secret with pinned UID; no automatic create/reset",
+    "keys": ["installation.json", "state.json"],
+    "binding": ["installationID", "bootstrapGeneration", "trustBundleUID", "nodeFingerprint", "storeUID", "bindingID", "crUID", "targetName", "targetUID"],
+    "order": ["verify two live independently signed witness proofs and complete envelope/wrapper", "revalidate authorization", "persist accepted high-watermark using resourceVersion CAS", "revalidate and confirm exact durable head", "write complete target data with target UID/resourceVersion checks"],
+    "failure": "Read/verification failures do not mutate the target. Retain the highest durably accepted checkpoint, which may advance before a target write fails; never roll it back. Mark DataCurrent=false and preserve last-success metadata. An ambiguous target write requires reconciliation or administrative repair, never a stale cached fallback",
+    "creationCrashWindow": "Crash after target creation but before target UID registration becomes StateAmbiguous; explicit administrative repair required",
+    "concurrencyBoundary": "No atomic transaction across CR, Store, state and target; instantaneous revocation and HA fencing are not claimed"
+  },
+  "target": {
+    "namespace": "One installation namespace and administratively allowlisted Secret names",
+    "type": "Opaque",
+    "ownership": "Never adopt an existing target by labels/revision; exact CR/Store/target UIDs must match durable state",
+    "selection": "Whole verified view first, then All/Keys selection and path-prefix filtering; required keys, duplicate keys, size and empty-target checks",
+    "revision": "Random opaque 128-bit value only when actual data changes; equal plaintext may advance checkpoint without changing data revision",
+    "deletionPolicy": "Retain has no owner reference; Delete uses exact SekvyrSecret controller owner reference and Kubernetes garbage collection; operator has no delete permission",
+    "rolloutIntent": "eligible=false in stage 4; no workload patch or restart execution",
+    "status": "Child observedGeneration plus observedStoreUID/observedStoreGeneration prevent aggregate success from an older authorization; DataCurrent is independent of rollout readiness"
+  },
+  "transport": "HTTPS only, administrator-pinned origins/CAs, no redirects or environment proxy, bounded bodies/headers/timeouts, projected token reread for each login, fixed same-origin bearer routes, safe public reason codes",
+  "remainingStages": [
+    "Stage 5: controlled optional application rollout tied to accepted data revision",
+    "Stage 6: production ledger independence, restore, authority/key transitions and HA fencing",
+    "Stage 7: broader Kubernetes/storage compatibility and operational acceptance",
+    "Stage 8: independent security review, migration, UI and signed release"
+  ]
+}

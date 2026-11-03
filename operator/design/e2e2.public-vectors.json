@@ -1,0 +1,77 @@
+{
+  "description": "Public deterministic synthetic vector; private keys are derived only inside the check programs.",
+  "publisher_public_key": "9SzNtzLwJTOHOl4mJQFtykAIDDJ7wcUeqaRH34RfD_8",
+  "witness_public_key": "MYeyRcCqNpMAtEsQXKgIVzMwtyTmOKtkLkjbzwYhoaA",
+  "envelope": {
+    "body": {
+      "header": {
+        "protocol": "e2e2",
+        "suite": "HKDF-SHA256+A256GCM+Ed25519",
+        "intent": "publish",
+        "realm_id": "77777777-7777-4777-8777-777777777777",
+        "project_id": "88888888-8888-4888-8888-888888888888",
+        "environment_id": "99999999-9999-4999-8999-999999999999",
+        "view_id": "66666666-6666-4666-8666-666666666666",
+        "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "sequence": "1",
+        "previous_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "read_key_epoch": "1",
+        "publisher_policy_epoch": "1",
+        "publisher_key_id": "ed25519-sha256:87aa199cddd65416ebad4d00623f8d54579ae487df4350e6c5e6dcb2c3090d73",
+        "snapshot_salt": "SOFdhMxaST9t-SgPoFF0gDsKpD-1ya1Xc_BAQIscFNI",
+        "entry_count": 1,
+        "action": "initial",
+        "restored_from": null,
+        "parents": []
+      },
+      "nonce": "vqekN1Z5YFgSKIFx",
+      "ciphertext": "Qz9cPfugTZ-SuH1InXNkr4_izhj6RcRmp-svw1T9NH8ATxEu0XR6E_qJpY3DwcJzGfOdgxw7yF4Ap7tvQM6ISX793kVg0mMmdj1t2TKtdYHzLpHCzUQzAT186USuFhuk_wLH9bh2QNWAIlZSLcrSwSFK1b97nwQcxezms0Y6Ud-FZCIyM4_e6M6wlPpkNDCho_pYsgz-2P6Uvx02TNImWqSJsHuhB6XYTlSmF1T4vcWH4Kd_LFpNL_IgUtOZRhdPuAxwya7ADMocymKPrPuLH3jYRDh25R9Ee2eN4A9w3tiXhAlajWkHBLAB8kZu3_FHT7EIRaxFof8HzcX7iipsixVhrdcaYFovsHhcVe8av7Z3A5S5E8ku1e55jyRaAPrqYBQbDCSISZFM1uJdAXRxeNAh80etrOFxT7mLz9v3IiAZmFO_-_uJ0rx7mlVLsMo-b3hZ5k_fcz3I3bSNsDO5hEjY_ekhZkEoBF44NcHYo1rDznn1E0Z8-7-b0m4d_IwSMyxW7kXhc6oJeA"
+    },
+    "signature": "JzIfRXM5FgQI7ALWO0SUKSpEOEcnklhaNg2tN3UObmSPVtjhDZrjSw_vOP8Ze5boYgmr0DCxZIsj-ZWN1xq5Cg"
+  },
+  "plaintext": {
+    "format": "sekvyr-e2e2-values-v1",
+    "context": {
+      "realm_id": "77777777-7777-4777-8777-777777777777",
+      "project_id": "88888888-8888-4888-8888-888888888888",
+      "environment_id": "99999999-9999-4999-8999-999999999999",
+      "view_id": "66666666-6666-4666-8666-666666666666",
+      "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    },
+    "entries": [
+      {
+        "path": "/runtime",
+        "name": "DEMO_VALUE",
+        "value": "canary-value-1"
+      }
+    ]
+  },
+  "envelope_hash": "3c3444957e090b6320beb54b99239099306517983ecd74e01c412e1ee42689d1",
+  "canonical_body_base64url": "eyJjaXBoZXJ0ZXh0IjoiUXo5Y1BmdWdUWi1TdUgxSW5YTmtyNF9pemhqNlJjUm1wLXN2dzFUOU5IOEFUeEV1MFhSNkVfcUpwWTNEd2NKekdmT2RneHc3eUY0QXA3dHZRTTZJU1g3OTNrVmcwbU1tZGoxdDJUS3RkWUh6THBIQ3pVUXpBVDE4NlVTdUZodWtfd0xIOWJoMlFOV0FJbFpTTGNyU3dTRksxYjk3bndRY3hlem1zMFk2VWQtRlpDSXlNNF9lNk02d2xQcGtORENob19wWXNnei0yUDZVdngwMlROSW1XcVNKc0h1aEI2WFlUbFNtRjFUNHZjV0g0S2RfTEZwTkxfSWdVdE9aUmhkUHVBeHd5YTdBRE1vY3ltS1ByUHVMSDNqWVJEaDI1UjlFZTJlTjRBOXczdGlYaEFsYWpXa0hCTEFCOGtadTNfRkhUN0VJUmF4Rm9mOEh6Y1g3aWlwc2l4VmhyZGNhWUZvdnNIaGNWZThhdjdaM0E1UzVFOGt1MWU1NWp5UmFBUHJxWUJRYkRDU0lTWkZNMXVKZEFYUnhlTkFoODBldHJPRnhUN21Mejl2M0lpQVptRk9fLV91SjByeDdtbFZMc01vLWIzaFo1a19mY3ozSTNiU05zRE81aEVqWV9la2haa0VvQkY0NE5jSFlvMXJEem5uMUUwWjgtNy1iMG00ZF9Jd1NNeXhXN2tYaGM2b0plQSIsImhlYWRlciI6eyJhY3Rpb24iOiJpbml0aWFsIiwiZW50cnlfY291bnQiOjEsImVudmlyb25tZW50X2lkIjoiOTk5OTk5OTktOTk5OS00OTk5LTg5OTktOTk5OTk5OTk5OTk5IiwiaW50ZW50IjoicHVibGlzaCIsImxvZ19pZCI6ImFhYWFhYWFhLWFhYWEtNGFhYS04YWFhLWFhYWFhYWFhYWFhYSIsInBhcmVudHMiOltdLCJwcmV2aW91c19oYXNoIjoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsInByb2plY3RfaWQiOiI4ODg4ODg4OC04ODg4LTQ4ODgtODg4OC04ODg4ODg4ODg4ODgiLCJwcm90b2NvbCI6ImUyZTIiLCJwdWJsaXNoZXJfa2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6ODdhYTE5OWNkZGQ2NTQxNmViYWQ0ZDAwNjIzZjhkNTQ1NzlhZTQ4N2RmNDM1MGU2YzVlNmRjYjJjMzA5MGQ3MyIsInB1Ymxpc2hlcl9wb2xpY3lfZXBvY2giOiIxIiwicmVhZF9rZXlfZXBvY2giOiIxIiwicmVhbG1faWQiOiI3Nzc3Nzc3Ny03Nzc3LTQ3NzctODc3Ny03Nzc3Nzc3Nzc3NzciLCJyZXN0b3JlZF9mcm9tIjpudWxsLCJzZXF1ZW5jZSI6IjEiLCJzbmFwc2hvdF9zYWx0IjoiU09GZGhNeGFTVDl0LVNnUG9GRjBnRHNLcEQtMXlhMVhjX0JBUUlzY0ZOSSIsInN1aXRlIjoiSEtERi1TSEEyNTYrQTI1NkdDTStFZDI1NTE5Iiwidmlld19pZCI6IjY2NjY2NjY2LTY2NjYtNDY2Ni04NjY2LTY2NjY2NjY2NjY2NiJ9LCJub25jZSI6InZxZWtOMVo1WUZnU0tJRngifQ",
+  "head_proof": {
+    "body": {
+      "format": "sekvyr-e2e2-head-v1",
+      "realm_id": "77777777-7777-4777-8777-777777777777",
+      "project_id": "88888888-8888-4888-8888-888888888888",
+      "environment_id": "99999999-9999-4999-8999-999999999999",
+      "view_id": "66666666-6666-4666-8666-666666666666",
+      "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "witness_epoch": "1",
+      "sequence": "2",
+      "envelope_hash": "ea5760e903740366cd7c09e7076392e3a2b7aa3ed7f1ac1f857cb290f33b7cf6",
+      "read_key_epoch": "1",
+      "publisher_policy_epoch": "1",
+      "request_nonce": "-dP5SCnGOZCnurHag0xp9UxFP5IlayVo3dWHnl_y_io",
+      "witness_key_id": "ed25519-sha256:dadaffaae0c33502dcdffa63916f3b288015097b4762b945bdb97b8dc9cc64db",
+      "floor_sequence": "1",
+      "floor_hash": "3c3444957e090b6320beb54b99239099306517983ecd74e01c412e1ee42689d1"
+    },
+    "signature": "3zlD0gM4vyOGcvcjhdrsTC0H62yj0yhQxJEmalx0KJQAaD1Bq6AHA3XEyAco7iyFZ9lShgE5PnH_AIrfszZ2CA"
+  },
+  "challenge_nonce": "-dP5SCnGOZCnurHag0xp9UxFP5IlayVo3dWHnl_y_io",
+  "unicode_case": {
+    "value": "данные\nкавычка\" и символ 𝄞 <>&   ",
+    "count": 1
+  },
+  "unicode_canonical_base64url": "eyJjb3VudCI6MSwidmFsdWUiOiLQtNCw0L3QvdGL0LVcbtC60LDQstGL0YfQutCwXCIg0Lgg0YHQuNC80LLQvtC7IPCdhJ4gPD4mIOKAqOKAqSJ9"
+}

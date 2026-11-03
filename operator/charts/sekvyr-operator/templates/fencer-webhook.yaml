@@ -1,0 +1,40 @@
+{{- if .Values.ha.enabled }}
+{{- $defaultService := printf "%s-fencer" .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- $secrets := list }}{{- $deployments := list }}
+{{- range .Values.ha.managedObjects }}{{- if eq .kind "Secret" }}{{- $secrets = append $secrets .name }}{{- else }}{{- $deployments = append $deployments .name }}{{- end }}{{- end }}
+{{- range .Values.ha.webhook.retiredStateSecrets }}{{- $secrets = append $secrets .name }}{{- end }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ printf "%s-fence-%s" (.Release.Name | trunc 35 | trimSuffix "-") (printf "%s/%s" .Release.Namespace .Values.installation.installationID | sha256sum | trunc 12) }}
+webhooks:
+  - name: fencing.secrets.sekvyr.ru
+    admissionReviewVersions: [v1]
+    failurePolicy: Fail
+    matchPolicy: Exact
+    sideEffects: None
+    timeoutSeconds: 30
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ default $defaultService .Values.ha.webhook.serviceName }}
+        path: /admit
+        port: 9443
+      caBundle: {{ required "HA webhook public CA bundle is required" .Values.ha.webhook.caBundle | quote }}
+    rules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        resources: [secrets]
+        operations: [CREATE, UPDATE, DELETE]
+        scope: Namespaced
+      - apiGroups: [apps]
+        apiVersions: [v1]
+        resources: [deployments]
+        operations: [CREATE, UPDATE, DELETE]
+        scope: Namespaced
+    # Match conditions use immutable request namespace/name. Object labels are
+    # deliberately not a selector because an ordinary writer could remove them.
+    matchConditions:
+      - name: exact-installation-and-managed-names
+        expression: {{ printf "request.namespace == %s && ((request.resource.group == '' && request.resource.resource == 'secrets' && request.name in %s) || (request.resource.group == 'apps' && request.resource.resource == 'deployments' && request.name in %s))" (.Release.Namespace | toJson) ($secrets | toJson) ($deployments | toJson) | quote }}
+{{- end }}

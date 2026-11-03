@@ -665,6 +665,11 @@ async def read_secrets(
     found, environment = await _resolve(session, machine, project, env, group)
     await _guard(session, machine, environment, request)
 
+    from app.e2e2 import Rejected
+    from app.models import E2E2View
+    if await session.scalar(select(E2E2View.id).where(E2E2View.environment_id == environment.id).limit(1)):
+        raise Rejected("UpgradeRequired", 409)
+
     values: list[ValueOut] = []
     # Запрет на папку в машинной политике действует и здесь: раньше машина
     # получала окружение целиком.
@@ -748,6 +753,10 @@ async def read_env_file(
     самому и заново решать, что и как экранировать."""
     found, environment = await _resolve(session, machine, project, env, group)
     await _guard(session, machine, environment, request)
+    from app.e2e2 import Rejected
+    from app.models import E2E2View
+    if await session.scalar(select(E2E2View.id).where(E2E2View.environment_id == environment.id).limit(1)):
+        raise Rejected("UpgradeRequired", 409)
     if found.e2e:
         # Файл собирает тот, у кого есть ключ проекта, - то есть агент у себя.
         # Сервер сложить его не может и делать вид, что может, не должен.

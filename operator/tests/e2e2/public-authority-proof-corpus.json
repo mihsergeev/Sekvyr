@@ -1,0 +1,2101 @@
+{
+  "format": "sekvyr-stage7-PUBLIC-authority-corpus-v1",
+  "description": "All signing seeds and contexts are deterministic PUBLIC synthetic test data. Never install them. Pin comes from this independent test input, never from incoming proof fields. Genesis-only views are valid Go authority but are not publishable panel projections.",
+  "scope": {
+    "realm_id": "77777777-7777-4777-8777-777777777777",
+    "project_id": "88888888-8888-4888-8888-888888888888",
+    "environment_id": "99999999-9999-4999-8999-999999999999",
+    "view_id": "66666666-6666-4666-8666-666666666666",
+    "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+  },
+  "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+  "pinned_witness": {
+    "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+    "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+  },
+  "witness_epoch": "1",
+  "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+  "floor": {
+    "journal_sequence": "1",
+    "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+  },
+  "cases": [
+    {
+      "name": "baseline",
+      "go_valid": true,
+      "panel_valid": true,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "UaqyQDN7sUjEC8G1WJh5TBYLSd3_vO0tGlblnXfAmHHYUsjIjTPmltb_1yynrxKUkeFQe4iNoSRjvSQexEKBDQ"
+      }
+    },
+    {
+      "name": "enrollment",
+      "go_valid": true,
+      "panel_valid": true,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {
+              "10000000-0000-4000-8000-000000000001": {
+                "installation_id": "10000000-0000-4000-8000-000000000001",
+                "bootstrap_generation": 1,
+                "namespace": "public-trial",
+                "namespace_uid": "10000000-0000-4000-8000-000000000002",
+                "operator_service_account": "public-reader",
+                "operator_service_account_uid": "10000000-0000-4000-8000-000000000003",
+                "fencer_service_account": "public-fencer",
+                "fencer_service_account_uid": "10000000-0000-4000-8000-000000000004",
+                "lease": {
+                  "api_version": "coordination.k8s.io/v1",
+                  "kind": "Lease",
+                  "namespace": "public-trial",
+                  "name": "public-lease",
+                  "uid": "10000000-0000-4000-8000-000000000005"
+                },
+                "node_fingerprint": "p256-sha256:c63cd3b9dfa70c9bc075e51fc40def107632b9a02d854a716791f3fd2e093c7c",
+                "identity_key_secret_uid": "10000000-0000-4000-8000-000000000006",
+                "trust_bundle_secret_uid": "10000000-0000-4000-8000-000000000007",
+                "allowed_objects": [
+                  {
+                    "api_version": "apps/v1",
+                    "kind": "Deployment",
+                    "namespace": "public-trial",
+                    "name": "public-app",
+                    "uid": "10000000-0000-4000-8000-000000000008"
+                  },
+                  {
+                    "api_version": "v1",
+                    "kind": "Secret",
+                    "namespace": "public-trial",
+                    "name": "public-target",
+                    "uid": "10000000-0000-4000-8000-000000000009"
+                  }
+                ]
+              }
+            },
+            "authority_digest": "17aa8d426b449b82dab728c728fa50fb3d70a7ae772a6095de36a235f3bee20d"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "ruADJXkWdgctkqrY0_RgHMaWF3axxcnRT-A-NYDIYKUCoQl-CMJjC8abKPUKiy-bcMO6J_vmt80MQWroBrC0Ag"
+      }
+    },
+    {
+      "name": "maximum-safe-bootstrap-generation",
+      "go_valid": true,
+      "panel_valid": true,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {
+              "10000000-0000-4000-8000-000000000001": {
+                "installation_id": "10000000-0000-4000-8000-000000000001",
+                "bootstrap_generation": 9007199254740991,
+                "namespace": "public-trial",
+                "namespace_uid": "10000000-0000-4000-8000-000000000002",
+                "operator_service_account": "public-reader",
+                "operator_service_account_uid": "10000000-0000-4000-8000-000000000003",
+                "fencer_service_account": "public-fencer",
+                "fencer_service_account_uid": "10000000-0000-4000-8000-000000000004",
+                "lease": {
+                  "api_version": "coordination.k8s.io/v1",
+                  "kind": "Lease",
+                  "namespace": "public-trial",
+                  "name": "public-lease",
+                  "uid": "10000000-0000-4000-8000-000000000005"
+                },
+                "node_fingerprint": "p256-sha256:c63cd3b9dfa70c9bc075e51fc40def107632b9a02d854a716791f3fd2e093c7c",
+                "identity_key_secret_uid": "10000000-0000-4000-8000-000000000006",
+                "trust_bundle_secret_uid": "10000000-0000-4000-8000-000000000007",
+                "allowed_objects": [
+                  {
+                    "api_version": "apps/v1",
+                    "kind": "Deployment",
+                    "namespace": "public-trial",
+                    "name": "public-app",
+                    "uid": "10000000-0000-4000-8000-000000000008"
+                  },
+                  {
+                    "api_version": "v1",
+                    "kind": "Secret",
+                    "namespace": "public-trial",
+                    "name": "public-target",
+                    "uid": "10000000-0000-4000-8000-000000000009"
+                  }
+                ]
+              }
+            },
+            "authority_digest": "112ff574ebb7e9b4a5439e1d2f81e69ddf8aa7f1fdc02380b2e8cfd776f10d93"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "F_SwBgzo-kLs5aYkUDrRSHzGe-qQkhzBqYqDzQze2vVOTqTkTOw4DlJQq6X09ybtEUjX6870n27Ix5GxIk5AAg"
+      }
+    },
+    {
+      "name": "maximum-uint64-cursor",
+      "go_valid": true,
+      "panel_valid": true,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "18446744073709551615",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "5SuXct0opaPK0pmocVSltpp6Y9YwRv5vV4DkteWZ0aiqaXsxW9yAETeqV7WKmG8VrcQkQibEHzVF_ScuR9C0Bw"
+      }
+    },
+    {
+      "name": "pinned-witness-authorized-current-publisher",
+      "go_valid": true,
+      "panel_valid": true,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "2"
+            },
+            "authority": {
+              "revision": "2",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "2",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:c928d3da64b1746e29db799444841a5084117c59d344eaa4e21ce3a7c4847771",
+                  "public_key": "wNKqT_UhShkbedIIti_4700Q_SzlocfiP_CafL6FBII"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "c09e84ae0f65ed60cbde4667339f385f8188bea54824fbbe2574cc3041d861ce"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "P56LgtQ0pJhsbi2zWq9ofPFnqk0-BGf87nqRolRtVncyObRIABx6gFLU7CjdCsq7xQ-4_b6CIDL9MuqJCA1eCw"
+      }
+    },
+    {
+      "name": "genesis-no-published-snapshot",
+      "go_valid": true,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "0",
+              "envelope_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+              "read_key_epoch": "0",
+              "publisher_policy_epoch": "0"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "LWyxS0pUf6apys0xG5SftDoJlwkMsOXSuyMk6wsxO7udXtqHvs0U5Vnn3b5jw-S2r6zlJW92q7Xs0KjffdJbDA"
+      }
+    },
+    {
+      "name": "wrong-scope",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "20000000-0000-4000-8000-000000000001",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "8a02f3eef2b48a9b3ba8a8f455e30307ed5be0d9cc2c443b6befd0d1acc9e3d6"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "Y4_GwAcqQO5Pta0XaaEEs2PlysvcgvqR3Z-s1fHusBYWM_wI93nApBkEXQIySwqKaAiKMKrT2C3KAUv3h--3CQ"
+      }
+    },
+    {
+      "name": "wrong-genesis",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "f56e813ca33ae3ee7e3f06bac4b5b6f11fa3064d2bbc564dee674976922ee370"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "sPW6HLG35-lmee7xQWxr-6vXJx5DNZvAOq4DDbAGCbMZsUWDagZHF_i1mf1r5Gx5enC9D1WBReA0cGs05GJZAA"
+      }
+    },
+    {
+      "name": "wrong-nonce",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "c2BzUUu5AxE2F4QginEiYzOKoBuFUM_mV8K7kYo1xIbRLtfZ4-SAlacbVjkSX863dKeTWUyzwBFh2kFjeMwNCQ"
+      }
+    },
+    {
+      "name": "wrong-floor",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "2",
+            "record_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "Ed83PPP8hWHeqQ5zqdwXtbMrUwQ_2JXXkJzyQsNUd61_yhG6jqs7XaIdYtT4ZEcssVDKwohxEwFIxKSvwhEjAQ"
+      }
+    },
+    {
+      "name": "below-floor",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "0",
+              "record_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "c2wIVroR3JTtEMMRZo7nrXuK-h4hPdqcLxO-PYlvFt1ebJ9QbBtRxQhcd1syquXyPkS1VHD2cMvgFxCJMxvRAw"
+      }
+    },
+    {
+      "name": "same-floor-fork",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "1",
+              "record_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "aHJPP_rSBa-_0mUITUsy6m6IIUYj3HzB5ayx5RoWCv70aP7rI6xgmV7ICK0YA5XHSUAAI9cuL2NZPetZttNACQ"
+      }
+    },
+    {
+      "name": "wrong-digest",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "sbq0aqNKMjda_6nnL76DUeJF_1xGIoHdd2fzM5eburlZDyBnqWkyc4qTEVY6yfFqPOIHaKAH3wTQi3XKc7zCAQ"
+      }
+    },
+    {
+      "name": "wrong-snapshot-epoch",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "2",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "nVF-6hEWvpOMoz1TQpBRhAF5KYkZfSf8fNuQtinimHouGeeym7FNlo1BEInqsDv2ISlWEcs2baKr4DSBdgp2Cg"
+      }
+    },
+    {
+      "name": "retired-unpinned-signature",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:8e10485de6705a209120f80be6305a1dc5c34a9b4dbfd4ef8b3df04a2dbe9838",
+        "signature": "6o_HH-7ASzpwpdU-go-giPPO4HqAMzgwBT_IXxgf1QNcUfKkpeO_f1Z9U_44HlvHLBTmxoJtIOEpTpO5ndKMBA"
+      }
+    },
+    {
+      "name": "incoming-witness-is-not-pin",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:8e10485de6705a209120f80be6305a1dc5c34a9b4dbfd4ef8b3df04a2dbe9838",
+                "public_key": "lBnitVWDpUPiqCBzuDt66GPXHbq8LoCCtRLXdAwTLVI"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "31ff22766341b84d70ff68684c114923b687a06c10db438aa8ae987a04cb6300"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:8e10485de6705a209120f80be6305a1dc5c34a9b4dbfd4ef8b3df04a2dbe9838",
+        "signature": "VTb_DUXTRtl1okONyUMeZSd9-7gF8p3wpbbH-t1AEz3mKfjmEVklpm1TGK80hIVlDXc65kyz62lAT1wN-Xw9Ag"
+      }
+    },
+    {
+      "name": "role-key-collision",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "99ca24e79defd21e0703fc8703010826cd0d1b68db3dd299f2e009e0f96709c2"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "8KNN_ZXI1fsoxp9ChKpYi_kvJ-9U02R71e26lFRvVNPdEJiw9EayzgVzO7FTMmuDwlvUftHktRbQ3vzOs36GCw"
+      }
+    },
+    {
+      "name": "duplicate-publisher-key",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                },
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "84424546a89a8eded2c0a538c74ddc6700367ec49b7702c6e1928d07b5e4bafa"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "-xQnIrzLH6gIs6LBcuTN4qYFI2EPPjT-Y3ElhRjsqxd0lyn6hf5Qg5L1JjasYXET6xREvxZLB_Rm34667tocDA"
+      }
+    },
+    {
+      "name": "empty-publisher-key-set",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "28c7fc1b34f1506c4ba1469a2ae22bd3a58741fd444fe6c9798babdff5805050"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "dkXLu8ikJap8oPTARw2Hk2iiR3-JmOG1XPdDEjc7FHhlELTrx1Rgq9KcivngkHE6vhyFkaDU6J4UIulqxU7KBg"
+      }
+    },
+    {
+      "name": "zero-authority-read-epoch",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "0",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "b27e647e3433257fa1dac17cfe977c9d5ce4615c566c1e2cdf9d3a7f7012767b"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "jaTsfauh4vVTA9KKO9WgeBjyYETbU_U6ydfuffxEhgYofIdPE33LKFFS9ipVjUtiHuPJE9P8hs3vdre2Q2BUAw"
+      }
+    },
+    {
+      "name": "overflow-cursor",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "18446744073709551616",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "K5rlLysoF5HacuqhrPDL-4CHtHfSAEPOHlToii7t387pltTqEqZJ-kUQYDdURk7nx--xsJM3lPdr6L0HFmkWCw"
+      }
+    },
+    {
+      "name": "leading-zero-cursor",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "08",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "tu7OrD54Asu03bZmlspxjQGLOmafA3wFaqi-u67EEWyK7UPzWM6QRpVEJAa1mr3aVfHmK0THD6Xqr9XBtfB_Dw"
+      }
+    },
+    {
+      "name": "unknown-body-field",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          },
+          "untrusted": true
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "ODjiiMG-r7XzUbB1gSYN1SC5y79w_YnAbAjyWkS3bf6YgEOUNXG4viOPrVMP8J9kn-9GzW9ZWu0bzh4SzZNeBg"
+      }
+    },
+    {
+      "name": "missing-body-floor",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {},
+            "authority_digest": "01db5d3c177772bb6b64e5ce1733b5f5d236bde9b2ad242a055dd6f0540e17f1"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4"
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "ohlg3UOxujdzM-HLyq2KmKDhM0va305T_ngsHo31jTzabwdRtCbc8n3fIQI3gLSOamSjhwfzz-DWTrOdpqodCQ"
+      }
+    },
+    {
+      "name": "null-enrollment-map",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": null,
+            "authority_digest": "7547bf5577bca822d8ab65a4e66ebd3f6d1e46ab5fe5b1739266a33c990b7b6c"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "iBb3lZBsfLTQyYMUB2wX-39MAGIwNRqqKefUn9XVy2xoJMrAzMMEGXYUi7RX2Jhe35Pii0ja57iOMDYPxdXvBg"
+      }
+    },
+    {
+      "name": "cross-namespace-object",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {
+              "10000000-0000-4000-8000-000000000001": {
+                "installation_id": "10000000-0000-4000-8000-000000000001",
+                "bootstrap_generation": 1,
+                "namespace": "public-trial",
+                "namespace_uid": "10000000-0000-4000-8000-000000000002",
+                "operator_service_account": "public-reader",
+                "operator_service_account_uid": "10000000-0000-4000-8000-000000000003",
+                "fencer_service_account": "public-fencer",
+                "fencer_service_account_uid": "10000000-0000-4000-8000-000000000004",
+                "lease": {
+                  "api_version": "coordination.k8s.io/v1",
+                  "kind": "Lease",
+                  "namespace": "public-trial",
+                  "name": "public-lease",
+                  "uid": "10000000-0000-4000-8000-000000000005"
+                },
+                "node_fingerprint": "p256-sha256:c63cd3b9dfa70c9bc075e51fc40def107632b9a02d854a716791f3fd2e093c7c",
+                "identity_key_secret_uid": "10000000-0000-4000-8000-000000000006",
+                "trust_bundle_secret_uid": "10000000-0000-4000-8000-000000000007",
+                "allowed_objects": [
+                  {
+                    "api_version": "apps/v1",
+                    "kind": "Deployment",
+                    "namespace": "other-public-trial",
+                    "name": "public-app",
+                    "uid": "10000000-0000-4000-8000-000000000008"
+                  },
+                  {
+                    "api_version": "v1",
+                    "kind": "Secret",
+                    "namespace": "public-trial",
+                    "name": "public-target",
+                    "uid": "10000000-0000-4000-8000-000000000009"
+                  }
+                ]
+              }
+            },
+            "authority_digest": "6634f9083692fc0731267cea0ad46dd4470e68a0c011c93973b072ac461d996b"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "vazk6oraa315FEgZHAvNSjpI-6HkZqfF8sk7yxQqtyy2PIsWvcg7E2K8S48stOzSzUJjkU7dgMOJJEItaRxLAg"
+      }
+    },
+    {
+      "name": "unsafe-json-integer",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {
+              "10000000-0000-4000-8000-000000000001": {
+                "installation_id": "10000000-0000-4000-8000-000000000001",
+                "bootstrap_generation": 9007199254740992,
+                "namespace": "public-trial",
+                "namespace_uid": "10000000-0000-4000-8000-000000000002",
+                "operator_service_account": "public-reader",
+                "operator_service_account_uid": "10000000-0000-4000-8000-000000000003",
+                "fencer_service_account": "public-fencer",
+                "fencer_service_account_uid": "10000000-0000-4000-8000-000000000004",
+                "lease": {
+                  "api_version": "coordination.k8s.io/v1",
+                  "kind": "Lease",
+                  "namespace": "public-trial",
+                  "name": "public-lease",
+                  "uid": "10000000-0000-4000-8000-000000000005"
+                },
+                "node_fingerprint": "p256-sha256:c63cd3b9dfa70c9bc075e51fc40def107632b9a02d854a716791f3fd2e093c7c",
+                "identity_key_secret_uid": "10000000-0000-4000-8000-000000000006",
+                "trust_bundle_secret_uid": "10000000-0000-4000-8000-000000000007",
+                "allowed_objects": [
+                  {
+                    "api_version": "apps/v1",
+                    "kind": "Deployment",
+                    "namespace": "public-trial",
+                    "name": "public-app",
+                    "uid": "10000000-0000-4000-8000-000000000008"
+                  },
+                  {
+                    "api_version": "v1",
+                    "kind": "Secret",
+                    "namespace": "public-trial",
+                    "name": "public-target",
+                    "uid": "10000000-0000-4000-8000-000000000009"
+                  }
+                ]
+              }
+            },
+            "authority_digest": "b51d43d75d7f86cb3571d82227fa8ea506ed2b44bd96ba3c9b4c1d9f9e1a00b2"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "BrQn0c1EZBV8YnO9-EmCfWj6PhlDF5Aivbbvq54SNfdZfkQQOPeSy6n0n6BQYKHaPZK627dvCykk9DZGT_rZBQ"
+      }
+    },
+    {
+      "name": "boolean-bootstrap-generation",
+      "go_valid": false,
+      "panel_valid": false,
+      "proof": {
+        "body": {
+          "format": "sekvyr-authority-proof-v2",
+          "state": {
+            "scope": {
+              "realm_id": "77777777-7777-4777-8777-777777777777",
+              "project_id": "88888888-8888-4888-8888-888888888888",
+              "environment_id": "99999999-9999-4999-8999-999999999999",
+              "view_id": "66666666-6666-4666-8666-666666666666",
+              "log_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            },
+            "genesis_hash": "d9b0b309a9bb72301a37efdf2c6de7c3b0e079a90acaf93b1e6d7b33dbe26daf",
+            "cursor": {
+              "journal_sequence": "8",
+              "record_hash": "43d53a1528c364329440c44f9733cdb23faed28de76715986750158c2397c115"
+            },
+            "snapshot": {
+              "sequence": "2",
+              "envelope_hash": "c589d4b1c8599f80ffcbc575b37bdc055104eff9fce0e65be70fa0e7f07944fd",
+              "read_key_epoch": "1",
+              "publisher_policy_epoch": "1"
+            },
+            "authority": {
+              "revision": "1",
+              "admin_key": {
+                "key_id": "ed25519-sha256:5f46a605ad97278110c08cb4a911ef88c61da8fcf54d6866a297dd07ae9ee38f",
+                "public_key": "l9J12S09nezfoynu6tDIWR7jQUxIiwGw2Q0pk401q-Q"
+              },
+              "publisher_policy_epoch": "1",
+              "publisher_keys": [
+                {
+                  "key_id": "ed25519-sha256:2be456435b550f65f0f94703bf022cb43280d749d3d38141afb75cfb234cfe29",
+                  "public_key": "zaNYKOCcbhQNqMsk4ifpcEz9VLu2wDMzQ8AwU_ZdSFg"
+                }
+              ],
+              "read_key_epoch": "1",
+              "witness_epoch": "1",
+              "witness_key": {
+                "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+                "public_key": "gOJuk3FO6Z1Vf2ggRO2T3L4vDBHTbkFBr4LW3HDB3hM"
+              },
+              "fencer_epoch": "1",
+              "fencer_keys": [
+                {
+                  "key_id": "ed25519-sha256:7bbb97c2427aecc84436da81f8e468360e9049d62048159474299492c98ea7e1",
+                  "public_key": "mPVchECHXTzb6ihZLkLWB4KwiZFRHua5zYS4FBWAU_4"
+                }
+              ]
+            },
+            "enrollments": {
+              "10000000-0000-4000-8000-000000000001": {
+                "installation_id": "10000000-0000-4000-8000-000000000001",
+                "bootstrap_generation": true,
+                "namespace": "public-trial",
+                "namespace_uid": "10000000-0000-4000-8000-000000000002",
+                "operator_service_account": "public-reader",
+                "operator_service_account_uid": "10000000-0000-4000-8000-000000000003",
+                "fencer_service_account": "public-fencer",
+                "fencer_service_account_uid": "10000000-0000-4000-8000-000000000004",
+                "lease": {
+                  "api_version": "coordination.k8s.io/v1",
+                  "kind": "Lease",
+                  "namespace": "public-trial",
+                  "name": "public-lease",
+                  "uid": "10000000-0000-4000-8000-000000000005"
+                },
+                "node_fingerprint": "p256-sha256:c63cd3b9dfa70c9bc075e51fc40def107632b9a02d854a716791f3fd2e093c7c",
+                "identity_key_secret_uid": "10000000-0000-4000-8000-000000000006",
+                "trust_bundle_secret_uid": "10000000-0000-4000-8000-000000000007",
+                "allowed_objects": [
+                  {
+                    "api_version": "apps/v1",
+                    "kind": "Deployment",
+                    "namespace": "public-trial",
+                    "name": "public-app",
+                    "uid": "10000000-0000-4000-8000-000000000008"
+                  },
+                  {
+                    "api_version": "v1",
+                    "kind": "Secret",
+                    "namespace": "public-trial",
+                    "name": "public-target",
+                    "uid": "10000000-0000-4000-8000-000000000009"
+                  }
+                ]
+              }
+            },
+            "authority_digest": "f95974df81f745c3e4c62412bab99651fe9836582fc9371e0fb9e2d91d4d6159"
+          },
+          "request_nonce": "T1X68oP4bD1ZZ8F4KynxEIDHM_VrDerF8pboJ8D_BD4",
+          "floor": {
+            "journal_sequence": "1",
+            "record_hash": "1fab0fb84956a84f2a4513a1541d12492ed33df225cc6c4a0023a8e888e2eb07"
+          }
+        },
+        "key_id": "ed25519-sha256:4e001dcafd66a9e764b431631064841171b83372023a1606c45b3b231e073b8f",
+        "signature": "rMzRYJHM0KEONE3mc8vMeAMGOSbBgpl4qE1MWO6EUOi2O4yPaWY5oUyPhevv14y2Ba6NrpaahI72-LSLZGz3DA"
+      }
+    },
+    {
+      "name": "duplicate-escaped-property",
+      "go_valid": false,
+      "panel_valid": false,
+      "raw_base64url": "eyJib2R5Ijp7ImZsb29yIjp7ImpvdXJuYWxfc2VxdWVuY2UiOiIxIiwicmVjb3JkX2hhc2giOiIxZmFiMGZiODQ5NTZhODRmMmE0NTEzYTE1NDFkMTI0OTJlZDMzZGYyMjVjYzZjNGEwMDIzYThlODg4ZTJlYjA3In0sImZvcm1hdCI6InNla3Z5ci1hdXRob3JpdHktcHJvb2YtdjIiLCJyZXF1ZXN0X25vbmNlIjoiUFVCTElDIiwgIlx1MDA3MmVxdWVzdF9ub25jZSI6IlQxWDY4b1A0YkQxWlo4RjRLeW54RUlESE1fVnJEZXJGOHBib0o4RF9CRDQiLCJzdGF0ZSI6eyJhdXRob3JpdHkiOnsiYWRtaW5fa2V5Ijp7ImtleV9pZCI6ImVkMjU1MTktc2hhMjU2OjVmNDZhNjA1YWQ5NzI3ODExMGMwOGNiNGE5MTFlZjg4YzYxZGE4ZmNmNTRkNjg2NmEyOTdkZDA3YWU5ZWUzOGYiLCJwdWJsaWNfa2V5IjoibDlKMTJTMDluZXpmb3ludTZ0RElXUjdqUVV4SWl3R3cyUTBwazQwMXEtUSJ9LCJmZW5jZXJfZXBvY2giOiIxIiwiZmVuY2VyX2tleXMiOlt7ImtleV9pZCI6ImVkMjU1MTktc2hhMjU2OjdiYmI5N2MyNDI3YWVjYzg0NDM2ZGE4MWY4ZTQ2ODM2MGU5MDQ5ZDYyMDQ4MTU5NDc0Mjk5NDkyYzk4ZWE3ZTEiLCJwdWJsaWNfa2V5IjoibVBWY2hFQ0hYVHpiNmloWkxrTFdCNEt3aVpGUkh1YTV6WVM0RkJXQVVfNCJ9XSwicHVibGlzaGVyX2tleXMiOlt7ImtleV9pZCI6ImVkMjU1MTktc2hhMjU2OjJiZTQ1NjQzNWI1NTBmNjVmMGY5NDcwM2JmMDIyY2I0MzI4MGQ3NDlkM2QzODE0MWFmYjc1Y2ZiMjM0Y2ZlMjkiLCJwdWJsaWNfa2V5IjoiemFOWUtPQ2NiaFFOcU1zazRpZnBjRXo5Vkx1MndETXpROEF3VV9aZFNGZyJ9XSwicHVibGlzaGVyX3BvbGljeV9lcG9jaCI6IjEiLCJyZWFkX2tleV9lcG9jaCI6IjEiLCJyZXZpc2lvbiI6IjEiLCJ3aXRuZXNzX2Vwb2NoIjoiMSIsIndpdG5lc3Nfa2V5Ijp7ImtleV9pZCI6ImVkMjU1MTktc2hhMjU2OjRlMDAxZGNhZmQ2NmE5ZTc2NGI0MzE2MzEwNjQ4NDExNzFiODMzNzIwMjNhMTYwNmM0NWIzYjIzMWUwNzNiOGYiLCJwdWJsaWNfa2V5IjoiZ09KdWszRk82WjFWZjJnZ1JPMlQzTDR2REJIVGJrRkJyNExXM0hEQjNoTSJ9fSwiYXV0aG9yaXR5X2RpZ2VzdCI6IjAxZGI1ZDNjMTc3NzcyYmI2YjY0ZTVjZTE3MzNiNWY1ZDIzNmJkZTliMmFkMjQyYTA1NWRkNmYwNTQwZTE3ZjEiLCJjdXJzb3IiOnsiam91cm5hbF9zZXF1ZW5jZSI6IjgiLCJyZWNvcmRfaGFzaCI6IjQzZDUzYTE1MjhjMzY0MzI5NDQwYzQ0Zjk3MzNjZGIyM2ZhZWQyOGRlNzY3MTU5ODY3NTAxNThjMjM5N2MxMTUifSwiZW5yb2xsbWVudHMiOnt9LCJnZW5lc2lzX2hhc2giOiJkOWIwYjMwOWE5YmI3MjMwMWEzN2VmZGYyYzZkZTdjM2IwZTA3OWE5MGFjYWY5M2IxZTZkN2IzM2RiZTI2ZGFmIiwic2NvcGUiOnsiZW52aXJvbm1lbnRfaWQiOiI5OTk5OTk5OS05OTk5LTQ5OTktODk5OS05OTk5OTk5OTk5OTkiLCJsb2dfaWQiOiJhYWFhYWFhYS1hYWFhLTRhYWEtOGFhYS1hYWFhYWFhYWFhYWEiLCJwcm9qZWN0X2lkIjoiODg4ODg4ODgtODg4OC00ODg4LTg4ODgtODg4ODg4ODg4ODg4IiwicmVhbG1faWQiOiI3Nzc3Nzc3Ny03Nzc3LTQ3NzctODc3Ny03Nzc3Nzc3Nzc3NzciLCJ2aWV3X2lkIjoiNjY2NjY2NjYtNjY2Ni00NjY2LTg2NjYtNjY2NjY2NjY2NjY2In0sInNuYXBzaG90Ijp7ImVudmVsb3BlX2hhc2giOiJjNTg5ZDRiMWM4NTk5ZjgwZmZjYmM1NzViMzdiZGMwNTUxMDRlZmY5ZmNlMGU2NWJlNzBmYTBlN2YwNzk0NGZkIiwicHVibGlzaGVyX3BvbGljeV9lcG9jaCI6IjEiLCJyZWFkX2tleV9lcG9jaCI6IjEiLCJzZXF1ZW5jZSI6IjIifX19LCJrZXlfaWQiOiJlZDI1NTE5LXNoYTI1Njo0ZTAwMWRjYWZkNjZhOWU3NjRiNDMxNjMxMDY0ODQxMTcxYjgzMzcyMDIzYTE2MDZjNDViM2IyMzFlMDczYjhmIiwic2lnbmF0dXJlIjoiVWFxeVFETjdzVWpFQzhHMVdKaDVUQllMU2QzX3ZPMHRHbGJsblhmQW1ISFlVc2pJalRQbWx0Yl8xeXlucnhLVWtlRlFlNGlOb1NSanZTUWV4RUtCRFEifQ"
+    },
+    {
+      "name": "unknown-outer-field",
+      "go_valid": false,
+      "panel_valid": false,
+      "raw_base64url": "eyJib2R5Ijp7ImZsb29yIjp7ImpvdXJuYWxfc2VxdWVuY2UiOiIxIiwicmVjb3JkX2hhc2giOiIxZmFiMGZiODQ5NTZhODRmMmE0NTEzYTE1NDFkMTI0OTJlZDMzZGYyMjVjYzZjNGEwMDIzYThlODg4ZTJlYjA3In0sImZvcm1hdCI6InNla3Z5ci1hdXRob3JpdHktcHJvb2YtdjIiLCJyZXF1ZXN0X25vbmNlIjoiVDFYNjhvUDRiRDFaWjhGNEt5bnhFSURITV9WckRlckY4cGJvSjhEX0JENCIsInN0YXRlIjp7ImF1dGhvcml0eSI6eyJhZG1pbl9rZXkiOnsia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NWY0NmE2MDVhZDk3Mjc4MTEwYzA4Y2I0YTkxMWVmODhjNjFkYThmY2Y1NGQ2ODY2YTI5N2RkMDdhZTllZTM4ZiIsInB1YmxpY19rZXkiOiJsOUoxMlMwOW5lemZveW51NnRESVdSN2pRVXhJaXdHdzJRMHBrNDAxcS1RIn0sImZlbmNlcl9lcG9jaCI6IjEiLCJmZW5jZXJfa2V5cyI6W3sia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6N2JiYjk3YzI0MjdhZWNjODQ0MzZkYTgxZjhlNDY4MzYwZTkwNDlkNjIwNDgxNTk0NzQyOTk0OTJjOThlYTdlMSIsInB1YmxpY19rZXkiOiJtUFZjaEVDSFhUemI2aWhaTGtMV0I0S3dpWkZSSHVhNXpZUzRGQldBVV80In1dLCJwdWJsaXNoZXJfa2V5cyI6W3sia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6MmJlNDU2NDM1YjU1MGY2NWYwZjk0NzAzYmYwMjJjYjQzMjgwZDc0OWQzZDM4MTQxYWZiNzVjZmIyMzRjZmUyOSIsInB1YmxpY19rZXkiOiJ6YU5ZS09DY2JoUU5xTXNrNGlmcGNFejlWTHUyd0RNelE4QXdVX1pkU0ZnIn1dLCJwdWJsaXNoZXJfcG9saWN5X2Vwb2NoIjoiMSIsInJlYWRfa2V5X2Vwb2NoIjoiMSIsInJldmlzaW9uIjoiMSIsIndpdG5lc3NfZXBvY2giOiIxIiwid2l0bmVzc19rZXkiOnsia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NGUwMDFkY2FmZDY2YTllNzY0YjQzMTYzMTA2NDg0MTE3MWI4MzM3MjAyM2ExNjA2YzQ1YjNiMjMxZTA3M2I4ZiIsInB1YmxpY19rZXkiOiJnT0p1azNGTzZaMVZmMmdnUk8yVDNMNHZEQkhUYmtGQnI0TFczSERCM2hNIn19LCJhdXRob3JpdHlfZGlnZXN0IjoiMDFkYjVkM2MxNzc3NzJiYjZiNjRlNWNlMTczM2I1ZjVkMjM2YmRlOWIyYWQyNDJhMDU1ZGQ2ZjA1NDBlMTdmMSIsImN1cnNvciI6eyJqb3VybmFsX3NlcXVlbmNlIjoiOCIsInJlY29yZF9oYXNoIjoiNDNkNTNhMTUyOGMzNjQzMjk0NDBjNDRmOTczM2NkYjIzZmFlZDI4ZGU3NjcxNTk4Njc1MDE1OGMyMzk3YzExNSJ9LCJlbnJvbGxtZW50cyI6e30sImdlbmVzaXNfaGFzaCI6ImQ5YjBiMzA5YTliYjcyMzAxYTM3ZWZkZjJjNmRlN2MzYjBlMDc5YTkwYWNhZjkzYjFlNmQ3YjMzZGJlMjZkYWYiLCJzY29wZSI6eyJlbnZpcm9ubWVudF9pZCI6Ijk5OTk5OTk5LTk5OTktNDk5OS04OTk5LTk5OTk5OTk5OTk5OSIsImxvZ19pZCI6ImFhYWFhYWFhLWFhYWEtNGFhYS04YWFhLWFhYWFhYWFhYWFhYSIsInByb2plY3RfaWQiOiI4ODg4ODg4OC04ODg4LTQ4ODgtODg4OC04ODg4ODg4ODg4ODgiLCJyZWFsbV9pZCI6Ijc3Nzc3Nzc3LTc3NzctNDc3Ny04Nzc3LTc3Nzc3Nzc3Nzc3NyIsInZpZXdfaWQiOiI2NjY2NjY2Ni02NjY2LTQ2NjYtODY2Ni02NjY2NjY2NjY2NjYifSwic25hcHNob3QiOnsiZW52ZWxvcGVfaGFzaCI6ImM1ODlkNGIxYzg1OTlmODBmZmNiYzU3NWIzN2JkYzA1NTEwNGVmZjlmY2UwZTY1YmU3MGZhMGU3ZjA3OTQ0ZmQiLCJwdWJsaXNoZXJfcG9saWN5X2Vwb2NoIjoiMSIsInJlYWRfa2V5X2Vwb2NoIjoiMSIsInNlcXVlbmNlIjoiMiJ9fX0sImtleV9pZCI6ImVkMjU1MTktc2hhMjU2OjRlMDAxZGNhZmQ2NmE5ZTc2NGI0MzE2MzEwNjQ4NDExNzFiODMzNzIwMjNhMTYwNmM0NWIzYjIzMWUwNzNiOGYiLCJzaWduYXR1cmUiOiJVYXF5UURON3NVakVDOEcxV0poNVRCWUxTZDNfdk8wdEdsYmxuWGZBbUhIWVVzaklqVFBtbHRiXzF5eW5yeEtVa2VGUWU0aU5vU1JqdlNRZXhFS0JEUSIsInVudHJ1c3RlZCI6dHJ1ZX0"
+    },
+    {
+      "name": "case-alias-body",
+      "go_valid": false,
+      "panel_valid": false,
+      "raw_base64url": "eyJib2R5Ijp7ImZsb29yIjp7ImpvdXJuYWxfc2VxdWVuY2UiOiIxIiwicmVjb3JkX2hhc2giOiIxZmFiMGZiODQ5NTZhODRmMmE0NTEzYTE1NDFkMTI0OTJlZDMzZGYyMjVjYzZjNGEwMDIzYThlODg4ZTJlYjA3In0sImZvcm1hdCI6InNla3Z5ci1hdXRob3JpdHktcHJvb2YtdjIiLCJyZXF1ZXN0X25vbmNlIjoiVDFYNjhvUDRiRDFaWjhGNEt5bnhFSURITV9WckRlckY4cGJvSjhEX0JENCIsIlN0YXRlIjp7ImF1dGhvcml0eSI6eyJhZG1pbl9rZXkiOnsia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NWY0NmE2MDVhZDk3Mjc4MTEwYzA4Y2I0YTkxMWVmODhjNjFkYThmY2Y1NGQ2ODY2YTI5N2RkMDdhZTllZTM4ZiIsInB1YmxpY19rZXkiOiJsOUoxMlMwOW5lemZveW51NnRESVdSN2pRVXhJaXdHdzJRMHBrNDAxcS1RIn0sImZlbmNlcl9lcG9jaCI6IjEiLCJmZW5jZXJfa2V5cyI6W3sia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6N2JiYjk3YzI0MjdhZWNjODQ0MzZkYTgxZjhlNDY4MzYwZTkwNDlkNjIwNDgxNTk0NzQyOTk0OTJjOThlYTdlMSIsInB1YmxpY19rZXkiOiJtUFZjaEVDSFhUemI2aWhaTGtMV0I0S3dpWkZSSHVhNXpZUzRGQldBVV80In1dLCJwdWJsaXNoZXJfa2V5cyI6W3sia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6MmJlNDU2NDM1YjU1MGY2NWYwZjk0NzAzYmYwMjJjYjQzMjgwZDc0OWQzZDM4MTQxYWZiNzVjZmIyMzRjZmUyOSIsInB1YmxpY19rZXkiOiJ6YU5ZS09DY2JoUU5xTXNrNGlmcGNFejlWTHUyd0RNelE4QXdVX1pkU0ZnIn1dLCJwdWJsaXNoZXJfcG9saWN5X2Vwb2NoIjoiMSIsInJlYWRfa2V5X2Vwb2NoIjoiMSIsInJldmlzaW9uIjoiMSIsIndpdG5lc3NfZXBvY2giOiIxIiwid2l0bmVzc19rZXkiOnsia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NGUwMDFkY2FmZDY2YTllNzY0YjQzMTYzMTA2NDg0MTE3MWI4MzM3MjAyM2ExNjA2YzQ1YjNiMjMxZTA3M2I4ZiIsInB1YmxpY19rZXkiOiJnT0p1azNGTzZaMVZmMmdnUk8yVDNMNHZEQkhUYmtGQnI0TFczSERCM2hNIn19LCJhdXRob3JpdHlfZGlnZXN0IjoiMDFkYjVkM2MxNzc3NzJiYjZiNjRlNWNlMTczM2I1ZjVkMjM2YmRlOWIyYWQyNDJhMDU1ZGQ2ZjA1NDBlMTdmMSIsImN1cnNvciI6eyJqb3VybmFsX3NlcXVlbmNlIjoiOCIsInJlY29yZF9oYXNoIjoiNDNkNTNhMTUyOGMzNjQzMjk0NDBjNDRmOTczM2NkYjIzZmFlZDI4ZGU3NjcxNTk4Njc1MDE1OGMyMzk3YzExNSJ9LCJlbnJvbGxtZW50cyI6e30sImdlbmVzaXNfaGFzaCI6ImQ5YjBiMzA5YTliYjcyMzAxYTM3ZWZkZjJjNmRlN2MzYjBlMDc5YTkwYWNhZjkzYjFlNmQ3YjMzZGJlMjZkYWYiLCJzY29wZSI6eyJlbnZpcm9ubWVudF9pZCI6Ijk5OTk5OTk5LTk5OTktNDk5OS04OTk5LTk5OTk5OTk5OTk5OSIsImxvZ19pZCI6ImFhYWFhYWFhLWFhYWEtNGFhYS04YWFhLWFhYWFhYWFhYWFhYSIsInByb2plY3RfaWQiOiI4ODg4ODg4OC04ODg4LTQ4ODgtODg4OC04ODg4ODg4ODg4ODgiLCJyZWFsbV9pZCI6Ijc3Nzc3Nzc3LTc3NzctNDc3Ny04Nzc3LTc3Nzc3Nzc3Nzc3NyIsInZpZXdfaWQiOiI2NjY2NjY2Ni02NjY2LTQ2NjYtODY2Ni02NjY2NjY2NjY2NjYifSwic25hcHNob3QiOnsiZW52ZWxvcGVfaGFzaCI6ImM1ODlkNGIxYzg1OTlmODBmZmNiYzU3NWIzN2JkYzA1NTEwNGVmZjlmY2UwZTY1YmU3MGZhMGU3ZjA3OTQ0ZmQiLCJwdWJsaXNoZXJfcG9saWN5X2Vwb2NoIjoiMSIsInJlYWRfa2V5X2Vwb2NoIjoiMSIsInNlcXVlbmNlIjoiMiJ9fX0sImtleV9pZCI6ImVkMjU1MTktc2hhMjU2OjRlMDAxZGNhZmQ2NmE5ZTc2NGI0MzE2MzEwNjQ4NDExNzFiODMzNzIwMjNhMTYwNmM0NWIzYjIzMWUwNzNiOGYiLCJzaWduYXR1cmUiOiJVYXF5UURON3NVakVDOEcxV0poNVRCWUxTZDNfdk8wdEdsYmxuWGZBbUhIWVVzaklqVFBtbHRiXzF5eW5yeEtVa2VGUWU0aU5vU1JqdlNRZXhFS0JEUSJ9"
+    },
+    {
+      "name": "padded-signature",
+      "go_valid": false,
+      "panel_valid": false,
+      "raw_base64url": "eyJib2R5Ijp7ImZsb29yIjp7ImpvdXJuYWxfc2VxdWVuY2UiOiIxIiwicmVjb3JkX2hhc2giOiIxZmFiMGZiODQ5NTZhODRmMmE0NTEzYTE1NDFkMTI0OTJlZDMzZGYyMjVjYzZjNGEwMDIzYThlODg4ZTJlYjA3In0sImZvcm1hdCI6InNla3Z5ci1hdXRob3JpdHktcHJvb2YtdjIiLCJyZXF1ZXN0X25vbmNlIjoiVDFYNjhvUDRiRDFaWjhGNEt5bnhFSURITV9WckRlckY4cGJvSjhEX0JENCIsInN0YXRlIjp7ImF1dGhvcml0eSI6eyJhZG1pbl9rZXkiOnsia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NWY0NmE2MDVhZDk3Mjc4MTEwYzA4Y2I0YTkxMWVmODhjNjFkYThmY2Y1NGQ2ODY2YTI5N2RkMDdhZTllZTM4ZiIsInB1YmxpY19rZXkiOiJsOUoxMlMwOW5lemZveW51NnRESVdSN2pRVXhJaXdHdzJRMHBrNDAxcS1RIn0sImZlbmNlcl9lcG9jaCI6IjEiLCJmZW5jZXJfa2V5cyI6W3sia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6N2JiYjk3YzI0MjdhZWNjODQ0MzZkYTgxZjhlNDY4MzYwZTkwNDlkNjIwNDgxNTk0NzQyOTk0OTJjOThlYTdlMSIsInB1YmxpY19rZXkiOiJtUFZjaEVDSFhUemI2aWhaTGtMV0I0S3dpWkZSSHVhNXpZUzRGQldBVV80In1dLCJwdWJsaXNoZXJfa2V5cyI6W3sia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6MmJlNDU2NDM1YjU1MGY2NWYwZjk0NzAzYmYwMjJjYjQzMjgwZDc0OWQzZDM4MTQxYWZiNzVjZmIyMzRjZmUyOSIsInB1YmxpY19rZXkiOiJ6YU5ZS09DY2JoUU5xTXNrNGlmcGNFejlWTHUyd0RNelE4QXdVX1pkU0ZnIn1dLCJwdWJsaXNoZXJfcG9saWN5X2Vwb2NoIjoiMSIsInJlYWRfa2V5X2Vwb2NoIjoiMSIsInJldmlzaW9uIjoiMSIsIndpdG5lc3NfZXBvY2giOiIxIiwid2l0bmVzc19rZXkiOnsia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NGUwMDFkY2FmZDY2YTllNzY0YjQzMTYzMTA2NDg0MTE3MWI4MzM3MjAyM2ExNjA2YzQ1YjNiMjMxZTA3M2I4ZiIsInB1YmxpY19rZXkiOiJnT0p1azNGTzZaMVZmMmdnUk8yVDNMNHZEQkhUYmtGQnI0TFczSERCM2hNIn19LCJhdXRob3JpdHlfZGlnZXN0IjoiMDFkYjVkM2MxNzc3NzJiYjZiNjRlNWNlMTczM2I1ZjVkMjM2YmRlOWIyYWQyNDJhMDU1ZGQ2ZjA1NDBlMTdmMSIsImN1cnNvciI6eyJqb3VybmFsX3NlcXVlbmNlIjoiOCIsInJlY29yZF9oYXNoIjoiNDNkNTNhMTUyOGMzNjQzMjk0NDBjNDRmOTczM2NkYjIzZmFlZDI4ZGU3NjcxNTk4Njc1MDE1OGMyMzk3YzExNSJ9LCJlbnJvbGxtZW50cyI6e30sImdlbmVzaXNfaGFzaCI6ImQ5YjBiMzA5YTliYjcyMzAxYTM3ZWZkZjJjNmRlN2MzYjBlMDc5YTkwYWNhZjkzYjFlNmQ3YjMzZGJlMjZkYWYiLCJzY29wZSI6eyJlbnZpcm9ubWVudF9pZCI6Ijk5OTk5OTk5LTk5OTktNDk5OS04OTk5LTk5OTk5OTk5OTk5OSIsImxvZ19pZCI6ImFhYWFhYWFhLWFhYWEtNGFhYS04YWFhLWFhYWFhYWFhYWFhYSIsInByb2plY3RfaWQiOiI4ODg4ODg4OC04ODg4LTQ4ODgtODg4OC04ODg4ODg4ODg4ODgiLCJyZWFsbV9pZCI6Ijc3Nzc3Nzc3LTc3NzctNDc3Ny04Nzc3LTc3Nzc3Nzc3Nzc3NyIsInZpZXdfaWQiOiI2NjY2NjY2Ni02NjY2LTQ2NjYtODY2Ni02NjY2NjY2NjY2NjYifSwic25hcHNob3QiOnsiZW52ZWxvcGVfaGFzaCI6ImM1ODlkNGIxYzg1OTlmODBmZmNiYzU3NWIzN2JkYzA1NTEwNGVmZjlmY2UwZTY1YmU3MGZhMGU3ZjA3OTQ0ZmQiLCJwdWJsaXNoZXJfcG9saWN5X2Vwb2NoIjoiMSIsInJlYWRfa2V5X2Vwb2NoIjoiMSIsInNlcXVlbmNlIjoiMiJ9fX0sImtleV9pZCI6ImVkMjU1MTktc2hhMjU2OjRlMDAxZGNhZmQ2NmE5ZTc2NGI0MzE2MzEwNjQ4NDExNzFiODMzNzIwMjNhMTYwNmM0NWIzYjIzMWUwNzNiOGYiLCJzaWduYXR1cmUiOiJVYXF5UURON3NVakVDOEcxV0poNVRCWUxTZDNfdk8wdEdsYmxuWGZBbUhIWVVzaklqVFBtbHRiXzF5eW5yeEtVa2VGUWU0aU5vU1JqdlNRZXhFS0JEUT0ifQ"
+    },
+    {
+      "name": "utf8-bom",
+      "go_valid": false,
+      "panel_valid": false,
+      "raw_base64url": "77u_eyJib2R5Ijp7ImZsb29yIjp7ImpvdXJuYWxfc2VxdWVuY2UiOiIxIiwicmVjb3JkX2hhc2giOiIxZmFiMGZiODQ5NTZhODRmMmE0NTEzYTE1NDFkMTI0OTJlZDMzZGYyMjVjYzZjNGEwMDIzYThlODg4ZTJlYjA3In0sImZvcm1hdCI6InNla3Z5ci1hdXRob3JpdHktcHJvb2YtdjIiLCJyZXF1ZXN0X25vbmNlIjoiVDFYNjhvUDRiRDFaWjhGNEt5bnhFSURITV9WckRlckY4cGJvSjhEX0JENCIsInN0YXRlIjp7ImF1dGhvcml0eSI6eyJhZG1pbl9rZXkiOnsia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NWY0NmE2MDVhZDk3Mjc4MTEwYzA4Y2I0YTkxMWVmODhjNjFkYThmY2Y1NGQ2ODY2YTI5N2RkMDdhZTllZTM4ZiIsInB1YmxpY19rZXkiOiJsOUoxMlMwOW5lemZveW51NnRESVdSN2pRVXhJaXdHdzJRMHBrNDAxcS1RIn0sImZlbmNlcl9lcG9jaCI6IjEiLCJmZW5jZXJfa2V5cyI6W3sia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6N2JiYjk3YzI0MjdhZWNjODQ0MzZkYTgxZjhlNDY4MzYwZTkwNDlkNjIwNDgxNTk0NzQyOTk0OTJjOThlYTdlMSIsInB1YmxpY19rZXkiOiJtUFZjaEVDSFhUemI2aWhaTGtMV0I0S3dpWkZSSHVhNXpZUzRGQldBVV80In1dLCJwdWJsaXNoZXJfa2V5cyI6W3sia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6MmJlNDU2NDM1YjU1MGY2NWYwZjk0NzAzYmYwMjJjYjQzMjgwZDc0OWQzZDM4MTQxYWZiNzVjZmIyMzRjZmUyOSIsInB1YmxpY19rZXkiOiJ6YU5ZS09DY2JoUU5xTXNrNGlmcGNFejlWTHUyd0RNelE4QXdVX1pkU0ZnIn1dLCJwdWJsaXNoZXJfcG9saWN5X2Vwb2NoIjoiMSIsInJlYWRfa2V5X2Vwb2NoIjoiMSIsInJldmlzaW9uIjoiMSIsIndpdG5lc3NfZXBvY2giOiIxIiwid2l0bmVzc19rZXkiOnsia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NGUwMDFkY2FmZDY2YTllNzY0YjQzMTYzMTA2NDg0MTE3MWI4MzM3MjAyM2ExNjA2YzQ1YjNiMjMxZTA3M2I4ZiIsInB1YmxpY19rZXkiOiJnT0p1azNGTzZaMVZmMmdnUk8yVDNMNHZEQkhUYmtGQnI0TFczSERCM2hNIn19LCJhdXRob3JpdHlfZGlnZXN0IjoiMDFkYjVkM2MxNzc3NzJiYjZiNjRlNWNlMTczM2I1ZjVkMjM2YmRlOWIyYWQyNDJhMDU1ZGQ2ZjA1NDBlMTdmMSIsImN1cnNvciI6eyJqb3VybmFsX3NlcXVlbmNlIjoiOCIsInJlY29yZF9oYXNoIjoiNDNkNTNhMTUyOGMzNjQzMjk0NDBjNDRmOTczM2NkYjIzZmFlZDI4ZGU3NjcxNTk4Njc1MDE1OGMyMzk3YzExNSJ9LCJlbnJvbGxtZW50cyI6e30sImdlbmVzaXNfaGFzaCI6ImQ5YjBiMzA5YTliYjcyMzAxYTM3ZWZkZjJjNmRlN2MzYjBlMDc5YTkwYWNhZjkzYjFlNmQ3YjMzZGJlMjZkYWYiLCJzY29wZSI6eyJlbnZpcm9ubWVudF9pZCI6Ijk5OTk5OTk5LTk5OTktNDk5OS04OTk5LTk5OTk5OTk5OTk5OSIsImxvZ19pZCI6ImFhYWFhYWFhLWFhYWEtNGFhYS04YWFhLWFhYWFhYWFhYWFhYSIsInByb2plY3RfaWQiOiI4ODg4ODg4OC04ODg4LTQ4ODgtODg4OC04ODg4ODg4ODg4ODgiLCJyZWFsbV9pZCI6Ijc3Nzc3Nzc3LTc3NzctNDc3Ny04Nzc3LTc3Nzc3Nzc3Nzc3NyIsInZpZXdfaWQiOiI2NjY2NjY2Ni02NjY2LTQ2NjYtODY2Ni02NjY2NjY2NjY2NjYifSwic25hcHNob3QiOnsiZW52ZWxvcGVfaGFzaCI6ImM1ODlkNGIxYzg1OTlmODBmZmNiYzU3NWIzN2JkYzA1NTEwNGVmZjlmY2UwZTY1YmU3MGZhMGU3ZjA3OTQ0ZmQiLCJwdWJsaXNoZXJfcG9saWN5X2Vwb2NoIjoiMSIsInJlYWRfa2V5X2Vwb2NoIjoiMSIsInNlcXVlbmNlIjoiMiJ9fX0sImtleV9pZCI6ImVkMjU1MTktc2hhMjU2OjRlMDAxZGNhZmQ2NmE5ZTc2NGI0MzE2MzEwNjQ4NDExNzFiODMzNzIwMjNhMTYwNmM0NWIzYjIzMWUwNzNiOGYiLCJzaWduYXR1cmUiOiJVYXF5UURON3NVakVDOEcxV0poNVRCWUxTZDNfdk8wdEdsYmxuWGZBbUhIWVVzaklqVFBtbHRiXzF5eW5yeEtVa2VGUWU0aU5vU1JqdlNRZXhFS0JEUSJ9"
+    },
+    {
+      "name": "invalid-utf8",
+      "go_valid": false,
+      "panel_valid": false,
+      "raw_base64url": "eyJib2R5Ijp7ImZsb29yIjp7ImpvdXJuYWxfc2VxdWVuY2UiOiIxIiwicmVjb3JkX2hhc2giOiIxZmFiMGZiODQ5NTZhODRmMmE0NTEzYTE1NDFkMTI0OTJlZDMzZGYyMjVjYzZjNGEwMDIzYThlODg4ZTJlYjA3In0sImZvcm1hdCI6Iv8iLCJyZXF1ZXN0X25vbmNlIjoiVDFYNjhvUDRiRDFaWjhGNEt5bnhFSURITV9WckRlckY4cGJvSjhEX0JENCIsInN0YXRlIjp7ImF1dGhvcml0eSI6eyJhZG1pbl9rZXkiOnsia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NWY0NmE2MDVhZDk3Mjc4MTEwYzA4Y2I0YTkxMWVmODhjNjFkYThmY2Y1NGQ2ODY2YTI5N2RkMDdhZTllZTM4ZiIsInB1YmxpY19rZXkiOiJsOUoxMlMwOW5lemZveW51NnRESVdSN2pRVXhJaXdHdzJRMHBrNDAxcS1RIn0sImZlbmNlcl9lcG9jaCI6IjEiLCJmZW5jZXJfa2V5cyI6W3sia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6N2JiYjk3YzI0MjdhZWNjODQ0MzZkYTgxZjhlNDY4MzYwZTkwNDlkNjIwNDgxNTk0NzQyOTk0OTJjOThlYTdlMSIsInB1YmxpY19rZXkiOiJtUFZjaEVDSFhUemI2aWhaTGtMV0I0S3dpWkZSSHVhNXpZUzRGQldBVV80In1dLCJwdWJsaXNoZXJfa2V5cyI6W3sia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6MmJlNDU2NDM1YjU1MGY2NWYwZjk0NzAzYmYwMjJjYjQzMjgwZDc0OWQzZDM4MTQxYWZiNzVjZmIyMzRjZmUyOSIsInB1YmxpY19rZXkiOiJ6YU5ZS09DY2JoUU5xTXNrNGlmcGNFejlWTHUyd0RNelE4QXdVX1pkU0ZnIn1dLCJwdWJsaXNoZXJfcG9saWN5X2Vwb2NoIjoiMSIsInJlYWRfa2V5X2Vwb2NoIjoiMSIsInJldmlzaW9uIjoiMSIsIndpdG5lc3NfZXBvY2giOiIxIiwid2l0bmVzc19rZXkiOnsia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NGUwMDFkY2FmZDY2YTllNzY0YjQzMTYzMTA2NDg0MTE3MWI4MzM3MjAyM2ExNjA2YzQ1YjNiMjMxZTA3M2I4ZiIsInB1YmxpY19rZXkiOiJnT0p1azNGTzZaMVZmMmdnUk8yVDNMNHZEQkhUYmtGQnI0TFczSERCM2hNIn19LCJhdXRob3JpdHlfZGlnZXN0IjoiMDFkYjVkM2MxNzc3NzJiYjZiNjRlNWNlMTczM2I1ZjVkMjM2YmRlOWIyYWQyNDJhMDU1ZGQ2ZjA1NDBlMTdmMSIsImN1cnNvciI6eyJqb3VybmFsX3NlcXVlbmNlIjoiOCIsInJlY29yZF9oYXNoIjoiNDNkNTNhMTUyOGMzNjQzMjk0NDBjNDRmOTczM2NkYjIzZmFlZDI4ZGU3NjcxNTk4Njc1MDE1OGMyMzk3YzExNSJ9LCJlbnJvbGxtZW50cyI6e30sImdlbmVzaXNfaGFzaCI6ImQ5YjBiMzA5YTliYjcyMzAxYTM3ZWZkZjJjNmRlN2MzYjBlMDc5YTkwYWNhZjkzYjFlNmQ3YjMzZGJlMjZkYWYiLCJzY29wZSI6eyJlbnZpcm9ubWVudF9pZCI6Ijk5OTk5OTk5LTk5OTktNDk5OS04OTk5LTk5OTk5OTk5OTk5OSIsImxvZ19pZCI6ImFhYWFhYWFhLWFhYWEtNGFhYS04YWFhLWFhYWFhYWFhYWFhYSIsInByb2plY3RfaWQiOiI4ODg4ODg4OC04ODg4LTQ4ODgtODg4OC04ODg4ODg4ODg4ODgiLCJyZWFsbV9pZCI6Ijc3Nzc3Nzc3LTc3NzctNDc3Ny04Nzc3LTc3Nzc3Nzc3Nzc3NyIsInZpZXdfaWQiOiI2NjY2NjY2Ni02NjY2LTQ2NjYtODY2Ni02NjY2NjY2NjY2NjYifSwic25hcHNob3QiOnsiZW52ZWxvcGVfaGFzaCI6ImM1ODlkNGIxYzg1OTlmODBmZmNiYzU3NWIzN2JkYzA1NTEwNGVmZjlmY2UwZTY1YmU3MGZhMGU3ZjA3OTQ0ZmQiLCJwdWJsaXNoZXJfcG9saWN5X2Vwb2NoIjoiMSIsInJlYWRfa2V5X2Vwb2NoIjoiMSIsInNlcXVlbmNlIjoiMiJ9fX0sImtleV9pZCI6ImVkMjU1MTktc2hhMjU2OjRlMDAxZGNhZmQ2NmE5ZTc2NGI0MzE2MzEwNjQ4NDExNzFiODMzNzIwMjNhMTYwNmM0NWIzYjIzMWUwNzNiOGYiLCJzaWduYXR1cmUiOiJVYXF5UURON3NVakVDOEcxV0poNVRCWUxTZDNfdk8wdEdsYmxuWGZBbUhIWVVzaklqVFBtbHRiXzF5eW5yeEtVa2VGUWU0aU5vU1JqdlNRZXhFS0JEUSJ9"
+    },
+    {
+      "name": "lone-surrogate",
+      "go_valid": false,
+      "panel_valid": false,
+      "raw_base64url": "eyJib2R5Ijp7ImZsb29yIjp7ImpvdXJuYWxfc2VxdWVuY2UiOiIxIiwicmVjb3JkX2hhc2giOiIxZmFiMGZiODQ5NTZhODRmMmE0NTEzYTE1NDFkMTI0OTJlZDMzZGYyMjVjYzZjNGEwMDIzYThlODg4ZTJlYjA3In0sImZvcm1hdCI6Ilx1ZDgwMCIsInJlcXVlc3Rfbm9uY2UiOiJUMVg2OG9QNGJEMVpaOEY0S3lueEVJREhNX1ZyRGVyRjhwYm9KOERfQkQ0Iiwic3RhdGUiOnsiYXV0aG9yaXR5Ijp7ImFkbWluX2tleSI6eyJrZXlfaWQiOiJlZDI1NTE5LXNoYTI1Njo1ZjQ2YTYwNWFkOTcyNzgxMTBjMDhjYjRhOTExZWY4OGM2MWRhOGZjZjU0ZDY4NjZhMjk3ZGQwN2FlOWVlMzhmIiwicHVibGljX2tleSI6Imw5SjEyUzA5bmV6Zm95bnU2dERJV1I3alFVeElpd0d3MlEwcGs0MDFxLVEifSwiZmVuY2VyX2Vwb2NoIjoiMSIsImZlbmNlcl9rZXlzIjpbeyJrZXlfaWQiOiJlZDI1NTE5LXNoYTI1Njo3YmJiOTdjMjQyN2FlY2M4NDQzNmRhODFmOGU0NjgzNjBlOTA0OWQ2MjA0ODE1OTQ3NDI5OTQ5MmM5OGVhN2UxIiwicHVibGljX2tleSI6Im1QVmNoRUNIWFR6YjZpaFpMa0xXQjRLd2laRlJIdWE1ellTNEZCV0FVXzQifV0sInB1Ymxpc2hlcl9rZXlzIjpbeyJrZXlfaWQiOiJlZDI1NTE5LXNoYTI1NjoyYmU0NTY0MzViNTUwZjY1ZjBmOTQ3MDNiZjAyMmNiNDMyODBkNzQ5ZDNkMzgxNDFhZmI3NWNmYjIzNGNmZTI5IiwicHVibGljX2tleSI6InphTllLT0NjYmhRTnFNc2s0aWZwY0V6OVZMdTJ3RE16UThBd1VfWmRTRmcifV0sInB1Ymxpc2hlcl9wb2xpY3lfZXBvY2giOiIxIiwicmVhZF9rZXlfZXBvY2giOiIxIiwicmV2aXNpb24iOiIxIiwid2l0bmVzc19lcG9jaCI6IjEiLCJ3aXRuZXNzX2tleSI6eyJrZXlfaWQiOiJlZDI1NTE5LXNoYTI1Njo0ZTAwMWRjYWZkNjZhOWU3NjRiNDMxNjMxMDY0ODQxMTcxYjgzMzcyMDIzYTE2MDZjNDViM2IyMzFlMDczYjhmIiwicHVibGljX2tleSI6ImdPSnVrM0ZPNloxVmYyZ2dSTzJUM0w0dkRCSFRia0ZCcjRMVzNIREIzaE0ifX0sImF1dGhvcml0eV9kaWdlc3QiOiIwMWRiNWQzYzE3Nzc3MmJiNmI2NGU1Y2UxNzMzYjVmNWQyMzZiZGU5YjJhZDI0MmEwNTVkZDZmMDU0MGUxN2YxIiwiY3Vyc29yIjp7ImpvdXJuYWxfc2VxdWVuY2UiOiI4IiwicmVjb3JkX2hhc2giOiI0M2Q1M2ExNTI4YzM2NDMyOTQ0MGM0NGY5NzMzY2RiMjNmYWVkMjhkZTc2NzE1OTg2NzUwMTU4YzIzOTdjMTE1In0sImVucm9sbG1lbnRzIjp7fSwiZ2VuZXNpc19oYXNoIjoiZDliMGIzMDlhOWJiNzIzMDFhMzdlZmRmMmM2ZGU3YzNiMGUwNzlhOTBhY2FmOTNiMWU2ZDdiMzNkYmUyNmRhZiIsInNjb3BlIjp7ImVudmlyb25tZW50X2lkIjoiOTk5OTk5OTktOTk5OS00OTk5LTg5OTktOTk5OTk5OTk5OTk5IiwibG9nX2lkIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvamVjdF9pZCI6Ijg4ODg4ODg4LTg4ODgtNDg4OC04ODg4LTg4ODg4ODg4ODg4OCIsInJlYWxtX2lkIjoiNzc3Nzc3NzctNzc3Ny00Nzc3LTg3NzctNzc3Nzc3Nzc3Nzc3Iiwidmlld19pZCI6IjY2NjY2NjY2LTY2NjYtNDY2Ni04NjY2LTY2NjY2NjY2NjY2NiJ9LCJzbmFwc2hvdCI6eyJlbnZlbG9wZV9oYXNoIjoiYzU4OWQ0YjFjODU5OWY4MGZmY2JjNTc1YjM3YmRjMDU1MTA0ZWZmOWZjZTBlNjViZTcwZmEwZTdmMDc5NDRmZCIsInB1Ymxpc2hlcl9wb2xpY3lfZXBvY2giOiIxIiwicmVhZF9rZXlfZXBvY2giOiIxIiwic2VxdWVuY2UiOiIyIn19fSwia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NGUwMDFkY2FmZDY2YTllNzY0YjQzMTYzMTA2NDg0MTE3MWI4MzM3MjAyM2ExNjA2YzQ1YjNiMjMxZTA3M2I4ZiIsInNpZ25hdHVyZSI6IlVhcXlRRE43c1VqRUM4RzFXSmg1VEJZTFNkM192TzB0R2xibG5YZkFtSEhZVXNqSWpUUG1sdGJfMXl5bnJ4S1VrZUZRZTRpTm9TUmp2U1FleEVLQkRRIn0"
+    },
+    {
+      "name": "floating-point",
+      "go_valid": false,
+      "panel_valid": false,
+      "raw_base64url": "eyJib2R5Ijp7ImZsb29yIjp7ImpvdXJuYWxfc2VxdWVuY2UiOiIxIiwicmVjb3JkX2hhc2giOiIxZmFiMGZiODQ5NTZhODRmMmE0NTEzYTE1NDFkMTI0OTJlZDMzZGYyMjVjYzZjNGEwMDIzYThlODg4ZTJlYjA3In0sImZvcm1hdCI6InNla3Z5ci1hdXRob3JpdHktcHJvb2YtdjIiLCJyZXF1ZXN0X25vbmNlIjoiVDFYNjhvUDRiRDFaWjhGNEt5bnhFSURITV9WckRlckY4cGJvSjhEX0JENCIsInN0YXRlIjp7ImF1dGhvcml0eSI6eyJhZG1pbl9rZXkiOnsia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NWY0NmE2MDVhZDk3Mjc4MTEwYzA4Y2I0YTkxMWVmODhjNjFkYThmY2Y1NGQ2ODY2YTI5N2RkMDdhZTllZTM4ZiIsInB1YmxpY19rZXkiOiJsOUoxMlMwOW5lemZveW51NnRESVdSN2pRVXhJaXdHdzJRMHBrNDAxcS1RIn0sImZlbmNlcl9lcG9jaCI6IjEiLCJmZW5jZXJfa2V5cyI6W3sia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6N2JiYjk3YzI0MjdhZWNjODQ0MzZkYTgxZjhlNDY4MzYwZTkwNDlkNjIwNDgxNTk0NzQyOTk0OTJjOThlYTdlMSIsInB1YmxpY19rZXkiOiJtUFZjaEVDSFhUemI2aWhaTGtMV0I0S3dpWkZSSHVhNXpZUzRGQldBVV80In1dLCJwdWJsaXNoZXJfa2V5cyI6W3sia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6MmJlNDU2NDM1YjU1MGY2NWYwZjk0NzAzYmYwMjJjYjQzMjgwZDc0OWQzZDM4MTQxYWZiNzVjZmIyMzRjZmUyOSIsInB1YmxpY19rZXkiOiJ6YU5ZS09DY2JoUU5xTXNrNGlmcGNFejlWTHUyd0RNelE4QXdVX1pkU0ZnIn1dLCJwdWJsaXNoZXJfcG9saWN5X2Vwb2NoIjoiMSIsInJlYWRfa2V5X2Vwb2NoIjoiMSIsInJldmlzaW9uIjoiMSIsIndpdG5lc3NfZXBvY2giOiIxIiwid2l0bmVzc19rZXkiOnsia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NGUwMDFkY2FmZDY2YTllNzY0YjQzMTYzMTA2NDg0MTE3MWI4MzM3MjAyM2ExNjA2YzQ1YjNiMjMxZTA3M2I4ZiIsInB1YmxpY19rZXkiOiJnT0p1azNGTzZaMVZmMmdnUk8yVDNMNHZEQkhUYmtGQnI0TFczSERCM2hNIn19LCJhdXRob3JpdHlfZGlnZXN0IjoiMDFkYjVkM2MxNzc3NzJiYjZiNjRlNWNlMTczM2I1ZjVkMjM2YmRlOWIyYWQyNDJhMDU1ZGQ2ZjA1NDBlMTdmMSIsImN1cnNvciI6eyJqb3VybmFsX3NlcXVlbmNlIjoiOCIsInJlY29yZF9oYXNoIjoiNDNkNTNhMTUyOGMzNjQzMjk0NDBjNDRmOTczM2NkYjIzZmFlZDI4ZGU3NjcxNTk4Njc1MDE1OGMyMzk3YzExNSJ9LCJlbnJvbGxtZW50cyI6e30sInVua25vd24iOjEuMCwiZ2VuZXNpc19oYXNoIjoiZDliMGIzMDlhOWJiNzIzMDFhMzdlZmRmMmM2ZGU3YzNiMGUwNzlhOTBhY2FmOTNiMWU2ZDdiMzNkYmUyNmRhZiIsInNjb3BlIjp7ImVudmlyb25tZW50X2lkIjoiOTk5OTk5OTktOTk5OS00OTk5LTg5OTktOTk5OTk5OTk5OTk5IiwibG9nX2lkIjoiYWFhYWFhYWEtYWFhYS00YWFhLThhYWEtYWFhYWFhYWFhYWFhIiwicHJvamVjdF9pZCI6Ijg4ODg4ODg4LTg4ODgtNDg4OC04ODg4LTg4ODg4ODg4ODg4OCIsInJlYWxtX2lkIjoiNzc3Nzc3NzctNzc3Ny00Nzc3LTg3NzctNzc3Nzc3Nzc3Nzc3Iiwidmlld19pZCI6IjY2NjY2NjY2LTY2NjYtNDY2Ni04NjY2LTY2NjY2NjY2NjY2NiJ9LCJzbmFwc2hvdCI6eyJlbnZlbG9wZV9oYXNoIjoiYzU4OWQ0YjFjODU5OWY4MGZmY2JjNTc1YjM3YmRjMDU1MTA0ZWZmOWZjZTBlNjViZTcwZmEwZTdmMDc5NDRmZCIsInB1Ymxpc2hlcl9wb2xpY3lfZXBvY2giOiIxIiwicmVhZF9rZXlfZXBvY2giOiIxIiwic2VxdWVuY2UiOiIyIn19fSwia2V5X2lkIjoiZWQyNTUxOS1zaGEyNTY6NGUwMDFkY2FmZDY2YTllNzY0YjQzMTYzMTA2NDg0MTE3MWI4MzM3MjAyM2ExNjA2YzQ1YjNiMjMxZTA3M2I4ZiIsInNpZ25hdHVyZSI6IlVhcXlRRE43c1VqRUM4RzFXSmg1VEJZTFNkM192TzB0R2xibG5YZkFtSEhZVXNqSWpUUG1sdGJfMXl5bnJ4S1VrZUZRZTRpTm9TUmp2U1FleEVLQkRRIn0"
+    }
+  ]
+}

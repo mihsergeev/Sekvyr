@@ -16,11 +16,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
-from app import alerts, audit, backups, emergency, settings_store, urlguard
+from app import alerts, audit, backups, e2e2, emergency, settings_store, urlguard
 from app.config import get_settings
 from app.deps import OwnerUser, SessionDep, UnsealedBox, peer_ip
 from app.api.auth import confirm_password, consume_totp, reauth_failed
+from app.models import E2E2View
 
 router = APIRouter(prefix="/ops", tags=["ops"])
 
@@ -236,6 +238,11 @@ async def emergency_archive(
         if not await consume_totp(session, user, body.otp):
             await reauth_failed(session, user, request)
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Неверный код второго фактора")
+
+    # This legacy archive cannot recover E2E2 read keys or authenticated history.
+    # Refuse the whole archive instead of presenting an empty view as a backup.
+    if await session.scalar(select(E2E2View.id).limit(1)) is not None:
+        raise e2e2.Rejected("E2E2EmergencyExportUnsupported", 409)
 
     snapshot = await emergency.collect(session, box)
     projects, envs, values = emergency.counts(snapshot)

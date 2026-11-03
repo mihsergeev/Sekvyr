@@ -1,0 +1,17 @@
+{
+  "description": "PUBLIC test contract. Panel validates signatures and outer metadata without AES read keys. Reader validates full decrypted canonical payloads; opaque acceptance is not reader acceptance.",
+  "snapshot_panel_rejected": [
+    "counter-overflow", "counter-leading-zero", "counter-number", "epoch-zero", "policy-overflow",
+    "null-parents", "null-count", "negative-count", "boolean-count", "proposal-intent", "wrong-suite",
+    "initial-bad-predecessor", "restore-without-reference", "unknown-header-field",
+    "duplicate-parent-context", "unsorted-parent-context"
+  ],
+  "wrapper_panel_rejected": [
+    "unknown-body-field", "invalid-p256-point", "compressed-p256-point", "wrong-recipient",
+    "wrong-read-epoch", "wrong-policy-epoch"
+  ],
+  "expected_counts": {
+    "snapshot": {"total": 45, "reader_accepted": 5, "panel_accepted": 29, "opaque_payload_accepted": 24},
+    "wrapper": {"total": 20, "reader_accepted": 1, "panel_accepted": 14, "opaque_payload_accepted": 13}
+  }
+}
