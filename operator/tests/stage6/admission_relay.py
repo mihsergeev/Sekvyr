@@ -11,6 +11,7 @@ import os
 import re
 from pathlib import Path
 import ssl
+import tempfile
 import threading
 import time
 import urllib.error
@@ -125,11 +126,16 @@ class Relay:
             pin = {"request_uid": uid, "target_uid": self.config["target_uid"], "old_pod_uid": self.config["old_pod_uid"],
                    "upstream_allowed": True, "resource_version": request["object"]["metadata"]["resourceVersion"],
                    "request_marker": self.config["request_marker"]}
-            fd = os.open(self.state / "held.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "wb") as stream:
-                stream.write(encoded(pin))
-                stream.flush()
-                os.fsync(stream.fileno())
+            # The observer polls held.json. Publish complete bytes under that
+            # name in one step, keeping the existing no-overwrite guard.
+            with tempfile.TemporaryDirectory(prefix=".relay-", dir=self.state) as directory:
+                staged = Path(directory) / "held.json"
+                fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(encoded(pin))
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.link(staged, self.state / "held.json")
             deadline = time.monotonic() + self.config["maximum_hold_seconds"]
             while time.monotonic() < deadline:
                 release = self.state / "release"
