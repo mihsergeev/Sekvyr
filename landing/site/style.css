@@ -199,3 +199,28 @@ footer .sp{margin-left:auto}
   .copy{top:auto; bottom:10px; transform:none}
   footer .sp{margin-left:0}
 }
+
+/* Kubernetes architecture: native radio controls work without JavaScript. */
+.arch-eyebrow{color:var(--muted);font-size:13px;letter-spacing:.08em;margin-bottom:14px!important}
+.arch-badge{display:inline-block;color:#f4ca70;border:1px solid #635332;border-radius:6px;padding:0 7px;margin-left:8px;font-size:12px}
+.arch-release{color:var(--muted);font-size:14px;border-left:2px solid #8c713f;padding:10px 16px;background:var(--surface-2);margin-bottom:24px}
+.arch-switch{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:26px}
+.arch-radio{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden;white-space:nowrap}
+.arch-switch>label{border:1px solid var(--border);padding:9px 16px;border-radius:9px;cursor:pointer;color:var(--muted);font-size:14px}
+.arch-radio:checked+label{color:var(--text);border-color:var(--accent);background:#1d2948}
+.arch-radio:focus-visible+label{outline:2px solid #a5b9ff;outline-offset:4px}
+.arch-scroll-hint{flex-basis:100%;color:var(--muted);font-size:13px;margin:2px 0 0}
+.arch-view{display:none;width:100%;min-width:0;margin:0}
+#arch-local:checked~.arch-local,#arch-independent:checked~.arch-independent{display:block}
+.arch-canvas{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);background:#0f131c;overscroll-behavior-x:contain}
+.arch-canvas:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.arch-canvas img{display:block;width:100%;min-width:820px;height:auto}
+.arch-view figcaption{color:var(--muted);font-size:14px;padding:12px 2px 0}
+.arch-view figcaption a{white-space:nowrap;margin-left:6px}
+.arch-bottom{display:flex;align-items:center;gap:28px;margin-top:28px}
+.arch-bottom>div{flex:1}
+.arch-bottom p{color:var(--muted);font-size:15.5px;margin:0}
+.arch-bottom .btn{flex:0 0 auto;font-size:14px}
+@media(max-width:900px){.arch-bottom{display:block}.arch-bottom .btn{margin-top:18px}}
+@media(max-width:640px){.arch-switch>label{padding:8px 11px;font-size:13px}.arch-canvas img{min-width:820px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}

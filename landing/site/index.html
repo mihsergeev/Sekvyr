@@ -18,7 +18,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="alternate icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png">
-<link rel="stylesheet" href="/style.css?v=3">
+<link rel="stylesheet" href="/style.css?v=4">
 </head>
 <body>
 
@@ -29,7 +29,7 @@
       <a class="hide-sm" href="#what">Что умеет</a>
       <a class="hide-sm" href="#ui">Интерфейс</a>
       <a class="hide-sm" href="#security">Безопасность</a>
-      <a class="hide-sm" href="#compare">Сравнение</a>
+      <a class="hide-sm" href="#kubernetes">Kubernetes</a>
       <a href="#install">Установка</a>
       <span class="sep hide-sm"></span>
       <a class="hide-xs" href="https://github.com/mihsergeev/Sekvyr">GitHub</a>
@@ -177,6 +177,45 @@
         <figcaption>Доступ: кто что может видеть, читать и менять, и до какого числа.</figcaption>
       </figure>
     </div>
+  </div>
+</section>
+
+<section id="kubernetes">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="arch-eyebrow">SEKVYR-OPERATOR / E2E2 <span class="arch-badge">RC</span></p>
+      <h2>Из панели в Kubernetes, с проверкой на каждом шаге</h2>
+      <p>Оператор сам забирает зашифрованный пакет, проверяет его происхождение и актуальность, затем создает локальный Kubernetes Secret. Приложение получает значения обычным способом, через ENV или том.</p>
+    </div>
+    <p class="arch-release">Этот путь доступен в панели 1.1.0-rc.1 и sekvyr-operator 0.1.0-rc.1. Это предварительная версия с отдельной настройкой доверия, публикации и witness, а не часть быстрой установки стабильной 1.0.3.</p>
+    <div class="arch-switch" role="group" aria-label="Размещение witness и журнала">
+      <input class="arch-radio" type="radio" name="architecture" id="arch-local" checked>
+      <label for="arch-local">На ВМ панели</label>
+      <input class="arch-radio" type="radio" name="architecture" id="arch-independent">
+      <label for="arch-independent">Отдельный witness + S3</label>
+      <p class="arch-scroll-hint">Все адреса вымышлены. На узком экране схему можно прокрутить или открыть отдельно.</p>
+      <figure class="arch-view arch-local">
+        <div class="arch-canvas" tabindex="0" role="region" aria-label="Схема доставки секрета, можно прокручивать по горизонтали">
+          <img src="/architecture/sekvyr-kubernetes-local.ru.svg?v=1" alt="Публикация, панель, witness, оператор, checkpoint, Kubernetes Secret и под приложения" width="1200" height="1080" loading="lazy">
+        </div>
+        <figcaption>Профиль с доверенным хостом: witness и журнал рядом с панелью. Это не независимая граница восстановления и не WORM-хранилище. <a href="/architecture/sekvyr-kubernetes-local.ru.svg?v=1">Открыть SVG</a></figcaption>
+      </figure>
+      <figure class="arch-view arch-independent">
+        <div class="arch-canvas" tabindex="0" role="region" aria-label="Схема доставки секрета, можно прокручивать по горизонтали">
+          <img src="/architecture/sekvyr-kubernetes.ru.svg?v=1" alt="Публикация, панель, witness, оператор, checkpoint, Kubernetes Secret и под приложения" width="1200" height="1080" loading="lazy">
+        </div>
+        <figcaption>Необязательный trial-профиль: отдельный witness и журнал. Object Lock требует настроенного хранилища и независимых доступов; сам по себе он не включает production HA. <a href="/architecture/sekvyr-kubernetes.ru.svg?v=1">Открыть SVG</a></figcaption>
+      </figure>
+    </div>
+    <div class="grid"><div class="card"><h3><span class="dot"></span>Шифрование и подпись</h3><p>Доверенный publisher шифрует пакет для оператора и подписывает его вне панели. Подмена содержимого или обертки ключа останавливает синхронизацию.</p></div>
+<div class="card"><h3><span class="dot"></span>Witness подтверждает версию</h3><p>Оператор дважды запрашивает текущую подписанную вершину журнала: до и после расшифровки. Это два запроса к одному witness. Старая подпись сама по себе не разрешает откат.</p></div>
+<div class="card"><h3><span class="dot"></span>Checkpoint удерживает прогресс</h3><p>Последняя принятая версия надежно сохраняется в кластере до записи Secret. При отказе панели или witness приложение продолжает работать с последним корректным значением.</p></div></div>
+    <div class="arch-bottom">
+      <div><h3>Перезапуск только при изменении</h3>
+      <p>ENV уже запущенного процесса не обновляется. Оператор может запустить rollout выбранных приложений, когда изменились значения. Повторный пакет с теми же данными не вызывает лишнего рестарта. Для тома приложение должно перечитывать файл.</p></div>
+      <a class="btn btn-ghost" href="https://github.com/mihsergeev/Sekvyr/blob/main/docs/kubernetes-architecture.ru.md">Разобрать схему в GitHub</a>
+    </div>
+    <p class="note">S3 не обязателен. Журнал в одной ВМ разделяет риски хоста и восстановления панели; сохранившийся доверенный checkpoint продолжает задавать нижнюю границу. Отдельное размещение усиливает изоляцию только при независимых доступах и резервных копиях. Ключи доверия нужно задавать независимо. Захват publisher, witness или администратора кластера остается за пределами этих гарантий. Kubernetes Secret доступен приложениям и администраторам с правами чтения; шифрование etcd настраивается отдельно.</p>
   </div>
 </section>
 

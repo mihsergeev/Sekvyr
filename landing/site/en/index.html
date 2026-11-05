@@ -18,7 +18,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="alternate icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png">
-<link rel="stylesheet" href="/style.css?v=3">
+<link rel="stylesheet" href="/style.css?v=4">
 </head>
 <body>
 
@@ -29,7 +29,7 @@
       <a class="hide-sm" href="#what">Features</a>
       <a class="hide-sm" href="#ui">Screens</a>
       <a class="hide-sm" href="#security">Security</a>
-      <a class="hide-sm" href="#compare">Comparison</a>
+      <a class="hide-sm" href="#kubernetes">Kubernetes</a>
       <a href="#install">Install</a>
       <span class="sep hide-sm"></span>
       <a class="hide-xs" href="https://github.com/mihsergeev/Sekvyr">GitHub</a>
@@ -179,6 +179,45 @@
         <figcaption>Access: who can see, read and change what, and until when.</figcaption>
       </figure>
     </div>
+  </div>
+</section>
+
+<section id="kubernetes">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="arch-eyebrow">SEKVYR-OPERATOR / E2E2 <span class="arch-badge">RC</span></p>
+      <h2>From the panel to Kubernetes, verified at every step</h2>
+      <p>The operator fetches an encrypted package, verifies its origin and freshness, then creates a local Kubernetes Secret. Applications use the values through ordinary ENV variables or a volume.</p>
+    </div>
+    <p class="arch-release">This path is available in panel 1.1.0-rc.1 and sekvyr-operator 0.1.0-rc.1. It is a release candidate with separate trust, publication and witness setup, outside the stable 1.0.3 quick install.</p>
+    <div class="arch-switch" role="group" aria-label="Witness and journal placement">
+      <input class="arch-radio" type="radio" name="architecture" id="arch-local" checked>
+      <label for="arch-local">On the panel VM</label>
+      <input class="arch-radio" type="radio" name="architecture" id="arch-independent">
+      <label for="arch-independent">Separate witness + S3</label>
+      <p class="arch-scroll-hint">All addresses are fictional. On a narrow screen, scroll the diagram or open it separately.</p>
+      <figure class="arch-view arch-local">
+        <div class="arch-canvas" tabindex="0" role="region" aria-label="Secret delivery diagram, scroll horizontally">
+          <img src="/architecture/sekvyr-kubernetes-local.svg?v=1" alt="Publication, panel, witness, operator, checkpoint, Kubernetes Secret and application pod" width="1200" height="1080" loading="lazy">
+        </div>
+        <figcaption>Trusted-host profile: witness and journal share the panel VM. This is not an independent restore boundary or WORM storage. <a href="/architecture/sekvyr-kubernetes-local.svg?v=1">Open SVG</a></figcaption>
+      </figure>
+      <figure class="arch-view arch-independent">
+        <div class="arch-canvas" tabindex="0" role="region" aria-label="Secret delivery diagram, scroll horizontally">
+          <img src="/architecture/sekvyr-kubernetes.svg?v=1" alt="Publication, panel, witness, operator, checkpoint, Kubernetes Secret and application pod" width="1200" height="1080" loading="lazy">
+        </div>
+        <figcaption>Optional trial profile: separate witness and journal. Object Lock requires configured storage and independent access; it does not enable production HA by itself. <a href="/architecture/sekvyr-kubernetes.svg?v=1">Open SVG</a></figcaption>
+      </figure>
+    </div>
+    <div class="grid"><div class="card"><h3><span class="dot"></span>Encryption and signature</h3><p>A trusted publisher encrypts a package for the operator and signs it outside the panel. Changing the payload or key wrapper stops synchronization.</p></div>
+<div class="card"><h3><span class="dot"></span>Witness confirms the version</h3><p>The operator requests the current signed journal head before and after decryption. These are two requests to one witness. An old valid signature alone cannot authorize a rollback.</p></div>
+<div class="card"><h3><span class="dot"></span>Checkpoint preserves progress</h3><p>The last accepted version is durably saved in the cluster before writing the Secret. If the panel or witness is unavailable, the application keeps its last good value.</p></div></div>
+    <div class="arch-bottom">
+      <div><h3>Restart only when values change</h3>
+      <p>ENV in a running process does not change. The operator can trigger a rollout of selected applications when values change. Another package with the same values causes no extra restart. With a volume, the application must reread the file.</p></div>
+      <a class="btn btn-ghost" href="https://github.com/mihsergeev/Sekvyr/blob/main/docs/kubernetes-architecture.md">Explore the architecture on GitHub</a>
+    </div>
+    <p class="note">S3 is optional. A same-VM journal shares the panel's host and restore risks; a retained trusted checkpoint still sets a lower bound. Separate placement improves isolation only with independent access and backups. Trust keys must be provisioned independently. Compromised publisher, witness or cluster administrators remain outside these guarantees. A Kubernetes Secret is readable by authorized applications and administrators; etcd encryption is configured separately.</p>
   </div>
 </section>
 

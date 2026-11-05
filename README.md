@@ -71,7 +71,7 @@ checks that it stays that way.
 and the panel verifies the signature against the cluster keys. For those who
 already run External Secrets Operator, that path works too.
 
-**Unreleased operator RC.** Operator/chart `0.1.0-rc.1` requires matching panel
+**Operator RC.** Operator/chart `0.1.0-rc.1` requires matching panel
 `1.1.0-rc.1` for the new E2E2 API; published panel `1.0.3` does not provide it.
 See [installation](operator/docs/install.en.html) and
 [operations](operator/docs/operations.en.html). Agent `1.0.3` is unchanged.
@@ -129,6 +129,22 @@ itself, and new ones are reported.
 addresses; an agent behind the served version is highlighted, and the panel
 reports a machine that has not pulled secrets for a day. Once a week a digest of
 changes is sent.
+
+## Kubernetes E2E2 architecture
+
+A trusted publisher encrypts and signs a complete configuration. The panel
+stores ciphertext; an independently pinned witness establishes the canonical
+head. The operator verifies that head before and after decryption, persists its
+checkpoint, then synchronizes a Kubernetes Secret for the application.
+
+[![Kubernetes E2E2 architecture](./landing/site/architecture/sekvyr-kubernetes.svg)](docs/kubernetes-architecture.md)
+
+[Read the architecture](docs/kubernetes-architecture.md) for the numbered flow,
+each component's purpose, local trusted-host and independent witness/journal
+deployments, optional S3 Object Lock, failure behavior and trust boundaries.
+This is the panel `1.1.0-rc.1` / operator `0.1.0-rc.1` RC path; stable `1.0.3`
+does not support it. Kubernetes Secrets contain plaintext, and rollout is an
+explicit opt-in. Production HA or WORM is not provided by default.
 
 ## Security
 
@@ -196,6 +212,7 @@ released images and the rest of the details: [installing and running](docs/insta
 [backups and emergency access](docs/backup.md) |
 [a Docker app](docs/app-docker.md) |
 [Kubernetes](deploy/kubernetes/README.md) |
+[Kubernetes E2E2 architecture](docs/kubernetes-architecture.md) |
 [migrating from Infisical and Vault](docs/migrate.md) |
 [browser-side encryption](docs/e2e.md) |
 [security model](docs/security-model.md) |
