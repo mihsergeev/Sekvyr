@@ -6,15 +6,8 @@ import './index.css'
 import { DialogProvider } from './Dialogs'
 import { I18nProvider } from './i18n'
 
-// Тему применяем ДО рендера, иначе панель успевает мигнуть темной и
-// перекраситься. По умолчанию темная - под нее сделан бренд.
-// Без своего выбора панель открывается так же, как система: темная панель на
-// светлом рабочем столе (и наоборот) - первое, что бросается в глаза.
-const savedTheme = localStorage.getItem('sekvyr_theme')
-const systemLight =
-  savedTheme === null && window.matchMedia('(prefers-color-scheme: light)').matches
-
-if (savedTheme === 'light' || systemLight) {
+// Темная тема действует по умолчанию. Явный выбор применяем до рендера.
+if (localStorage.getItem('sekvyr_theme') === 'light') {
   document.documentElement.setAttribute('data-theme', 'light')
 }
 

@@ -230,8 +230,6 @@ export default function App() {
   const [light, setLight] = useState(
     () => document.documentElement.getAttribute('data-theme') === 'light',
   )
-  // Пока своего выбора нет, тема едет за системной.
-  const [followSystem, setFollowSystem] = useState(() => !localStorage.getItem(THEME_KEY))
   const [sealed, setSealed] = useState(false)
   // Свой логотип: нужен и экрану входа, поэтому грузится до входа.
   const [branding, setBranding] = useBranding()
@@ -332,25 +330,9 @@ export default function App() {
       .catch(() => setSealed(false))
   }, [user, view])
 
-  // Панель следит за системной темой, пока человек не выбрал свою: у него в
-  // системе вечером включается темная, и панель должна ехать вместе с ней.
-  // После своего выбора слушатель снимается - иначе система перебивала бы его.
-  useEffect(() => {
-    if (!followSystem) return
-    const media = window.matchMedia('(prefers-color-scheme: light)')
-    const apply = () => {
-      setLight(media.matches)
-      if (media.matches) document.documentElement.setAttribute('data-theme', 'light')
-      else document.documentElement.removeAttribute('data-theme')
-    }
-    media.addEventListener('change', apply)
-    return () => media.removeEventListener('change', apply)
-  }, [followSystem])
-
   function toggleTheme() {
     const next = !light
     setLight(next)
-    setFollowSystem(false)
     if (next) {
       document.documentElement.setAttribute('data-theme', 'light')
       localStorage.setItem(THEME_KEY, 'light')
