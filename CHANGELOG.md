@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0-rc.2] - 2026-11-07
+
+### Added
+
+- The panel owner can set a company name under Menu → About Sekvyr. The name
+  appears first in the browser tab, including on the sign-in screen. Clear the
+  field to restore the default title.
+
+### Changed
+
+- Default to the dark theme, including on the sign-in screen. Explicitly
+  selected light and dark themes remain saved in the browser.
+
 ## [1.1.0-rc.1] - 2026-11-03
 
 ### Added

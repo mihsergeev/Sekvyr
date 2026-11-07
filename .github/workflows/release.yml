@@ -82,9 +82,8 @@ jobs:
 
   publish:
     needs: [verify, functional-ci, operator-ci]
-    # This coupled panel/operator RC is promoted from the reviewed OCI
-    # archives. Tag validation may run, but must not publish a rebuilt image.
-    if: github.ref_name != 'v1.1.0-rc.1'
+    # These RCs are promoted from reviewed OCI archives.
+    if: github.ref_name != 'v1.1.0-rc.1' && github.ref_name != 'v1.1.0-rc.2'
     runs-on: ubuntu-latest
     permissions:
       contents: read

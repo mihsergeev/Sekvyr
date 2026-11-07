@@ -1,0 +1,152 @@
+name: Build and promote reviewed panel RC
+
+on:
+  push:
+    branches: ["rc/panel-v*"]
+  workflow_dispatch:
+    inputs:
+      candidate_run:
+        required: true
+        type: string
+      backend_asset:
+        required: true
+        type: string
+      backend_sha256:
+        required: true
+        type: string
+      frontend_asset:
+        required: true
+        type: string
+      frontend_sha256:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  candidate:
+    if: github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: backend
+            architecture: amd64
+            runner: ubuntu-latest
+            context: .
+            dockerfile: backend/Dockerfile
+          - component: backend
+            architecture: arm64
+            runner: ubuntu-24.04-arm
+            context: .
+            dockerfile: backend/Dockerfile
+          - component: frontend
+            architecture: amd64
+            runner: ubuntu-latest
+            context: frontend
+            dockerfile: frontend/Dockerfile
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build candidate OCI archive
+        env:
+          CONTEXT: ${{ matrix.context }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          ARCH: ${{ matrix.architecture }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#rc/panel-v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+          test "$version" = "$(sed -n 's/^version = "\(.*\)"$/\1/p' backend/pyproject.toml)"
+          test "$version" = "$(jq -r .version frontend/package.json)"
+          docker buildx build --platform "linux/$ARCH" --file "$DOCKERFILE" \
+            --build-arg "VERSION=$version" --build-arg "REVISION=$GITHUB_SHA" \
+            --provenance=false --sbom=false --output type=oci,dest=candidate.oci.tar "$CONTEXT"
+      - name: Scan the exact OCI archive
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          input: candidate.oci.tar
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          version: v0.76.1
+          ignore-unfixed: false
+          exit-code: "1"
+      - name: Inventory the scanned archive
+        run: |
+          trivy image --input candidate.oci.tar --format cyclonedx --output sbom.cdx.json
+          sha256sum candidate.oci.tar sbom.cdx.json > SHA256SUMS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.component }}-${{ matrix.architecture }}
+          path: |
+            candidate.oci.tar
+            sbom.cdx.json
+            SHA256SUMS
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  promote:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_RUN: ${{ inputs.candidate_run }}
+      BACKEND_ASSET: ${{ inputs.backend_asset }}
+      BACKEND_SHA256: ${{ inputs.backend_sha256 }}
+      FRONTEND_ASSET: ${{ inputs.frontend_asset }}
+      FRONTEND_SHA256: ${{ inputs.frontend_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify candidate and CI against this commit
+        id: candidate
+        run: |
+          set -euo pipefail
+          version="$(jq -r .version frontend/package.json)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+          [[ "$CANDIDATE_RUN" =~ ^[0-9]+$ ]]
+          branch="rc/panel-v$version"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN" | jq -e \
+            --arg sha "$GITHUB_SHA" --arg branch "$branch" \
+            '.path == ".github/workflows/panel-rc.yml" and .conclusion == "success" and
+             .event == "push" and .head_branch == $branch and .head_sha == $sha'
+          gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f head_sha="$GITHUB_SHA" -f branch="$branch" -f event=push -f status=success \
+            --jq '.workflow_runs | length' | awk '$1 > 0 { ok=1 } END { exit !ok }'
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Publish only the reviewed archives
+        env:
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          set -euo pipefail
+          command -v skopeo >/dev/null || (sudo apt-get update && sudo apt-get install -y skopeo)
+          for component in backend frontend; do
+            asset_var="${component^^}_ASSET"
+            sha_var="${component^^}_SHA256"
+            asset="${!asset_var}"
+            sha="${!sha_var}"
+            [[ "$asset" =~ ^[0-9]+$ && "$sha" =~ ^[0-9a-f]{64}$ ]]
+            gh api -H 'Accept: application/octet-stream' \
+              "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "$component.tar"
+            printf '%s  %s\n' "$sha" "$component.tar" | sha256sum --check
+          done
+          printf '%s' "$GH_TOKEN" | skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
+          for component in backend frontend; do
+            source="oci-archive:$component.tar"
+            target="docker://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sekvyr-$component:$VERSION"
+            expected=$(skopeo inspect --raw "$source" | sha256sum)
+            skopeo copy --all --preserve-digests "$source" "$target"
+            test "$(skopeo inspect --raw "$target" | sha256sum)" = "$expected"
+          done
