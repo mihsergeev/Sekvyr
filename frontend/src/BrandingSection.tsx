@@ -1,5 +1,4 @@
-/* Настройка своего логотипа - в "О панели", свернутой: её трогают один раз за
- * жизнь установки, и отдельный пункт меню выглядел бы важнее, чем она есть.
+/* Настройки оформления находятся в "О панели": их меняют редко.
  *
  * Превью сразу на обеих темах и считается тем же кодом, что и шапка: что видно
  * здесь, то и будет в панели. Типовая ошибка - залить логотип, который хорош на
@@ -8,7 +7,14 @@
  */
 
 import { useState } from 'react'
-import { ApiError, brandingUrl, resetBranding, saveBranding, type Branding } from './api'
+import {
+  ApiError,
+  brandingUrl,
+  resetBranding,
+  saveBranding,
+  saveCompanyName,
+  type Branding,
+} from './api'
 import { useLogoViews } from './BrandLogo'
 import type { LogoSource } from './logoAdapt'
 import { useI18n } from './i18n'
@@ -34,6 +40,13 @@ export function BrandingSection({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+  const [companyDraft, setCompanyDraft] = useState<string | null>(null)
+  const [companyError, setCompanyError] = useState('')
+  const [companySaved, setCompanySaved] = useState(false)
+
+  const storedCompany = branding?.company_name ?? ''
+  const companyName = companyDraft ?? storedCompany
+  const canSaveCompany = !busy && branding !== null && companyName.trim() !== storedCompany
 
   const version = branding?.version ?? 0
   const storedDark = !!branding?.dark_logo && !darkRemove
@@ -104,6 +117,22 @@ export function BrandingSection({
       onChanged(next)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveCompany() {
+    setBusy(true)
+    setCompanyError('')
+    setCompanySaved(false)
+    try {
+      const next = await saveCompanyName(companyName.trim())
+      onChanged(next)
+      setCompanyDraft(null)
+      setCompanySaved(true)
+    } catch (e) {
+      setCompanyError(e instanceof ApiError ? e.message : String(e))
     } finally {
       setBusy(false)
     }
@@ -220,6 +249,46 @@ export function BrandingSection({
           </div>
         </div>
       )}
+      <form
+        className="brand-form"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (canSaveCompany) void saveCompany()
+        }}
+      >
+        <label className="brand-field">
+          {t('Название компании')}
+          <input
+            value={companyName}
+            maxLength={64}
+            disabled={busy}
+            aria-describedby="company-name-help"
+            onChange={(event) => {
+              setCompanyDraft(event.target.value)
+              setCompanyError('')
+              setCompanySaved(false)
+            }}
+          />
+        </label>
+        <span id="company-name-help" className="muted small">
+          {t('Показывается во вкладке браузера еще до входа. Пустое поле вернет стандартный заголовок.')}
+        </span>
+        {companyError && (
+          <p className="form-error" role="alert">
+            {companyError}
+          </p>
+        )}
+        <div className="row-actions">
+          <button type="submit" disabled={!canSaveCompany}>
+            {t('Сохранить название')}
+          </button>
+          {companySaved && (
+            <span className="muted small" role="status">
+              {t('сохранено')}
+            </span>
+          )}
+        </div>
+      </form>
     </div>
   )
 }

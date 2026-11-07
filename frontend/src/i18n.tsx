@@ -871,6 +871,7 @@ const EN: Record<string, string> = {
   'Переопределить': 'Override',
   'свой логотип': 'custom logo',
   'стандартный логотип': 'standard logo',
+  'изменено название компании': 'company name changed',
   'Файл логотипа': 'Logo file',
   'Поставить свой логотип': 'Set a custom logo',
   'Исходный код на GitHub': 'Source code on GitHub',
@@ -888,6 +889,10 @@ const EN: Record<string, string> = {
   'светлая тема': 'light theme',
   'Подпись на экране входа': 'Caption on the sign-in screen',
   'например, название компании': 'e.g. company name',
+  'Название компании': 'Company name',
+  'Показывается во вкладке браузера еще до входа. Пустое поле вернет стандартный заголовок.':
+    'Shown in the browser tab before sign-in. Leave blank to restore the default title.',
+  'Сохранить название': 'Save company name',
   'Сохранить логотип': 'Save logo',
   'Вернуть стандартный': 'Back to standard',
   Порядок: 'Order',

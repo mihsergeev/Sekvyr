@@ -1,4 +1,4 @@
-"""Свой логотип вместо стандартного.
+"""Логотип и название компании в заголовке вкладки.
 
 Панель ставят в компании, и в шапке у нее логотип компании, а не Sekvyr: так её
 узнают среди других вкладок, и так она выглядит своей, а не чужой утилитой.
@@ -12,8 +12,7 @@
 это дамп базы: файл в каталоге данных при восстановлении на новой машине
 потерялся бы, а мета в базе продолжала бы говорить "логотип есть".
 
-Отдаются картинки без входа: логотип нужен на экране входа, то есть до всякой
-авторизации. Логотип не секрет, а вот загрузка и сброс - только владельцу.
+Оформление доступно на экране входа. Изменять его может владелец панели.
 """
 
 import base64
@@ -34,6 +33,7 @@ router = APIRouter(prefix="/branding", tags=["branding"])
 META = "branding_meta"
 LOGO = "branding_logo"
 LOGO_DARK = "branding_logo_dark"
+COMPANY_NAME = "branding_company_name"
 
 MAX_BYTES = 512 * 1024
 # base64 раздувает файл на треть, data-URL добавляет свою приставку.
@@ -72,6 +72,7 @@ class BrandingOut(BaseModel):
     logo: bool = False
     # Подпись на экране входа.
     title: str = ""
+    company_name: str = ""
     # Оформление: auto - подстроить цвета под тему, always - на плашке, never - как есть.
     plate: str = "auto"
     dark_logo: bool = False
@@ -87,6 +88,13 @@ class BrandingIn(BaseModel):
     dark_remove: bool = False
     plate: str = Field(default="auto", pattern="^(auto|always|never)$")
     title: str = Field(default="", max_length=64)
+
+
+class CompanyNameIn(BaseModel):
+    company_name: str = Field(
+        max_length=64,
+        pattern=r"^[^\x00-\x1f\x7f-\x9f\u2028-\u202e\u2066-\u2069]*$",
+    )
 
 
 def _decode(raw: str) -> bytes:
@@ -143,10 +151,11 @@ async def _meta(session: AsyncSession) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
-def _out(meta: dict) -> BrandingOut:
+async def _out(session: AsyncSession, meta: dict) -> BrandingOut:
     return BrandingOut(
         logo=bool(meta.get("media")),
         title=meta.get("title", ""),
+        company_name=await settings_store.get(session, COMPANY_NAME),
         plate=meta.get("plate", "auto"),
         dark_logo=bool(meta.get("dark_media")),
         version=int(meta.get("v", 0)),
@@ -154,9 +163,20 @@ def _out(meta: dict) -> BrandingOut:
 
 
 @router.get("", response_model=BrandingOut)
-async def get_branding(session: SessionDep) -> BrandingOut:
+async def get_branding(session: SessionDep, response: Response) -> BrandingOut:
     """Без входа: экран входа рисуется до авторизации."""
-    return _out(await _meta(session))
+    response.headers["Cache-Control"] = "no-store"
+    return await _out(session, await _meta(session))
+
+
+@router.put("/company-name", response_model=BrandingOut)
+async def set_company_name(
+    body: CompanyNameIn, request: Request, user: OwnerUser, session: SessionDep
+) -> BrandingOut:
+    await settings_store.put(session, COMPANY_NAME, body.company_name.strip())
+    await audit.record(session, actor=user.username, action="branding_company_set", ip=peer_ip(request))
+    await session.commit()
+    return await _out(session, await _meta(session))
 
 
 async def _serve(session: AsyncSession, dark: bool) -> Response:
@@ -238,7 +258,7 @@ async def save_branding(
         ip=peer_ip(request),
     )
     await session.commit()
-    return _out(meta)
+    return await _out(session, meta)
 
 
 @router.post("/reset", response_model=BrandingOut)
@@ -257,4 +277,4 @@ async def reset_branding(request: Request, user: OwnerUser, session: SessionDep)
         ip=peer_ip(request),
     )
     await session.commit()
-    return _out(meta)
+    return await _out(session, meta)

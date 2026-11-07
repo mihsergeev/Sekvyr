@@ -155,12 +155,14 @@ export type Health = {
 // (фронт обновили, бэкенд забыли) видно именно то, что интересно.
 export const getHealth = () => api<Health>('/api/health')
 
-// --- свой логотип ---
+// --- оформление панели ---
 
 export type Branding = {
   logo: boolean
   /** Подпись на экране входа. */
   title: string
+  /** Название в заголовке вкладки. В старых версиях API поле отсутствует. */
+  company_name?: string
   /** Оформление: подстроить цвета под тему, всегда на плашке или как есть. */
   plate: 'auto' | 'always' | 'never'
   /** Загружена своя версия логотипа для темного фона. */
@@ -169,6 +171,12 @@ export type Branding = {
 }
 
 export const getBranding = () => api<Branding>('/api/branding')
+
+export const saveCompanyName = (companyName: string) =>
+  api<Branding>('/api/branding/company-name', {
+    method: 'PUT',
+    body: JSON.stringify({ company_name: companyName }),
+  })
 
 /** Адрес картинки. Версия в адресе меняется с каждой правкой - кэш не мешает. */
 export const brandingUrl = (version: number, dark = false) =>

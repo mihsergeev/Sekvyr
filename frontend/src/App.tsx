@@ -90,6 +90,8 @@ const TITLES: Partial<Record<View['kind'], string>> = {
 export default function App() {
   const { t, lang, setLang } = useI18n()
   const [user, setUser] = useState<Me | null>(null)
+  // Оформление нужно уже на экране входа.
+  const [branding, setBranding] = useBranding()
   // Открытый вопрос (защита ухода, подтверждение) при выходе по бездействию и
   // конце сессии закрывается как отмена: иначе он висел над экраном входа, а
   // "Уйти" потом уводило адрес на страницу, куда шли до выхода.
@@ -176,10 +178,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [user, setView])
 
-  // Заголовок вкладки - это адрес для глаз: панель держат открытой в нескольких
-  // вкладках сразу, и "Sekvyr" в каждой не помогает найти нужную. Имя панели
-  // все же идет первым: по нему вкладку узнают среди чужих.
+  const companyName = branding?.company_name
   useEffect(() => {
+    const panelTitle = companyName ? `${companyName} · Sekvyr` : 'Sekvyr'
+    if (!user) {
+      document.title = panelTitle
+      return
+    }
     const where =
       view.kind === 'env'
         ? `${view.slug}/${view.env}`
@@ -188,8 +193,8 @@ export default function App() {
           : view.kind === 'server'
             ? view.name
             : t(TITLES[view.kind] ?? '')
-    document.title = where ? `Sekvyr · ${where}` : 'Sekvyr'
-  }, [view, t])
+    document.title = where ? `${panelTitle} · ${where}` : panelTitle
+  }, [companyName, user, view, t])
 
   useEffect(() => {
     // После согласия уйти "назад" повторяется уже без вопроса.
@@ -231,9 +236,6 @@ export default function App() {
     () => document.documentElement.getAttribute('data-theme') === 'light',
   )
   const [sealed, setSealed] = useState(false)
-  // Свой логотип: нужен и экрану входа, поэтому грузится до входа.
-  const [branding, setBranding] = useBranding()
-
   const load = useCallback(async () => {
     if (!getToken()) {
       setUser(null)

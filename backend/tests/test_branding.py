@@ -36,6 +36,7 @@ async def test_default_is_standard_logo(client: httpx.AsyncClient):
     res = await client.get("/api/branding")
     assert res.status_code == 200
     assert res.json()["logo"] is False
+    assert res.json()["company_name"] == ""
     assert (await client.get("/api/branding/logo")).status_code == 404
     assert (await client.get("/api/branding/logo-dark")).status_code == 404
 
@@ -123,7 +124,7 @@ async def test_settings_need_a_logo(client: httpx.AsyncClient, owner_headers):
     assert res.status_code == 400
 
 
-async def test_only_owner_changes_logo(client: httpx.AsyncClient, owner_headers):
+async def test_only_owner_changes_branding(client: httpx.AsyncClient, owner_headers):
     created = await client.post(
         "/api/users",
         headers=owner_headers,
@@ -135,6 +136,43 @@ async def test_only_owner_changes_logo(client: httpx.AsyncClient, owner_headers)
     assert (await client.get("/api/branding", headers=lead)).status_code == 200
     assert (await _save(client, lead, data=b64(PNG_1PX))).status_code == 403
     assert (await client.post("/api/branding/reset", headers=lead)).status_code == 403
+    path = "/api/branding/company-name"
+    payload = {"company_name": "Демо"}
+    assert (await client.put(path, json=payload, headers=lead)).status_code == 403
+    assert (await client.put(path, json=payload)).status_code == 401
+    assert (await client.get("/api/branding")).json()["company_name"] == ""
+
+
+async def test_company_name_is_independent_of_logo(client: httpx.AsyncClient, owner_headers):
+    path = "/api/branding/company-name"
+    res = await client.put(path, json={"company_name": "  Демо  "}, headers=owner_headers)
+    assert res.status_code == 200, res.text
+    assert res.json()["company_name"] == "Демо"
+    assert res.json()["logo"] is False
+
+    res = await client.get("/api/branding")
+    assert res.headers["cache-control"] == "no-store"
+    assert res.json()["company_name"] == "Демо"
+
+    res = await _save(client, owner_headers, data=b64(PNG_1PX), title="Логотип")
+    assert res.json()["company_name"] == "Демо"
+    res = await client.post("/api/branding/reset", headers=owner_headers)
+    assert res.json()["company_name"] == "Демо"
+    assert res.json()["title"] == ""
+
+    for invalid in ("x" * 65, "line\nbreak", "demo\u202eevil"):
+        res = await client.put(path, json={"company_name": invalid}, headers=owner_headers)
+        assert res.status_code == 422
+    assert (await client.get("/api/branding")).json()["company_name"] == "Демо"
+
+    res = await client.put(path, json={"company_name": ""}, headers=owner_headers)
+    assert res.json()["company_name"] == ""
+    assert (await client.get("/api/branding")).json()["company_name"] == ""
+
+    res = await client.get("/api/audit", headers=owner_headers)
+    changes = [row for row in res.json()["entries"] if row["action"] == "branding_company_set"]
+    assert len(changes) == 2
+    assert all(row["actor"] == "owner" and not row["detail"] for row in changes)
 
 
 async def test_logo_changes_are_audited(client: httpx.AsyncClient, owner_headers):

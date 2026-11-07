@@ -6,6 +6,7 @@
 export const ACTIONS: Record<string, string> = {
   branding_set: 'свой логотип',
   branding_reset: 'стандартный логотип',
+  branding_company_set: 'изменено название компании',
   secret_matched: 'поиск одинаковых значений',
   project_exported: 'выгрузка проекта',
   env_copied: 'копия окружения',
