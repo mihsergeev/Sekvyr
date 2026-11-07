@@ -68,10 +68,12 @@ jobs:
           docker buildx build --platform "linux/$ARCH" --file "$DOCKERFILE" \
             --build-arg "VERSION=$version" --build-arg "REVISION=$GITHUB_SHA" \
             --provenance=false --sbom=false --output type=oci,dest=candidate.oci.tar "$CONTEXT"
+          mkdir candidate-oci
+          tar -xf candidate.oci.tar -C candidate-oci
       - name: Scan the exact OCI archive
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          input: candidate.oci.tar
+          input: candidate-oci
           scanners: vuln,secret
           severity: HIGH,CRITICAL
           version: v0.76.1
@@ -79,7 +81,7 @@ jobs:
           exit-code: "1"
       - name: Inventory the scanned archive
         run: |
-          trivy image --input candidate.oci.tar --format cyclonedx --output sbom.cdx.json
+          trivy image --input candidate-oci --format cyclonedx --output sbom.cdx.json
           sha256sum candidate.oci.tar sbom.cdx.json > SHA256SUMS
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
