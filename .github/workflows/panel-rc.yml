@@ -8,18 +8,6 @@ on:
       candidate_run:
         required: true
         type: string
-      backend_asset:
-        required: true
-        type: string
-      backend_sha256:
-        required: true
-        type: string
-      frontend_asset:
-        required: true
-        type: string
-      frontend_sha256:
-        required: true
-        type: string
 
 permissions: {}
 
@@ -97,17 +85,19 @@ jobs:
   promote:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: panel-rc-promotion
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: read
       packages: write
+      attestations: write
+      id-token: write
     env:
       GH_TOKEN: ${{ github.token }}
       CANDIDATE_RUN: ${{ inputs.candidate_run }}
-      BACKEND_ASSET: ${{ inputs.backend_asset }}
-      BACKEND_SHA256: ${{ inputs.backend_sha256 }}
-      FRONTEND_ASSET: ${{ inputs.frontend_asset }}
-      FRONTEND_SHA256: ${{ inputs.frontend_sha256 }}
+      OWNER: ${{ github.repository_owner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -119,6 +109,8 @@ jobs:
           version="$(jq -r .version frontend/package.json)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
           [[ "$CANDIDATE_RUN" =~ ^[0-9]+$ ]]
+          git fetch --no-tags origin "refs/tags/v$version"
+          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$GITHUB_SHA"
           branch="rc/panel-v$version"
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN" | jq -e \
             --arg sha "$GITHUB_SHA" --arg branch "$branch" \
@@ -128,27 +120,65 @@ jobs:
             -f head_sha="$GITHUB_SHA" -f branch="$branch" -f event=push -f status=success \
             --jq '.workflow_runs | length' | awk '$1 > 0 { ok=1 } END { exit !ok }'
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      - name: Publish only the reviewed archives
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Download and validate the scanned builds
+        env:
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh run download "$CANDIDATE_RUN" --dir "$RUNNER_TEMP/candidate" \
+            --pattern 'backend-*' --pattern 'frontend-*'
+          python ops/panel_rc.py "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/panel" "$VERSION" "$GITHUB_SHA"
+      - name: Verify both targets and stage by digest
+        id: stage
         env:
           VERSION: ${{ steps.candidate.outputs.version }}
         run: |
           set -euo pipefail
           command -v skopeo >/dev/null || (sudo apt-get update && sudo apt-get install -y skopeo)
-          for component in backend frontend; do
-            asset_var="${component^^}_ASSET"
-            sha_var="${component^^}_SHA256"
-            asset="${!asset_var}"
-            sha="${!sha_var}"
-            [[ "$asset" =~ ^[0-9]+$ && "$sha" =~ ^[0-9a-f]{64}$ ]]
-            gh api -H 'Accept: application/octet-stream' \
-              "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "$component.tar"
-            printf '%s  %s\n' "$sha" "$component.tar" | sha256sum --check
-          done
           printf '%s' "$GH_TOKEN" | skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
+          cd "$RUNNER_TEMP/panel"
           for component in backend frontend; do
-            source="oci-archive:$component.tar"
-            target="docker://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sekvyr-$component:$VERSION"
-            expected=$(skopeo inspect --raw "$source" | sha256sum)
-            skopeo copy --all --preserve-digests "$source" "$target"
-            test "$(skopeo inspect --raw "$target" | sha256sum)" = "$expected"
+            image="ghcr.io/${OWNER,,}/sekvyr-$component"
+            raw=$(skopeo inspect --raw "oci-archive:$component-image.oci.tar" | sha256sum | cut -d' ' -f1)
+            if skopeo inspect --raw "docker://$image:$VERSION" > existing.json 2> inspect.err; then
+              test "$(sha256sum existing.json | cut -d' ' -f1)" = "$raw"
+            else
+              grep -Eqi 'manifest unknown|name unknown' inspect.err || (cat inspect.err >&2; exit 1)
+            fi
+            echo "$component=$image" >> "$GITHUB_OUTPUT"
+            echo "${component}_digest=sha256:$raw" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "sha256:$raw" > "$component.digest"
+          done
+          for component in backend frontend; do
+            image="ghcr.io/${OWNER,,}/sekvyr-$component"
+            digest=$(cat "$component.digest")
+            skopeo copy --all --preserve-digests --retry-times 3 \
+              "oci-archive:$component-image.oci.tar" "docker://$image@$digest"
+            test "sha256:$(skopeo inspect --raw "docker://$image@$digest" | sha256sum | cut -d' ' -f1)" = "$digest"
+          done
+      - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-name: ${{ steps.stage.outputs.backend }}
+          subject-digest: ${{ steps.stage.outputs.backend_digest }}
+      - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-name: ${{ steps.stage.outputs.frontend }}
+          subject-digest: ${{ steps.stage.outputs.frontend_digest }}
+      - name: Set and verify the RC tags
+        env:
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/panel"
+          for component in backend frontend; do
+            image="ghcr.io/${OWNER,,}/sekvyr-$component"
+            digest=$(cat "$component.digest")
+            skopeo copy --all --preserve-digests --retry-times 3 "docker://$image@$digest" "docker://$image:$VERSION"
+          done
+          for component in backend frontend; do
+            image="ghcr.io/${OWNER,,}/sekvyr-$component"
+            test "sha256:$(skopeo inspect --raw "docker://$image:$VERSION" | sha256sum | cut -d' ' -f1)" = "$(cat "$component.digest")"
           done

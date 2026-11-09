@@ -82,8 +82,8 @@ jobs:
 
   publish:
     needs: [verify, functional-ci, operator-ci]
-    # These RCs are promoted from reviewed OCI archives.
-    if: github.ref_name != 'v1.1.0-rc.1' && github.ref_name != 'v1.1.0-rc.2'
+    # Prereleases use their own reviewed OCI promotion workflow.
+    if: ${{ !contains(github.ref_name, '-') && !contains(github.ref_name, '+') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

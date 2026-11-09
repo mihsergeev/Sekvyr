@@ -19,10 +19,14 @@ export const SEKVYR_URL = 'https://github.com/mihsergeev/Sekvyr'
 export function AboutModal({
   onClose,
   branding,
+  brandingStatus,
+  onRefreshBranding,
   onBranding,
 }: {
   onClose: () => void
   branding: Branding | null
+  brandingStatus: 'loading' | 'ready' | 'error'
+  onRefreshBranding: () => Promise<void>
   onBranding: (next: Branding) => void
 }) {
   const { t } = useI18n()
@@ -35,6 +39,10 @@ export function AboutModal({
       .then((health) => setVersion(health.version))
       .catch(() => setVersion(''))
   }, [])
+
+  useEffect(() => {
+    if (auth.isOwner) void onRefreshBranding()
+  }, [auth.isOwner, onRefreshBranding])
 
   return (
     <div className="modal-backdrop">
@@ -73,7 +81,16 @@ export function AboutModal({
         </div>
 
         {/* Свой логотип меняет только владелец панели: это вид панели для всех. */}
-        {auth.isOwner && <BrandingSection branding={branding} onChanged={onBranding} />}
+        {auth.isOwner && (branding ? (
+          <BrandingSection branding={branding} onChanged={onBranding} />
+        ) : brandingStatus === 'error' ? (
+          <div>
+            <p className="form-error" role="alert">{t('Не удалось загрузить оформление')}</p>
+            <button className="ghost small-btn" onClick={() => void onRefreshBranding()}>
+              {t('Повторить')}
+            </button>
+          </div>
+        ) : <p className="muted small" role="status">{t('Загружаем оформление…')}</p>)}
       </div>
     </div>
   )

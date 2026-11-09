@@ -1,6 +1,8 @@
 """Корневой ключ: заведение, отпирание, запирание, ротация."""
 
 import httpx
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.conftest import login
 
@@ -18,6 +20,27 @@ async def test_health_shows_sealed(client: httpx.AsyncClient):
     body = (await client.get("/api/health")).json()
     assert body["sealed"] is True
     assert body["status"] == "sealed"
+
+
+async def test_init_commit_failure_keeps_vault_sealed(client, owner_headers, monkeypatch):
+    async def fail_commit(session):
+        await session.rollback()
+        raise RuntimeError("simulated commit failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(AsyncSession, "commit", fail_commit)
+        with pytest.raises(RuntimeError, match="simulated commit failure"):
+            await client.post("/api/vault/init", headers=owner_headers, json={"mode": "env"})
+
+    state = (await client.get("/api/vault/status", headers=owner_headers)).json()
+    assert state["initialized"] is False
+    assert state["sealed"] is True
+
+    retried = await client.post("/api/vault/init", headers=owner_headers, json={"mode": "env"})
+    assert retried.status_code == 200
+    state = (await client.get("/api/vault/status", headers=owner_headers)).json()
+    assert state["initialized"] is True
+    assert state["sealed"] is False
 
 
 async def test_init_with_shares_and_unseal(client: httpx.AsyncClient, owner_headers):

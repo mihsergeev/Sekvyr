@@ -175,6 +175,37 @@ async def test_company_name_is_independent_of_logo(client: httpx.AsyncClient, ow
     assert all(row["actor"] == "owner" and not row["detail"] for row in changes)
 
 
+async def test_concurrent_first_company_saves(client: httpx.AsyncClient, owner_headers, monkeypatch):
+    import asyncio
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.api.branding import COMPANY_NAME
+    from app.models import AppSetting
+
+    # Force both requests past a legacy read-before-insert without a row. The
+    # upsert does its first lookup in SQL, so only its committed readbacks use get.
+    get = AsyncSession.get
+    barrier = asyncio.Barrier(2)
+
+    async def synchronize_missing_row(session, entity, ident, **kwargs):
+        row = await get(session, entity, ident, **kwargs)
+        if entity is AppSetting and ident == COMPANY_NAME and row is None:
+            await asyncio.wait_for(barrier.wait(), timeout=5)
+        return row
+
+    with monkeypatch.context() as patch:
+        patch.setattr(AsyncSession, "get", synchronize_missing_row)
+        responses = await asyncio.gather(*(
+            client.put("/api/branding/company-name", headers=owner_headers,
+                       json={"company_name": name})
+            for name in ("Example One", "Example Two")
+        ))
+
+    assert [response.status_code for response in responses] == [200, 200]
+    assert (await client.get("/api/branding")).json()["company_name"] in {"Example One", "Example Two"}
+
+
 async def test_logo_changes_are_audited(client: httpx.AsyncClient, owner_headers):
     await _save(client, owner_headers, data=b64(PNG_1PX))
     await client.post("/api/branding/reset", headers=owner_headers)

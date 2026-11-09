@@ -173,7 +173,7 @@ async def get_branding(session: SessionDep, response: Response) -> BrandingOut:
 async def set_company_name(
     body: CompanyNameIn, request: Request, user: OwnerUser, session: SessionDep
 ) -> BrandingOut:
-    await settings_store.put(session, COMPANY_NAME, body.company_name.strip())
+    await settings_store.upsert(session, COMPANY_NAME, body.company_name.strip())
     await audit.record(session, actor=user.username, action="branding_company_set", ip=peer_ip(request))
     await session.commit()
     return await _out(session, await _meta(session))

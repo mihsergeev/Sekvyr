@@ -6,7 +6,7 @@
  * тему логотип подстраивает logoAdapt.ts.
  */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { brandingUrl, getBranding, type Branding } from './api'
 import { Logo } from './Logo'
 import { logoView, type LogoMode, type LogoSource, type LogoView } from './logoAdapt'
@@ -88,17 +88,43 @@ export function BrandLogo({
 }
 
 /** Настройки логотипа. Грузятся до входа: они нужны экрану входа. */
-export function useBranding(): [Branding | null, (next: Branding) => void] {
+export function useBranding() {
   const [branding, setBranding] = useState<Branding | null>(null)
-  useEffect(() => {
-    let alive = true
-    getBranding()
-      .then((next) => alive && setBranding(next))
-      // Молча: без настроек просто остается стандартный логотип.
-      .catch(() => undefined)
-    return () => {
-      alive = false
+  const [brandingStatus, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const generation = useRef(0)
+  const channel = useRef<BroadcastChannel | null>(null)
+  const refreshBranding = useCallback(async () => {
+    const request = ++generation.current
+    setStatus('loading')
+    try {
+      const next = await getBranding()
+      if (request !== generation.current) return
+      setBranding(next)
+      setStatus('ready')
+    } catch {
+      if (request === generation.current) setStatus('error')
     }
   }, [])
-  return [branding, setBranding]
+  const changeBranding = useCallback((next: Branding) => {
+    // Сохранение инвалидирует все чтения, начатые до его ответа.
+    ++generation.current
+    setBranding(next)
+    setStatus('ready')
+    channel.current?.postMessage('changed')
+  }, [])
+  useEffect(() => {
+    void refreshBranding()
+    window.addEventListener('focus', refreshBranding)
+    if (typeof BroadcastChannel !== 'undefined') {
+      channel.current = new BroadcastChannel('sekvyr-branding')
+      channel.current.onmessage = () => void refreshBranding()
+    }
+    return () => {
+      ++generation.current
+      window.removeEventListener('focus', refreshBranding)
+      channel.current?.close()
+      channel.current = null
+    }
+  }, [refreshBranding])
+  return { branding, brandingStatus, refreshBranding, changeBranding }
 }

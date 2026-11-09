@@ -157,9 +157,6 @@ async def init(
     except ValueError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
-    # Панель сразу открыта: заводить сейф и тут же требовать доли было бы
-    # бессмысленным обрядом - ключ и так в памяти этого процесса.
-    box.set_root(root)
     await audit.record(
         session,
         actor=user.username,
@@ -169,6 +166,8 @@ async def init(
         ip=peer_ip(request),
     )
     await session.commit()
+    # При откате метаданных новый ключ не должен стать доступен для записи секретов.
+    box.set_root(root)
 
     if parts:
         return InitOut(

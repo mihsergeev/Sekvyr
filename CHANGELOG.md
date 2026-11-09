@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0-rc.3] - 2026-11-09
+
+### Fixed
+
+- Keep the vault sealed if its initialization transaction fails.
+- Handle concurrent first saves of the company name without an insert conflict.
+- Retry failed branding loads, ignore stale responses after a save, and refresh
+  branding in other open tabs. Hide the company setting on older backends.
+- Promote panel RC images only from the successful build for the tagged commit.
+  Validate and stage both images before setting RC tags, refuse tag replacement,
+  and publish build attestations. Keep RC tags out of the stable publish job.
+
 ## [1.1.0-rc.2] - 2026-11-07
 
 ### Added

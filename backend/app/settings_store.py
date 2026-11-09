@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AppSetting
@@ -33,3 +35,12 @@ async def put(session: AsyncSession, key: str, value: str) -> None:
         session.add(AppSetting(key=key, value=value))
     else:
         row.value = value
+
+
+async def upsert(session: AsyncSession, key: str, value: str) -> None:
+    """Сохраняет настройку при конкурентной записи. Коммит остается у вызывающего."""
+    insert = sqlite_insert if session.get_bind().dialect.name == "sqlite" else pg_insert
+    statement = insert(AppSetting).values(key=key, value=value)
+    await session.execute(statement.on_conflict_do_update(
+        index_elements=[AppSetting.key], set_={"value": statement.excluded.value}
+    ))

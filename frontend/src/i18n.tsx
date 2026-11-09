@@ -890,6 +890,8 @@ const EN: Record<string, string> = {
   'Подпись на экране входа': 'Caption on the sign-in screen',
   'например, название компании': 'e.g. company name',
   'Название компании': 'Company name',
+  'Не удалось загрузить оформление': 'Could not load branding',
+  'Загружаем оформление…': 'Loading branding…',
   'Показывается во вкладке браузера еще до входа. Пустое поле вернет стандартный заголовок.':
     'Shown in the browser tab before sign-in. Leave blank to restore the default title.',
   'Сохранить название': 'Save company name',

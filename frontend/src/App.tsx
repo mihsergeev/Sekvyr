@@ -91,7 +91,7 @@ export default function App() {
   const { t, lang, setLang } = useI18n()
   const [user, setUser] = useState<Me | null>(null)
   // Оформление нужно уже на экране входа.
-  const [branding, setBranding] = useBranding()
+  const { branding, brandingStatus, refreshBranding, changeBranding } = useBranding()
   // Открытый вопрос (защита ухода, подтверждение) при выходе по бездействию и
   // конце сессии закрывается как отмена: иначе он висел над экраном входа, а
   // "Уйти" потом уводило адрес на страницу, куда шли до выхода.
@@ -704,7 +704,9 @@ export default function App() {
         <AboutModal
           onClose={() => setAbout(false)}
           branding={branding}
-          onBranding={setBranding}
+          brandingStatus={brandingStatus}
+          onRefreshBranding={refreshBranding}
+          onBranding={changeBranding}
         />
       )}
       {hotkeys && <Hotkeys onClose={() => setHotkeys(false)} />}

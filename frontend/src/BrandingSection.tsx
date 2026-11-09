@@ -26,7 +26,7 @@ export function BrandingSection({
   branding,
   onChanged,
 }: {
-  branding: Branding | null
+  branding: Branding
   onChanged: (next: Branding) => void
 }) {
   const { t } = useI18n()
@@ -35,8 +35,8 @@ export function BrandingSection({
   const [main, setMain] = useState<LogoSource | null>(null)
   const [dark, setDark] = useState<LogoSource | null>(null)
   const [darkRemove, setDarkRemove] = useState(false)
-  const [plate, setPlate] = useState<Branding['plate']>(branding?.plate ?? 'auto')
-  const [title, setTitle] = useState(branding?.title ?? '')
+  const [plateDraft, setPlate] = useState<Branding['plate'] | null>(null)
+  const [titleDraft, setTitle] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
@@ -44,9 +44,12 @@ export function BrandingSection({
   const [companyError, setCompanyError] = useState('')
   const [companySaved, setCompanySaved] = useState(false)
 
-  const storedCompany = branding?.company_name ?? ''
+  const plate = plateDraft ?? branding.plate
+  const title = titleDraft ?? branding.title
+  const supportsCompanyName = typeof branding.company_name === 'string'
+  const storedCompany = branding.company_name ?? ''
   const companyName = companyDraft ?? storedCompany
-  const canSaveCompany = !busy && branding !== null && companyName.trim() !== storedCompany
+  const canSaveCompany = !busy && supportsCompanyName && companyName.trim() !== storedCompany
 
   const version = branding?.version ?? 0
   const storedDark = !!branding?.dark_logo && !darkRemove
@@ -94,6 +97,8 @@ export function BrandingSection({
       setMain(null)
       setDark(null)
       setDarkRemove(false)
+      setPlate(null)
+      setTitle(null)
       setSaved(true)
       onChanged(next)
     } catch (e) {
@@ -112,8 +117,8 @@ export function BrandingSection({
       setMain(null)
       setDark(null)
       setDarkRemove(false)
-      setPlate('auto')
-      setTitle('')
+      setPlate(null)
+      setTitle(null)
       onChanged(next)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
@@ -249,7 +254,7 @@ export function BrandingSection({
           </div>
         </div>
       )}
-      <form
+      {supportsCompanyName && <form
         className="brand-form"
         onSubmit={(event) => {
           event.preventDefault()
@@ -288,7 +293,7 @@ export function BrandingSection({
             </span>
           )}
         </div>
-      </form>
+      </form>}
     </div>
   )
 }
