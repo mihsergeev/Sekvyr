@@ -106,7 +106,7 @@ jobs:
         run: |
           trivy image --input candidate-oci --format cyclonedx --output sbom.cdx.json
           sha256sum candidate.oci.tar sbom.cdx.json > SHA256SUMS
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.component }}-${{ matrix.architecture }}-attempt-${{ github.run_attempt }}
           path: |
@@ -152,7 +152,7 @@ jobs:
         run: |
           python -m ops.panel_rc_release prepare "$RUNNER_TEMP/panel" \
             --candidate-run="$CANDIDATE_RUN" --candidate-attempt="$CANDIDATE_ATTEMPT"
-      - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         id: manifest
         with:
           subject-path: ${{ runner.temp }}/panel/release-manifest.json
@@ -160,7 +160,7 @@ jobs:
         env:
           BUNDLE: ${{ steps.manifest.outputs.bundle-path }}
         run: cp "$BUNDLE" "$RUNNER_TEMP/panel/release-manifest.sigstore.json"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: panel-release-assets-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/panel/
@@ -222,17 +222,17 @@ jobs:
             raw=$(skopeo inspect --raw "docker://$ref" | sha256sum | cut -d' ' -f1)
             test "sha256:$raw" = "${ref##*@}"
           done
-      - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           subject-name: ${{ steps.stage.outputs.backend }}
           subject-digest: ${{ steps.stage.outputs.backend_digest }}
-      - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           subject-name: ${{ steps.stage.outputs.frontend }}
           subject-digest: ${{ steps.stage.outputs.frontend_digest }}
-      - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         if: startsWith(github.ref, 'refs/tags/sekvyr-operator-v')
         with:
           subject-name: ${{ steps.stage.outputs.operator }}
