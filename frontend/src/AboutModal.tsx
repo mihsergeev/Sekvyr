@@ -27,7 +27,7 @@ export function AboutModal({
   branding: Branding | null
   brandingStatus: 'loading' | 'ready' | 'error'
   onRefreshBranding: () => Promise<void>
-  onBranding: (next: Branding) => void
+  onBranding: () => Promise<void>
 }) {
   const { t } = useI18n()
   const auth = useAuth()
@@ -81,16 +81,15 @@ export function AboutModal({
         </div>
 
         {/* Свой логотип меняет только владелец панели: это вид панели для всех. */}
-        {auth.isOwner && (branding ? (
-          <BrandingSection branding={branding} onChanged={onBranding} />
-        ) : brandingStatus === 'error' ? (
+        {auth.isOwner && branding && <BrandingSection branding={branding} onChanged={onBranding} />}
+        {auth.isOwner && (brandingStatus === 'error' ? (
           <div>
             <p className="form-error" role="alert">{t('Не удалось загрузить оформление')}</p>
             <button className="ghost small-btn" onClick={() => void onRefreshBranding()}>
               {t('Повторить')}
             </button>
           </div>
-        ) : <p className="muted small" role="status">{t('Загружаем оформление…')}</p>)}
+        ) : !branding && <p className="muted small" role="status">{t('Загружаем оформление…')}</p>)}
       </div>
     </div>
   )

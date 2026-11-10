@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	api "github.com/mihsergeev/Sekvyr/operator/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -16,6 +17,9 @@ func aggregateChild(store *api.SekvyrStore) *api.SekvyrSecret {
 	child.Status.ObservedGeneration = child.Generation
 	child.Status.ObservedStoreUID = string(store.UID)
 	child.Status.ObservedStoreGeneration = store.Generation
+	success := metav1.NewTime(time.Unix(1000, 0))
+	child.Status.LastSuccessfulSyncTime = &success
+	child.Status.LastAttemptTime = &success
 	for _, name := range []string{"Ready", "DataCurrent", "WitnessReady", "RolloutReady"} {
 		child.Status.Conditions = append(child.Status.Conditions, metav1.Condition{Type: name, Status: metav1.ConditionTrue, Reason: "Synchronized", ObservedGeneration: child.Generation})
 	}
@@ -120,5 +124,21 @@ func TestAggregateRequiresTheGenerationOfEveryCondition(t *testing.T) {
 			status := aggregateResult(t, store, child)
 			expectAggregate(t, status, kind, metav1.ConditionFalse)
 		})
+	}
+}
+
+func TestAggregateReportsOnlyObservedChildSuccess(t *testing.T) {
+	store := aggregateE2EStore()
+	child := aggregateChild(store)
+	status := aggregateResult(t, store, child)
+	if !status.LastSuccessfulSyncTime.Equal(child.Status.LastSuccessfulSyncTime) {
+		t.Fatal("store advanced the success timestamp without a child synchronization")
+	}
+	later := metav1.NewTime(child.Status.LastAttemptTime.Add(time.Minute))
+	child.Status.LastAttemptTime = &later
+	status = aggregateResult(t, store, child)
+	expectAggregate(t, status, "Ready", metav1.ConditionFalse)
+	if status.LastSuccessfulSyncTime != nil {
+		t.Fatal("store claimed success based on a child with a newer failed attempt")
 	}
 }

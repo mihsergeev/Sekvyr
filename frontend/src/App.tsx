@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import {
-  ApiError,
   SESSION_GONE,
   getHealth,
-  getToken,
+  isCurrentSession,
   me,
+  sessionStamp,
   setToken,
   watchToken,
   type Me,
@@ -96,7 +97,7 @@ export default function App() {
   // конце сессии закрывается как отмена: иначе он висел над экраном входа, а
   // "Уйти" потом уводило адрес на страницу, куда шли до выхода.
   const { dismiss } = useDialogs()
-  const lastUser = useRef<string | null>(null)
+  const loadRevision = useRef(0)
   const [loading, setLoading] = useState(true)
   // Панель не ответила при загрузке. Это не конец сессии: токен цел, и экран
   // входа здесь соврал бы. null - отвечает.
@@ -237,99 +238,90 @@ export default function App() {
   )
   const [sealed, setSealed] = useState(false)
   const load = useCallback(async () => {
-    if (!getToken()) {
+    const session = sessionStamp()
+    const revision = ++loadRevision.current
+    const current = () => revision === loadRevision.current && isCurrentSession(session)
+    if (!session.token) {
       setUser(null)
       setLoading(false)
+      setUnreachable(null)
       return
     }
     try {
       const next = await me()
-      // Вход другим пользователем в той же вкладке (токен сменили в соседней)
-      // не наследует ключи e2e прежнего.
-      if (lastUser.current !== next.username) forgetAllKeys()
-      lastUser.current = next.username
+      if (!current()) return
       setUnreachable(null)
       setUser(next)
     } catch (err) {
-      // Токен мог протухнуть, пережить смену пароля или отключение учетки - во
-      // всех случаях это "показать вход", а не пустая страница. Отказ любого
-      // другого рода - панель лежит или сеть пропала: вход тут не поможет, а
-      // токен еще пригодится, когда панель вернется.
+      // Актуальный 401 обрабатывает SESSION_GONE. Старый ответ не меняет
+      // состояние новой сессии. При сетевом сбое сохраняем текущий токен.
+      if (!current()) return
       forgetAllKeys()
       setUser(null)
-      if (err instanceof ApiError && err.status === 401) {
-        setToken(null)
-        setUnreachable(null)
-      } else {
-        setUnreachable(err instanceof Error ? err.message : String(err))
-      }
+      setUnreachable(err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
+      if (current()) setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
-
   // Токен отвергнут посреди работы - снова экран входа. Адрес остается: после
   // входа человек вернется туда, где был.
+  const clearSession = useCallback(() => {
+    ++loadRevision.current
+    setLeaveGuard(null)
+    dismiss()
+    forgetAllKeys()
+    setUser(null)
+    setLoading(false)
+    setUnreachable(null)
+    setSealed(false)
+    setChangingPassword(false)
+    setTwoFactor(false)
+    setAbout(false)
+    setHotkeys(false)
+    setPalette(false)
+    setMenuOpen(false)
+  }, [dismiss])
   useEffect(() => {
-    const gone = () => {
-      setLeaveGuard(null)
-      dismiss()
-      forgetAllKeys()
-      setUser(null)
-    }
+    const gone = () => clearSession()
     window.addEventListener(SESSION_GONE, gone)
     return () => window.removeEventListener(SESSION_GONE, gone)
-  }, [dismiss])
+  }, [clearSession])
 
-  // Токен общий на все вкладки. Вышли в соседней - здесь тоже вход, и открытые
-  // значения с ключами e2e уходят вместе со страницей. Вошли там другим
-  // человеком - эта вкладка уже ходит с его токеном, а на экране права и
-  // значения прежнего: перезагрузка начинает с чистого листа.
-  const signedIn = useRef(false)
-  signedIn.current = Boolean(user)
-  useEffect(
-    () =>
-      watchToken((token) => {
-        if (!token) {
-          setLeaveGuard(null)
-          dismiss()
-          forgetAllKeys()
-          setUser(null)
-          return
-        }
-        if (!signedIn.current) {
-          void load()
-          return
-        }
-        const restart = () => {
-          forgetAllKeys()
-          window.location.reload()
-        }
-        // Тот же человек вошел заново (сессия кончилась и в соседней вкладке
-        // он вошел снова): набранное здесь не выбрасываем.
-        me()
-          .then((next) => {
-            if (next.username !== lastUser.current) restart()
-          })
-          .catch(restart)
-      }),
-    [dismiss, load],
-  )
+  useEffect(() => {
+    const stop = watchToken((token) => {
+      // Старые формы должны исчезнуть до того, как вкладка применит новый токен.
+      flushSync(() => {
+        clearSession()
+        setLoading(Boolean(token))
+      })
+      if (token) {
+        const session = sessionStamp()
+        queueMicrotask(() => {
+          if (isCurrentSession(session)) void load()
+        })
+      }
+    })
+    void load()
+    return stop
+  }, [clearSession, load])
 
   useEffect(() => {
     if (!user) return
+    const session = sessionStamp()
+    let active = true
     getHealth()
       .then((h) => {
+        if (!active || !isCurrentSession(session)) return
         setSealed(Boolean(h.sealed))
         // Зону задает панель, а не браузер: журнал должен читаться одинаково у
         // всех, кто в него смотрит.
         setTimeZone(h.timezone ?? 'UTC')
       })
-      .catch(() => setSealed(false))
+      .catch(() => {
+        if (active && isCurrentSession(session)) setSealed(false)
+      })
+    return () => { active = false }
   }, [user, view])
 
   function toggleTheme() {
@@ -354,6 +346,7 @@ export default function App() {
   logoutRef.current = logout
   useEffect(() => {
     if (!user || !idleMinutes) return
+    const session = sessionStamp()
     let last = Date.now()
     let shared = 0
     const share = () => {
@@ -374,6 +367,7 @@ export default function App() {
     const events = ['mousedown', 'keydown', 'wheel', 'touchstart', 'visibilitychange']
     for (const name of events) window.addEventListener(name, touch, { passive: true })
     const timer = window.setInterval(() => {
+      if (!isCurrentSession(session)) return
       let other = 0
       try {
         other = Number(localStorage.getItem(ACTIVE_KEY) ?? 0) || 0
@@ -390,23 +384,18 @@ export default function App() {
 
   // "Выйти" из меню: с несохраненными долями на экране сначала спросить.
   async function askLogout() {
+    const session = sessionStamp()
     const guard = leaveGuard()
     if (guard && !(await guard())) return
-    logout()
+    if (isCurrentSession(session)) logout()
   }
 
   function logout() {
     // Выход по бездействию и после смены пароля спросить не может: защита
     // ухода снимается, иначе ее вопрос всплывал над экраном входа.
-    setLeaveGuard(null)
-    dismiss()
     setToken(null)
-    // Ключи e2e-проектов живут в памяти вкладки: следующий вошедший в той же
-    // вкладке видел бы открытые значения без пароля проекта.
-    forgetAllKeys()
-    setUser(null)
+    clearSession()
     setView({ kind: 'projects' })
-    setMenuOpen(false)
   }
 
   // Имя окружения в адресе - человеческое, а работает панель с номером. Ищем

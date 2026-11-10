@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0-rc.4] - 2026-11-10
+
+### Fixed
+
+- Recover an interrupted vault root rotation using the key verified against the database.
+- Clear previous session data, drafts and encryption keys across tabs on a token change.
+- Refresh restored logos by their content and keep company branding available when a logo is damaged.
+- Report E2E2 capabilities for the configured authority view even when older views fill the first results.
+- Reject swapped release images and stop tag-based updates when Compose still pins older images.
+- Verify the complete contents of the new backup in CI.
+
+### Changed
+
+- Publish panel RCs as reviewed image digests with a signed manifest covering the image archives and SBOMs.
+
 ## [1.1.0-rc.3] - 2026-11-09
 
 ### Fixed

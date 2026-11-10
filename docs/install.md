@@ -2,6 +2,8 @@
 
 [Русская версия](install.ru.md)
 
+For a panel release candidate, see [installation by digest](panel-rc.md#install-from-a-reviewed-rc).
+
 ## One command
 
 ```sh
@@ -302,6 +304,8 @@ Common cases:
 - **The panel answers `sealed`.** The vault is locked: open it with shares or
   the key. After a host reboot this is the normal state unless the key is on the
   server (`SEKVYR_ROOT_KEY_FILE`).
+  If rotation was interrupted, startup checks the adjacent `.new` key file
+  against the database before using it. Protect both files as root keys.
 - **No certificate.** Let's Encrypt counts issuances per set of names (five per
   name per 168 hours); repeated reinstalls that delete the caddy directory burn
   through the limit. Check `docker logs <caddy> | grep rateLimited`.

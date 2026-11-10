@@ -20,17 +20,35 @@ export function passwordProblem(
 }
 
 const TOKEN_KEY = 'sekvyr_token'
+let sessionRevision = 0
+let watchedToken: string | null | undefined
+let switchingSession = false
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
 }
 
 export function setToken(token: string | null) {
+  if (getToken() !== token) sessionRevision += 1
   if (token) {
     localStorage.setItem(TOKEN_KEY, token)
   } else {
     localStorage.removeItem(TOKEN_KEY)
   }
+  if (watchedToken !== undefined) watchedToken = token
+}
+
+export function sessionStamp() {
+  return { token: getToken(), revision: sessionRevision }
+}
+
+export function isCurrentSession({ token, revision }: ReturnType<typeof sessionStamp>): boolean {
+  return !switchingSession && revision === sessionRevision && token === getToken() &&
+    (watchedToken === undefined || watchedToken === token)
+}
+
+export function requireCurrentSession(session: ReturnType<typeof sessionStamp>) {
+  if (!isCurrentSession(session)) throw new DOMException('Session changed', 'AbortError')
 }
 
 /* Токен общий на все вкладки (localStorage), а событие о его смене браузер
@@ -39,12 +57,27 @@ export function setToken(token: string | null) {
  * человеком старая вкладка действовала уже от его имени, показывая права
  * прежнего. key === null - хранилище очистили целиком. */
 export function watchToken(onChange: (token: string | null) => void): () => void {
+  watchedToken = getToken()
   const listener = (event: StorageEvent) => {
     if (event.key !== TOKEN_KEY && event.key !== null) return
-    onChange(getToken())
+    if (event.storageArea && event.storageArea !== localStorage) return
+    const token = getToken()
+    if (token === watchedToken && event.key !== null && event.oldValue === event.newValue) return
+    sessionRevision += 1
+    // Пока старое дерево размонтируется, его обработчики не получают новый токен.
+    switchingSession = true
+    try {
+      onChange(token)
+    } finally {
+      watchedToken = token
+      switchingSession = false
+    }
   }
   window.addEventListener('storage', listener)
-  return () => window.removeEventListener('storage', listener)
+  return () => {
+    window.removeEventListener('storage', listener)
+    watchedToken = undefined
+  }
 }
 
 export class ApiError extends Error {
@@ -111,30 +144,34 @@ function sessionGone(status: number, sent: string | null) {
  * панели за ним. Раньше человек видел браузерное "Failed to fetch"
  * по-английски, и текст зависел от браузера. status 0 у ошибки - как раз этот
  * случай: по нему отличают "панели нет" от "сессия кончилась". */
-async function reach(path: string, init: RequestInit): Promise<Response> {
+async function reach(path: string, init: RequestInit, session?: ReturnType<typeof sessionStamp>): Promise<Response> {
+  if (session) requireCurrentSession(session)
   try {
     return await fetch(path, init)
   } catch (e) {
+    if (session) requireCurrentSession(session)
     // Отмену запроса не переименовываем: ее ждет тот, кто отменял.
     if (e instanceof DOMException && e.name === 'AbortError') throw e
     throw new ApiError(tr('Нет связи с панелью: проверьте сеть и повторите'), 0)
   }
 }
 
-export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function api<T>(
+  path: string,
+  { publicRequest = false, ...options }: RequestInit & { publicRequest?: boolean } = {},
+): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
   }
-  const token = getToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
+  const session = publicRequest ? undefined : sessionStamp()
+  if (session?.token) headers['Authorization'] = `Bearer ${session.token}`
 
-  const res = await reach(path, { ...options, headers })
-  if (res.status === 204) return undefined as T
-
-  const body = await res.json().catch(() => null)
+  const res = await reach(path, { ...options, headers }, session)
+  const body = res.status === 204 ? undefined : await res.json().catch(() => null)
+  if (session) requireCurrentSession(session)
   if (!res.ok) {
-    sessionGone(res.status, token)
+    if (session) sessionGone(res.status, session.token)
     throw new ApiError(errorText(body, res.status), res.status, body)
   }
   return body as T
@@ -153,7 +190,7 @@ export type Health = {
 
 // Версию спрашиваем у бэкенда, а не пишем в верстке: при частичном обновлении
 // (фронт обновили, бэкенд забыли) видно именно то, что интересно.
-export const getHealth = () => api<Health>('/api/health')
+export const getHealth = () => api<Health>('/api/health', { publicRequest: true })
 
 // --- оформление панели ---
 
@@ -168,9 +205,11 @@ export type Branding = {
   /** Загружена своя версия логотипа для темного фона. */
   dark_logo: boolean
   version: number
+  logo_revision?: string
+  dark_logo_revision?: string
 }
 
-export const getBranding = () => api<Branding>('/api/branding')
+export const getBranding = () => api<Branding>('/api/branding', { publicRequest: true })
 
 export const saveCompanyName = (companyName: string) =>
   api<Branding>('/api/branding/company-name', {
@@ -179,8 +218,10 @@ export const saveCompanyName = (companyName: string) =>
   })
 
 /** Адрес картинки. Версия в адресе меняется с каждой правкой - кэш не мешает. */
-export const brandingUrl = (version: number, dark = false) =>
-  `/api/branding/${dark ? 'logo-dark' : 'logo'}?v=${version}`
+export const brandingUrl = (branding: Branding, dark = false) => {
+  const revision = dark ? branding.dark_logo_revision : branding.logo_revision
+  return `/api/branding/${dark ? 'logo-dark' : 'logo'}?v=${encodeURIComponent(revision || branding.version)}`
+}
 
 export const saveBranding = (body: {
   data: string
@@ -1089,21 +1130,24 @@ export async function buildEmergencyArchive(body: {
   otp?: string
   note?: string
 }): Promise<Blob> {
-  const token = getToken()
+  const session = sessionStamp()
   const res = await reach('/api/ops/emergency', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}),
     },
     body: JSON.stringify(body),
-  })
+  }, session)
   if (!res.ok) {
     const parsed = await res.json().catch(() => null)
-    sessionGone(res.status, token)
+    requireCurrentSession(session)
+    sessionGone(res.status, session.token)
     throw new ApiError(errorText(parsed, res.status), res.status)
   }
-  return res.blob()
+  const archive = await res.blob()
+  requireCurrentSession(session)
+  return archive
 }
 
 // --- все окружения одним списком ---

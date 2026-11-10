@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/mihsergeev/Sekvyr/operator/internal/provision"
 )
 
 func TestNoArgumentOrErrorDisclosure(t *testing.T) {
@@ -15,7 +17,7 @@ func TestNoArgumentOrErrorDisclosure(t *testing.T) {
 		}
 	}
 	var out bytes.Buffer
-	if run([]string{"version"}, &out) != nil || out.String() != "0.1.0-rc.1\n" {
+	if run([]string{"version"}, &out) != nil || out.String() != provision.Version+"\n" {
 		t.Fatal("version")
 	}
 }

@@ -5,7 +5,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SESSION_GONE, api, getToken, setToken } from './api'
+import { SESSION_GONE, api, getToken, setToken, watchToken } from './api'
 
 function answer(status: number, body: unknown) {
   return vi.fn(async () => new Response(JSON.stringify(body), { status }))
@@ -46,5 +46,30 @@ describe('api: отвергнутый токен', () => {
     await expect(api('/api/auth/login', { method: 'POST' })).rejects.toThrow()
     window.removeEventListener(SESSION_GONE, gone)
     expect(gone).not.toHaveBeenCalled()
+  })
+
+  it.each([200, 204])('отклоняет ответ %i прежней сессии после повторного входа', async (status) => {
+    setToken('old-token')
+    let respond!: (response: Response) => void
+    vi.stubGlobal('fetch', () => new Promise<Response>((resolve) => { respond = resolve }))
+    const pending = api('/api/projects')
+    setToken(null)
+    setToken('old-token')
+    respond(status === 204 ? new Response(null, { status }) : Response.json([]))
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('до события storage старая вкладка не посылает запрос с новым токеном', async () => {
+    setToken('old-token')
+    const stop = watchToken(() => {})
+    try {
+      const fetch = answer(200, [])
+      vi.stubGlobal('fetch', fetch)
+      localStorage.setItem('sekvyr_token', 'new-token')
+      await expect(api('/api/projects', { method: 'POST' })).rejects.toMatchObject({ name: 'AbortError' })
+      expect(fetch).not.toHaveBeenCalled()
+    } finally {
+      stop()
+    }
   })
 })

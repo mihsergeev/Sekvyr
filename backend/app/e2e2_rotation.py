@@ -92,7 +92,7 @@ def _enrollments(value):
     return value
 
 
-def registration(expected_scope: dict) -> dict:
+def registrations() -> list[dict]:
     path = os.environ.get("SEKVYR_E2E2_AUTHORITY_CONFIG_FILE", "")
     try:
         with Path(path).open("rb") as source:
@@ -100,7 +100,7 @@ def registration(expected_scope: dict) -> dict:
     except (OSError, ValueError):
         raise e2e2.Rejected("AuthorityUnavailable", 503) from None
     e2e2.require(config["format"] == "sekvyr-panel-authority-config-v1" and type(config["registrations"]) is list and 1 <= len(config["registrations"]) <= 64, "AuthorityUnavailable", 503)
-    found, seen = None, set()
+    seen = set()
     for entry in config["registrations"]:
         e2e2.exact(entry, REGISTRATION)
         scope = e2e2.exact(entry["scope"], e2e2.SCOPE)
@@ -114,17 +114,21 @@ def registration(expected_scope: dict) -> dict:
         e2e2.public_key(entry["witness_public_key"])
         e2e2.counter(entry["witness_epoch"])
         e2e2.require(all(type(entry[field]) is str and 1 <= len(entry[field]) <= 4096 for field in ("witness_origin", "ca_file", "client_cert_file", "client_key_file")), "AuthorityUnavailable", 503)
-        if scope == expected_scope:
-            found = dict(entry)
-    e2e2.require(found is not None, "AuthorityUnavailable", 503)
-    return found
+    return config["registrations"]
 
 
-def configured(expected_scope: dict) -> bool:
+def registration(expected_scope: dict) -> dict:
+    for entry in registrations():
+        if entry["scope"] == expected_scope:
+            return entry
+    raise e2e2.Rejected("AuthorityUnavailable", 503)
+
+
+def tls_configured(entry: dict) -> bool:
     try:
-        _tls(registration(expected_scope))
+        _tls(entry)
         return True
-    except (e2e2.Rejected, ValueError, TypeError):
+    except e2e2.Rejected:
         return False
 
 

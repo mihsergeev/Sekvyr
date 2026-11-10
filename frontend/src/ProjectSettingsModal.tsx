@@ -8,7 +8,9 @@ import {
   listProjects,
   machinePublicKey,
   myPermissions,
+  requireCurrentSession,
   rotateEnvKey,
+  sessionStamp,
   updateEnvironment,
   exportProject,
   updateProject,
@@ -233,8 +235,10 @@ export function ProjectSettingsModal({
       ],
       // Отказ сервера (в проекте уже есть ключи) - в этом же окне.
       send: async (a) => {
+        const session = sessionStamp()
         const wrap = await getE2eWrap(project.id)
         const made = await createProjectKey(a.password, wrap.iterations || 600000)
+        requireCurrentSession(session)
         await enableE2e(project.id, {
           salt: made.wrap.salt,
           nonce: made.wrap.nonce,
@@ -242,6 +246,7 @@ export function ProjectSettingsModal({
           verifier_nonce: made.wrap.verifier_nonce,
           verifier: made.wrap.verifier,
         })
+        requireCurrentSession(session)
         rememberKey(project.id, made.key)
       },
     })
@@ -249,6 +254,7 @@ export function ProjectSettingsModal({
   }
 
   async function giveKey(machine: E2eMachine) {
+    const session = sessionStamp()
     try {
       let key = keyFor(project.id)
       if (!key) {
@@ -262,6 +268,7 @@ export function ProjectSettingsModal({
         })
         if (!answer) return
         key = await unlockProjectKey(wrap, answer.password)
+        requireCurrentSession(session)
         if (!key) {
           setError(t('Пароль не подошёл'))
           return
@@ -274,6 +281,7 @@ export function ProjectSettingsModal({
         return
       }
       const sealed = await wrapForMachine(key, public_key)
+      requireCurrentSession(session)
       await wrapE2eForMachine(project.id, { machine_id: machine.machine_id, ...sealed })
       setE2eMachines(await listE2eMachines(project.id))
       setError('')

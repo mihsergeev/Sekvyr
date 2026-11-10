@@ -53,6 +53,7 @@ jobs:
         run: |
           pip install cryptography
           python ops/selfcheck.py
+          python -m unittest discover -s ops/tests
       - name: Shell scripts parse
         # Скрипты исполняет sh (dash на Debian и Ubuntu), а не bash: ошибка
         # разбора в редкой ветке иначе всплывала бы у человека посреди
@@ -351,18 +352,17 @@ jobs:
       # Бэкап шифрует разовый контейнер от root, и пароль 0600 с владельцем
       # 10001 он читает благодаря DAC_OVERRIDE. Распечатка - как в ops/restore.sh.
       - name: Backup and unseal
+        shell: bash
         run: |
-          set -eu
           sudo SEKVYR_APP="$PWD" sh ops/backup.sh > /dev/null
-          sudo grep -q '"ok": true' data/backup.json
-          file=$(ls backups/*.sql.sealed | tail -n 1)
-          { sudo cat secret/backup.pass; echo; sudo cat "$file"; } \
+          file=$(sudo jq -er 'select(.ok == true) | .file | strings | select(test("^sekvyr-[0-9]{8}-[0-9]{6}\\.sql\\.sealed$"))' data/backup.json)
+          { sudo cat secret/backup.pass && printf '\n' && sudo cat "backups/$file"; } \
             | docker compose run --rm --no-deps -T --entrypoint python backend -c "
           import sys
           from app import sealedfile
           password = sys.stdin.buffer.readline().decode().strip()
           sealedfile.unseal(sys.stdin.buffer, sys.stdout.buffer, password=password)
-          " | grep -q "CREATE TABLE"
+          " | grep "CREATE TABLE" >/dev/null
       - name: Logs
         if: failure()
         run: docker compose logs --no-color

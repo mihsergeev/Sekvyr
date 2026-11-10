@@ -251,9 +251,23 @@ async def test_seal_during_root_rotation_stays_sealed(client: httpx.AsyncClient,
     gate = Gate("rotate")
     gate_async(monkeypatch, envkeys, "rewrap_for_new_root", gate)
     task = await _gated("rotate", client.post("/api/vault/rotate-root", headers=h), gate)
-    assert (await client.post("/api/vault/seal", headers=h)).json()["sealed"] is True
-    gate.release.set()
+    sealed = asyncio.Event()
+    box = client._transport.app.state.sealbox
+    original_seal = type(box).seal
+
+    def mark_sealed(self):
+        original_seal(self)
+        sealed.set()
+
+    monkeypatch.setattr(type(box), "seal", mark_sealed)
+    seal_task = asyncio.create_task(client.post("/api/vault/seal", headers=h))
+    try:
+        await asyncio.wait_for(sealed.wait(), timeout=5)
+        assert not box.unsealed
+    finally:
+        gate.release.set()
     res = await task
+    assert (await seal_task).json()["sealed"] is True
     assert res.status_code == 200, res.text
     assert (await client.get("/api/vault/status", headers=h)).json()["sealed"] is True
     # Новый ключ, показанный при смене, и отпирает панель.

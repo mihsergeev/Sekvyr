@@ -1,9 +1,17 @@
 """Корневой ключ: заведение, отпирание, запирание, ротация."""
 
+import asyncio
+from pathlib import Path
+
 import httpx
 import pytest
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import config, sealbox, secrets_store
+from app.cli import _mark_multiline
+from app.main import _auto_unseal, create_app
+from app.models import SecretVersion
 from tests.conftest import login
 
 
@@ -284,3 +292,207 @@ async def test_rotation_rewrites_the_remembered_key(
     assert after != before
     assert after == rotated.json()["root_key"]
     assert not (key_file.parent / "root.key.new").exists()
+
+
+async def test_concurrent_empty_vault_rotations(client: httpx.AsyncClient, owner_headers, unsealed):
+    async def rotate():
+        return await client.post("/api/vault/rotate-root", headers=owner_headers)
+
+    first, second = await asyncio.gather(rotate(), rotate())
+    assert first.status_code == second.status_code == 200
+    generations = {res.json()["root_generation"]: res.json()["root_key"] for res in (first, second)}
+    assert generations.keys() == {2, 3}
+
+    headers = owner_headers
+    assert (await client.post("/api/vault/seal", headers=headers)).json()["sealed"]
+    stale = await client.post("/api/vault/unseal", headers=headers, json={"root_key": generations[2]})
+    assert stale.status_code == 400
+    current = await client.post("/api/vault/unseal", headers=headers, json={"root_key": generations[3]})
+    assert current.status_code == 200 and not current.json()["sealed"]
+
+
+@pytest.fixture
+async def remembered_key(client, owner_headers, env_id, tmp_path, monkeypatch):
+    path = tmp_path / "secret" / "root.key"
+    monkeypatch.setenv("SEKVYR_ROOT_KEY_FILE", str(path))
+    config.get_settings.cache_clear()
+    assert (await client.post("/api/vault/remember-key", headers=owner_headers)).status_code == 200
+    return path
+
+
+async def _restart_and_check_root(root: bytes | None):
+    settings = config.get_settings()
+    app = create_app()
+    try:
+        await _auto_unseal(app, settings)
+        box = app.state.sealbox
+        assert box.unsealed == (root is not None)
+        if root is not None:
+            assert box.root() == root
+    finally:
+        await app.state.engine.dispose()
+
+
+@pytest.mark.parametrize("forget", [False, True])
+async def test_rotation_key_file_recovers_or_forgets_after_failed_rename(
+    client, owner_headers, env_id, remembered_key, monkeypatch, forget
+):
+    staged = sealbox.staged_key_file(remembered_key)
+    original = remembered_key.read_text()
+    real_replace = sealbox.replace_key_file
+
+    def fail_promotion(source, destination):
+        if source == staged and destination == remembered_key:
+            raise PermissionError("simulated rename failure")
+        real_replace(source, destination)
+
+    if not forget:
+        wrote = await client.put(f"/api/environments/{env_id}/secrets", headers=owner_headers,
+                                 json={"name": "CHECK", "value": "first\nsecond"})
+        assert wrote.status_code == 200
+        factory = client._transport.app.state.session_factory
+        async with factory() as session:
+            await session.execute(update(SecretVersion).values(multiline=False))
+            await session.commit()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(sealbox, "replace_key_file", fail_promotion)
+        rotated = await client.post("/api/vault/rotate-root", headers=owner_headers)
+        assert rotated.status_code == 200
+        assert remembered_key.read_text() == original
+        fresh = rotated.json()["root_key"]
+        assert staged.read_text() == fresh
+        if not forget:
+            # CLI использует валидную копию без изменения файлов ключа.
+            assert await _mark_multiline() == 0
+            async with factory() as session:
+                assert await session.scalar(select(SecretVersion.multiline)) is True
+            assert remembered_key.read_text() == original
+            assert staged.exists()
+            # Автозапуск берет проверенную копию даже пока замена невозможна.
+            await _restart_and_check_root(sealbox.unb64(fresh))
+
+    if forget:
+        result = await client.post("/api/vault/forget-key", headers=owner_headers)
+        assert result.status_code == 200 and not result.json()["present"]
+        assert not remembered_key.exists()
+        await _restart_and_check_root(None)
+    else:
+        await _restart_and_check_root(sealbox.unb64(fresh))
+        assert remembered_key.read_text() == fresh
+    assert not staged.exists()
+
+
+@pytest.mark.parametrize("unreadable", [False, True])
+async def test_remember_current_key_with_bad_staged_copy(
+    client, owner_headers, remembered_key, monkeypatch, unreadable
+):
+    staged = sealbox.staged_key_file(remembered_key)
+    staged.write_bytes(b"\xff")
+    original = remembered_key.read_text()
+    real_read = Path.read_text
+
+    def deny_staged_read(path, *args, **kwargs):
+        if path == staged:
+            raise PermissionError("simulated read failure")
+        return real_read(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        if unreadable:
+            patch.setattr(Path, "read_text", deny_staged_read)
+        remembered = await client.post("/api/vault/remember-key", headers=owner_headers)
+        assert remembered.status_code == 200 and remembered.json()["present"]
+    assert remembered_key.read_text() == original
+    assert not staged.exists()
+
+
+@pytest.mark.parametrize("committed", [False, True])
+async def test_rotation_resolves_failed_commit_against_db(
+    client, owner_headers, remembered_key, monkeypatch, committed
+):
+    original = remembered_key.read_text()
+    real_commit = AsyncSession.commit
+
+    async def fail_commit(session):
+        if committed:
+            await real_commit(session)
+        raise RuntimeError("simulated commit failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(AsyncSession, "commit", fail_commit)
+        if committed:
+            result = await client.post("/api/vault/rotate-root", headers=owner_headers)
+            assert result.status_code == 200
+            assert remembered_key.read_text() == result.json()["root_key"]
+            assert remembered_key.read_text() != original
+        else:
+            with pytest.raises(RuntimeError, match="simulated commit failure"):
+                await client.post("/api/vault/rotate-root", headers=owner_headers)
+            assert remembered_key.read_text() == original
+
+    state = (await client.get("/api/vault/status", headers=owner_headers)).json()
+    assert state["root_generation"] == (2 if committed else 1)
+    assert not state["sealed"]
+    assert not sealbox.staged_key_file(remembered_key).exists()
+    await _restart_and_check_root(sealbox.unb64(remembered_key.read_text()))
+
+
+async def test_rotation_keeps_reads_working_across_commit_and_request_cancellation(
+    client, owner_headers, env_id, remembered_key, monkeypatch
+):
+    base = f"/api/environments/{env_id}"
+    wrote = await client.put(base + "/secrets", headers=owner_headers,
+                             json={"name": "CHECK", "value": "synthetic-value"})
+    assert wrote.status_code == 200
+    original = remembered_key.read_text()
+    committing, allow_commit = asyncio.Event(), asyncio.Event()
+    committed, finish_commit = asyncio.Event(), asyncio.Event()
+    real_commit = AsyncSession.commit
+
+    async def pause_rotation(session):
+        if committing.is_set():
+            await real_commit(session)
+            return
+        committing.set()
+        await allow_commit.wait()
+        await real_commit(session)
+        committed.set()
+        await finish_commit.wait()
+
+    async def check_read():
+        value = await client.get(base + "/secret", headers=owner_headers, params={"name": "CHECK"})
+        assert value.status_code == 200
+        assert value.json()["value"] == "synthetic-value"
+
+    monkeypatch.setattr(AsyncSession, "commit", pause_rotation)
+    rotation = asyncio.create_task(client.post("/api/vault/rotate-root", headers=owner_headers))
+    try:
+        await asyncio.wait_for(committing.wait(), timeout=5)
+        # GET пишет журнал. До коммита ротации журнал под блокировкой, поэтому
+        # здесь проверяем то же чтение напрямую, без записи в журнал.
+        app = client._transport.app
+        async with app.state.session_factory() as session:
+            secret = await secrets_store.get_secret(session, env_id, "/", "CHECK")
+            value = await secrets_store.read_value(session, app.state.sealbox, secret)
+        assert value == "synthetic-value"
+        rotation.cancel()
+        await asyncio.sleep(0)
+        assert not rotation.done()
+        allow_commit.set()
+        await asyncio.wait_for(committed.wait(), timeout=5)
+        await check_read()
+        assert (await client.post("/api/vault/seal", headers=owner_headers)).json()["sealed"]
+    finally:
+        allow_commit.set()
+        finish_commit.set()
+        outcome, = await asyncio.gather(rotation, return_exceptions=True)
+
+    assert isinstance(outcome, asyncio.CancelledError)
+    assert remembered_key.read_text() != original
+    assert not sealbox.staged_key_file(remembered_key).exists()
+    assert (await client.get("/api/vault/status", headers=owner_headers)).json()["sealed"]
+    opened = await client.post("/api/vault/unseal", headers=owner_headers,
+                               json={"root_key": remembered_key.read_text()})
+    assert opened.status_code == 200 and not opened.json()["sealed"]
+    await check_read()
+    await _restart_and_check_root(sealbox.unb64(remembered_key.read_text()))

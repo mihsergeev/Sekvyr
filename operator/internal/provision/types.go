@@ -13,7 +13,7 @@ import (
 	"github.com/mihsergeev/Sekvyr/operator/internal/recovery"
 )
 
-const Version = "0.1.0-rc.1"
+const Version = "0.1.0-rc.2"
 const MaxInputBytes = 64 << 20
 
 var ErrInvalid = errors.New("ProvisionInputInvalid")

@@ -1,12 +1,25 @@
-name: Build and promote reviewed panel RC
+name: Build and promote reviewed RC images
 
 on:
   push:
     branches: ["rc/panel-v*"]
   workflow_dispatch:
     inputs:
-      candidate_run:
+      phase:
+        type: choice
+        options: [prepare, promote]
         required: true
+      candidate_run:
+        description: Candidate workflow run ID (prepare)
+        type: string
+      candidate_attempt:
+        description: Candidate run attempt (prepare)
+        type: string
+      release_id:
+        description: Reviewed draft or immutable release ID (promote)
+        type: string
+      manifest_sha256:
+        description: SHA-256 of the reviewed manifest (promote)
         type: string
 
 permissions: {}
@@ -33,6 +46,16 @@ jobs:
             runner: ubuntu-latest
             context: frontend
             dockerfile: frontend/Dockerfile
+          - component: operator
+            architecture: amd64
+            runner: ubuntu-latest
+            context: operator
+            dockerfile: operator/Dockerfile
+          - component: operator
+            architecture: arm64
+            runner: ubuntu-24.04-arm
+            context: operator
+            dockerfile: operator/Dockerfile
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 35
     permissions:
@@ -47,15 +70,24 @@ jobs:
           CONTEXT: ${{ matrix.context }}
           DOCKERFILE: ${{ matrix.dockerfile }}
           ARCH: ${{ matrix.architecture }}
+          COMPONENT: ${{ matrix.component }}
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#rc/panel-v}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
           test "$version" = "$(sed -n 's/^version = "\(.*\)"$/\1/p' backend/pyproject.toml)"
           test "$version" = "$(jq -r .version frontend/package.json)"
+          if [[ "$COMPONENT" = operator ]]; then
+            version="$(cat operator/VERSION)"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+            docker buildx build --platform "linux/$ARCH" --file "$DOCKERFILE" \
+              --target provision-artifacts --output type=local,dest=provision "$CONTEXT"
+            test "$(./provision/sekvyr-provision version)" = "$version"
+            cp provision/sekvyr-provision sekvyr-provision
+          fi
           docker buildx build --platform "linux/$ARCH" --file "$DOCKERFILE" \
             --build-arg "VERSION=$version" --build-arg "REVISION=$GITHUB_SHA" \
-            --provenance=false --sbom=false --output type=oci,dest=candidate.oci.tar "$CONTEXT"
+            --provenance=false --sbom=false --output type=oci,compression=gzip,dest=candidate.oci.tar "$CONTEXT"
           mkdir candidate-oci
           tar -xf candidate.oci.tar -C candidate-oci
       - name: Scan the exact OCI archive
@@ -67,118 +99,148 @@ jobs:
           version: v0.76.1
           ignore-unfixed: false
           exit-code: "1"
+      - name: Scan the exact offline provision binary
+        if: matrix.component == 'operator'
+        run: trivy rootfs --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 provision
       - name: Inventory the scanned archive
         run: |
           trivy image --input candidate-oci --format cyclonedx --output sbom.cdx.json
           sha256sum candidate.oci.tar sbom.cdx.json > SHA256SUMS
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ matrix.component }}-${{ matrix.architecture }}
+          name: ${{ matrix.component }}-${{ matrix.architecture }}-attempt-${{ github.run_attempt }}
           path: |
             candidate.oci.tar
             sbom.cdx.json
             SHA256SUMS
+            ${{ matrix.component == 'operator' && 'sekvyr-provision' || '' }}
           compression-level: 0
           if-no-files-found: error
           retention-days: 7
 
-  promote:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+  prepare:
+    if: github.event_name == 'workflow_dispatch' && inputs.phase == 'prepare' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/sekvyr-operator-v'))
     runs-on: ubuntu-latest
-    concurrency:
-      group: panel-rc-promotion
-      cancel-in-progress: false
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
-      packages: write
       attestations: write
       id-token: write
     env:
       GH_TOKEN: ${{ github.token }}
       CANDIDATE_RUN: ${{ inputs.candidate_run }}
-      OWNER: ${{ github.repository_owner }}
+      CANDIDATE_ATTEMPT: ${{ inputs.candidate_attempt }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Verify candidate and CI against this commit
-        id: candidate
-        run: |
-          set -euo pipefail
-          version="$(jq -r .version frontend/package.json)"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
-          [[ "$CANDIDATE_RUN" =~ ^[0-9]+$ ]]
-          git fetch --no-tags origin "refs/tags/v$version"
-          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$GITHUB_SHA"
-          branch="rc/panel-v$version"
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN" | jq -e \
-            --arg sha "$GITHUB_SHA" --arg branch "$branch" \
-            '.path == ".github/workflows/panel-rc.yml" and .conclusion == "success" and
-             .event == "push" and .head_branch == $branch and .head_sha == $sha'
-          gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-            -f head_sha="$GITHUB_SHA" -f branch="$branch" -f event=push -f status=success \
-            --jq '.workflow_runs | length' | awk '$1 > 0 { ok=1 } END { exit !ok }'
-          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - name: Download and validate the scanned builds
-        env:
-          VERSION: ${{ steps.candidate.outputs.version }}
+      - name: Install verified Helm for the operator chart
+        if: startsWith(github.ref, 'refs/tags/sekvyr-operator-v')
         run: |
-          set -euo pipefail
-          gh run download "$CANDIDATE_RUN" --dir "$RUNNER_TEMP/candidate" \
-            --pattern 'backend-*' --pattern 'frontend-*'
-          python ops/panel_rc.py "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/panel" "$VERSION" "$GITHUB_SHA"
-      - name: Verify both targets and stage by digest
-        id: stage
+          cd "$RUNNER_TEMP"
+          archive=helm-v4.3.1-linux-amd64.tar.gz
+          curl -fsSLO --retry 2 "https://get.helm.sh/$archive"
+          curl -fsSLO --retry 2 "https://get.helm.sh/$archive.sha256sum"
+          sha256sum -c "$archive.sha256sum"
+          tar -xzf "$archive"
+          echo "$RUNNER_TEMP/linux-amd64" >> "$GITHUB_PATH"
+      - name: Pin the candidate attempt and assemble the release assets
+        run: |
+          python -m ops.panel_rc_release prepare "$RUNNER_TEMP/panel" \
+            --candidate-run="$CANDIDATE_RUN" --candidate-attempt="$CANDIDATE_ATTEMPT"
+      - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        id: manifest
+        with:
+          subject-path: ${{ runner.temp }}/panel/release-manifest.json
+      - name: Keep the verification bundle with the assets
         env:
-          VERSION: ${{ steps.candidate.outputs.version }}
+          BUNDLE: ${{ steps.manifest.outputs.bundle-path }}
+        run: cp "$BUNDLE" "$RUNNER_TEMP/panel/release-manifest.sigstore.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: panel-release-assets-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/panel/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
+
+  promote:
+    if: github.event_name == 'workflow_dispatch' && inputs.phase == 'promote' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/sekvyr-operator-v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: panel-rc-promotion-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      # Reading draft releases by ID requires access to unpublished contents.
+      contents: write
+      packages: write
+      attestations: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_ID: ${{ inputs.release_id }}
+      MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Verify the reviewed assets from the durable release
+        run: |
+          python -m ops.panel_rc_release reviewed "$RUNNER_TEMP/panel" \
+            --release-id="$RELEASE_ID" --manifest-sha256="$MANIFEST_SHA256"
+      - name: Validate and stage the exact images by digest
+        id: stage
         run: |
           set -euo pipefail
           command -v skopeo >/dev/null || (sudo apt-get update && sudo apt-get install -y skopeo)
-          printf '%s' "$GH_TOKEN" | skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
           cd "$RUNNER_TEMP/panel"
-          for component in backend frontend; do
-            image="ghcr.io/${OWNER,,}/sekvyr-$component"
+          mapfile -t components < <(jq -er '.images | keys[]' release-manifest.json)
+          for component in "${components[@]}"; do
+            ref=$(jq -er --arg component "$component" '.images[$component]' release-manifest.json)
+            digest=${ref##*@}
             raw=$(skopeo inspect --raw "oci-archive:$component-image.oci.tar" | sha256sum | cut -d' ' -f1)
-            if skopeo inspect --raw "docker://$image:$VERSION" > existing.json 2> inspect.err; then
-              test "$(sha256sum existing.json | cut -d' ' -f1)" = "$raw"
-            else
-              grep -Eqi 'manifest unknown|name unknown' inspect.err || (cat inspect.err >&2; exit 1)
-            fi
-            echo "$component=$image" >> "$GITHUB_OUTPUT"
-            echo "${component}_digest=sha256:$raw" >> "$GITHUB_OUTPUT"
-            printf '%s\n' "sha256:$raw" > "$component.digest"
+            test "sha256:$raw" = "$digest"
+            echo "$component=${ref%@*}" >> "$GITHUB_OUTPUT"
+            echo "${component}_digest=$digest" >> "$GITHUB_OUTPUT"
           done
-          for component in backend frontend; do
-            image="ghcr.io/${OWNER,,}/sekvyr-$component"
-            digest=$(cat "$component.digest")
+          printf '%s' "$GH_TOKEN" | skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
+          for component in "${components[@]}"; do
+            ref=$(jq -er --arg component "$component" '.images[$component]' release-manifest.json)
             skopeo copy --all --preserve-digests --retry-times 3 \
-              "oci-archive:$component-image.oci.tar" "docker://$image@$digest"
-            test "sha256:$(skopeo inspect --raw "docker://$image@$digest" | sha256sum | cut -d' ' -f1)" = "$digest"
+              "oci-archive:$component-image.oci.tar" "docker://$ref"
+          done
+          for component in "${components[@]}"; do
+            ref=$(jq -er --arg component "$component" '.images[$component]' release-manifest.json)
+            raw=$(skopeo inspect --raw "docker://$ref" | sha256sum | cut -d' ' -f1)
+            test "sha256:$raw" = "${ref##*@}"
           done
       - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           subject-name: ${{ steps.stage.outputs.backend }}
           subject-digest: ${{ steps.stage.outputs.backend_digest }}
       - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           subject-name: ${{ steps.stage.outputs.frontend }}
           subject-digest: ${{ steps.stage.outputs.frontend_digest }}
-      - name: Set and verify the RC tags
-        env:
-          VERSION: ${{ steps.candidate.outputs.version }}
+      - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        if: startsWith(github.ref, 'refs/tags/sekvyr-operator-v')
+        with:
+          subject-name: ${{ steps.stage.outputs.operator }}
+          subject-digest: ${{ steps.stage.outputs.operator_digest }}
+      - name: Identify the reviewed images for publication
         run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP/panel"
-          for component in backend frontend; do
-            image="ghcr.io/${OWNER,,}/sekvyr-$component"
-            digest=$(cat "$component.digest")
-            skopeo copy --all --preserve-digests --retry-times 3 "docker://$image@$digest" "docker://$image:$VERSION"
-          done
-          for component in backend frontend; do
-            image="ghcr.io/${OWNER,,}/sekvyr-$component"
-            test "sha256:$(skopeo inspect --raw "docker://$image:$VERSION" | sha256sum | cut -d' ' -f1)" = "$(cat "$component.digest")"
-          done
+          {
+            printf 'Reviewed release ID %s\n\n' "$RELEASE_ID"
+            printf 'SHA-256 of release-manifest.json\n\n'
+            sha256sum "$RUNNER_TEMP/panel/release-manifest.json" | cut -d' ' -f1
+          } >> "$GITHUB_STEP_SUMMARY"

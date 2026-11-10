@@ -25,7 +25,7 @@ COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifica
 COPY --from=build /out/ /
 USER 65532:65532
 ENTRYPOINT ["/sekvyr-operator"]
-ARG VERSION=0.1.0-rc.1
+ARG VERSION=0.1.0-rc.2
 ARG REVISION=
 LABEL org.opencontainers.image.title="Sekvyr operator" \
       org.opencontainers.image.description="Explicit Plain and E2E2 synchronization, canonical journal and opt-in HA fencing trial" \

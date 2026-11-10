@@ -2,13 +2,16 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import {
   exportEnv,
   importEnv,
+  isCurrentSession,
   myPermissions,
   putSecret,
   readAllValues,
   readSecret,
   readSecretVersion,
+  requireCurrentSession,
   rollbackSecret,
   secretHistory,
+  sessionStamp,
   spreadSecret,
   type SecretRow,
   type SecretValueRow,
@@ -785,6 +788,7 @@ export function BulkEditModal({
   // overwrite - записать поверх тех, что изменили без нас: человек видел
   // предупреждение и выбрал свое значение.
   async function save(overwrite = false) {
+    const session = sessionStamp()
     setBusy(true)
     setError('')
     setResult('')
@@ -800,6 +804,7 @@ export function BulkEditModal({
       // По четыре за раз: правок обычно единицы, а сотня параллельных записей
       // легла бы очередью на сервере и перемешала бы порядок в журнале.
       for (let i = 0; i < targets.length; i += 4) {
+        requireCurrentSession(session)
         const chunk = targets.slice(i, i + 4)
         const out = await Promise.allSettled(
           chunk.map((row) =>
@@ -864,12 +869,13 @@ export function BulkEditModal({
         )
       }
       setResult(parts.join(' · '))
-      if (written.size || proposed.size) onChanged()
+      if (isCurrentSession(session) && (written.size || proposed.size)) onChanged()
       setBusy(false)
     }
     // Действующие значения тех, что изменили без нас: показать разницу и дать
     // взять их. Совпало с набранным - правка уже на месте, спорить не о чем.
     for (const [key, clash] of Object.entries(clashed)) {
+      if (!isCurrentSession(session)) return
       const row = targets.find((one) => id(one) === key)
       if (!row || clash.current === 0) continue
       try {

@@ -71,12 +71,14 @@ async def _auto_unseal(app: FastAPI, settings: Settings) -> None:
     машинам - и это надо видеть в логе первой же строкой, а не выяснять по
     отказам на нодах.
     """
-    key = sealbox.root_from_env(settings.root_key, settings.root_key_file)
-    if key is None:
-        await _warn_if_sealed(app, settings)
-        return
     async with app.state.session_factory() as session:
+        if settings.root_key_file:
+            await envkeys.lock_material(session, exclusive=True)
         meta = await sealbox.read_meta(session)
+        key = sealbox.saved_root(settings.root_key, settings.root_key_file, meta, repair=True)
+    if key is None:
+        await _warn_if_sealed(app, meta)
+        return
     if not meta.initialized:
         log.warning("корневой ключ задан, но сейф ещё не заведён — панель заперта")
         return
@@ -89,7 +91,7 @@ async def _auto_unseal(app: FastAPI, settings: Settings) -> None:
     log.info("панель открыта корневым ключом из окружения")
 
 
-async def _warn_if_sealed(app: FastAPI, settings: Settings) -> None:
+async def _warn_if_sealed(app: FastAPI, meta: sealbox.VaultMeta) -> None:
     """Панель поднялась запертой там, где её ждали отпертой.
 
     Именно этот случай оповещение и должно ловить: перезагрузился хост, панель
@@ -97,15 +99,13 @@ async def _warn_if_sealed(app: FastAPI, settings: Settings) -> None:
     знает, потому что люди в панель заходят раз в неделю. Настройки каналов
     лежат открытым текстом ровно ради такого старта (см. app/alerts.py).
     """
-    async with app.state.session_factory() as session:
-        meta = await sealbox.read_meta(session)
-        if not meta.initialized or not meta.auto_unseal:
-            return
-        await alerts.notify(
-            session,
-            "🔒 Sekvyr: панель поднялась ЗАПЕРТОЙ, хотя должна была открыться сама — "
-            "значения машинам сейчас не выдаются",
-        )
+    if meta.initialized and meta.auto_unseal:
+        async with app.state.session_factory() as session:
+            await alerts.notify(
+                session,
+                "🔒 Sekvyr: панель поднялась ЗАПЕРТОЙ, хотя должна была открыться сама — "
+                "значения машинам сейчас не выдаются",
+            )
 
 
 NO_SUCH_NUMBER = "Такого объекта нет: номер вне допустимого диапазона"

@@ -225,7 +225,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		secret.Status = status
 	}
 	if !reflect.DeepEqual(secret.Status, before.Status) {
-		if err := r.Client.Status().Patch(ctx, &secret, client.MergeFrom(before)); err != nil {
+		if err := r.Client.Status().Patch(ctx, &secret, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 	}
@@ -247,6 +247,9 @@ func (r *StoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 	var store api.SekvyrStore
 	if err := r.APIReader.Get(ctx, req.NamespacedName, &store); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 	reason := "VerificationNotImplemented"
@@ -266,7 +269,7 @@ func (r *StoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 	if !reflect.DeepEqual(store.Status, before.Status) {
-		if r.Client.Status().Patch(ctx, &store, client.MergeFrom(before)) != nil {
+		if r.Client.Status().Patch(ctx, &store, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})) != nil {
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 	}
@@ -283,6 +286,7 @@ func (r *Reconciler) aggregateStore(ctx context.Context, store *api.SekvyrStore,
 	var children api.SekvyrSecretList
 	listed := r.APIReader.List(ctx, &children, client.InNamespace(r.Namespace)) == nil
 	readyGood, dataGood, witnessGood, rolloutGood := listed, listed, listed, listed
+	var oldestSuccess *metav1.Time
 	hasWitness := false
 	for _, binding := range store.Spec.Bindings {
 		needsWitness := binding.Encryption.Mode == "E2E"
@@ -294,12 +298,17 @@ func (r *Reconciler) aggregateStore(ctx context.Context, store *api.SekvyrStore,
 			}
 			found = true
 			current := !cr.Spec.Suspend && cr.DeletionTimestamp.IsZero() && cr.Status.ObservedGeneration == cr.Generation && cr.Status.ObservedStoreUID == string(store.UID) && cr.Status.ObservedStoreGeneration == store.Generation
+			success := cr.Status.LastSuccessfulSyncTime
+			current = current && success != nil && !success.IsZero() && success.Equal(cr.Status.LastAttemptTime)
 			condition := func(name string) bool {
 				c := meta.FindStatusCondition(cr.Status.Conditions, name)
 				return current && c != nil && c.Status == metav1.ConditionTrue && c.ObservedGeneration == cr.Generation
 			}
 			readyGood = readyGood && condition("Ready")
 			dataGood = dataGood && condition("DataCurrent")
+			if condition("DataCurrent") && (oldestSuccess == nil || success.Before(oldestSuccess)) {
+				oldestSuccess = success.DeepCopy()
+			}
 			if needsWitness {
 				witnessGood = witnessGood && condition("WitnessReady")
 			}
@@ -324,8 +333,8 @@ func (r *Reconciler) aggregateStore(ctx context.Context, store *api.SekvyrStore,
 	if readyGood {
 		reason = "Synchronized"
 	}
-	if dataGood {
-		status.LastSuccessfulSyncTime = &now
+	if dataGood && oldestSuccess != nil {
+		status.LastSuccessfulSyncTime = oldestSuccess
 	}
 	witnessStatus, witnessReason := state(witnessGood), reason
 	if !hasWitness {

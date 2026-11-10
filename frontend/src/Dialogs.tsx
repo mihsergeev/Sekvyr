@@ -2,10 +2,12 @@ import {
   createContext,
   useCallback,
   useContext,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react'
+import { isCurrentSession, requireCurrentSession, sessionStamp } from './api'
 import { ComboInput } from './ComboInput'
 import { LONG_LIST, PickInput } from './PickInput'
 import { copyToClipboard, forgetLater } from './clipboard'
@@ -243,6 +245,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
 
   const dismiss = useCallback(() => {
     if (resolve.current) finish(null)
+    setToasts([])
   }, [finish])
 
   const toast = useCallback<Dialogs['toast']>((text, action) => {
@@ -318,8 +321,9 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     state?.options.text && split(state.options.text).some((b) => b.kind === 'code'),
   )
 
+  const dialogs = useMemo(() => ({ ask, confirm, notify, toast, dismiss }), [ask, confirm, notify, toast, dismiss])
   return (
-    <DialogContext.Provider value={{ ask, confirm, notify, toast, dismiss }}>
+    <DialogContext.Provider value={dialogs}>
       {children}
       {toasts.length > 0 && (
         <div className="toasts" role="status" aria-live="polite">
@@ -560,5 +564,37 @@ export function DialogProvider({ children }: { children: ReactNode }) {
 }
 
 export function useDialogs(): Dialogs {
-  return useContext(DialogContext)
+  const dialogs = useContext(DialogContext)
+  const { token, revision } = sessionStamp()
+  return useMemo(() => {
+    const session = { token, revision }
+    const current = () => isCurrentSession(session)
+    return {
+      ...dialogs,
+      async ask(options) {
+        if (!current()) return null
+        const send = options.send
+        const answer = await dialogs.ask(send ? {
+          ...options,
+          send: (values) => {
+            requireCurrentSession(session)
+            return send(values)
+          },
+        } : options)
+        return current() ? answer : null
+      },
+      async confirm(options) {
+        return current() && await dialogs.confirm(options) && current()
+      },
+      async notify(title, message) {
+        return current() && await dialogs.notify(title, message) && current()
+      },
+      toast(message, action) {
+        if (current()) dialogs.toast(message, action && {
+          ...action,
+          run: () => { if (current()) action.run() },
+        })
+      },
+    }
+  }, [dialogs, token, revision])
 }

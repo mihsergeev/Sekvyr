@@ -407,6 +407,10 @@ async function svgText(source: LogoSource): Promise<string | null> {
 
 const cache = new Map<string, Promise<LogoView>>()
 
+export function evictLogoView(url: string, theme: LogoTheme, mode: LogoMode) {
+  cache.delete(`${theme}|${mode}|${url}`)
+}
+
 /** Как показать логотип на этой теме: перекрашенным, на плашке или как есть. */
 export function logoView(source: LogoSource, theme: LogoTheme, mode: LogoMode): Promise<LogoView> {
   const key = `${theme}|${mode}|${source.url}`

@@ -19,9 +19,9 @@ from __future__ import annotations
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import crypto
+from app import crypto, settings_store
 from app.models import EnvKey
-from app.sealbox import SealBox, b64, read_meta, unb64
+from app.sealbox import ROOT_GENERATION, SealBox, SealedError, b64, check_root, read_meta, unb64
 
 
 class MissingKeyError(Exception):
@@ -42,33 +42,37 @@ async def lock_material(session: AsyncSession, *, exclusive: bool = False) -> No
     окружения), остался бы обернут прежним корневым, который после коммита
     смены уже никто не знает, и значения окружения перестали бы читаться.
     Поэтому новые ключи берут общую блокировку, а смена корневого -
-    исключительную. В SQLite (тесты) транзакции и так идут по одной.
+    исключительную. В SQLite до чтения берем блокировку записи.
     """
-    if session.bind is None or session.bind.dialect.name != "postgresql":
+    if session.get_bind().dialect.name == "sqlite":
+        await settings_store.lock(session, ROOT_GENERATION, "0")
         return
     fn = "pg_advisory_xact_lock" if exclusive else "pg_advisory_xact_lock_shared"
     await session.execute(text(f"SELECT {fn}(:key)"), {"key": MATERIAL_LOCK})
 
 
-async def create(session: AsyncSession, box: SealBox, env_id: int, *, generation: int = 1,
-                 root_generation: int | None = None) -> tuple[int, bytes]:
+async def create(
+    session: AsyncSession, box: SealBox, env_id: int, *, generation: int = 1
+) -> tuple[int, bytes]:
     """Заводит ключ окружения и кладет в базу его обертку.
 
     Поколение корневого ключа по умолчанию - текущее: окружение, заведенное
     после смены корневого ключа, раньше записывалось с поколением 1.
     """
     await lock_material(session)
-    if root_generation is None:
-        root_generation = (await read_meta(session)).generation or 1
+    meta = await read_meta(session)
+    root = next((candidate for candidate in box.root_candidates() if check_root(candidate, meta)), None)
+    if root is None:
+        raise SealedError("Корневой ключ изменился: откройте сейф заново")
     key = crypto.new_key()
     nonce, wrapped = crypto.encrypt(
-        box.root(), key, crypto.env_key_aad(env_id=env_id, generation=generation)
+        root, key, crypto.env_key_aad(env_id=env_id, generation=generation)
     )
     session.add(
         EnvKey(
             environment_id=env_id,
             generation=generation,
-            root_generation=root_generation,
+            root_generation=meta.generation,
             nonce=b64(nonce),
             wrapped_key=b64(wrapped),
             active=True,
@@ -77,23 +81,30 @@ async def create(session: AsyncSession, box: SealBox, env_id: int, *, generation
     return generation, key
 
 
-async def _unwrap(box: SealBox, row: EnvKey) -> bytes:
-    return crypto.decrypt(
-        box.root(),
-        unb64(row.nonce),
-        unb64(row.wrapped_key),
-        crypto.env_key_aad(env_id=row.environment_id, generation=row.generation),
-    )
+def _unwrap(box: SealBox, row: EnvKey, before: tuple[bytes, ...]) -> bytes:
+    # Читатель мог получить обертку по обе стороны коммита. Доступность
+    # проверяем после запроса, чтобы запирание сейфа не пропустить.
+    roots = tuple(dict.fromkeys((*box.root_candidates(), *before)))
+    nonce, wrapped = unb64(row.nonce), unb64(row.wrapped_key)
+    aad = crypto.env_key_aad(env_id=row.environment_id, generation=row.generation)
+    for root in roots[:-1]:
+        try:
+            return crypto.decrypt(root, nonce, wrapped, aad)
+        except crypto.DecryptionError:
+            pass
+    return crypto.decrypt(roots[-1], nonce, wrapped, aad)
 
 
 async def active(session: AsyncSession, box: SealBox, env_id: int) -> tuple[int, bytes]:
     """Текущий ключ окружения: им шифруются новые значения."""
+    before = box.root_candidates()
     row = await session.scalar(
         select(EnvKey).where(EnvKey.environment_id == env_id, EnvKey.active.is_(True))
+        .execution_options(populate_existing=True)
     )
     if row is None:
         raise MissingKeyError(f"у окружения {env_id} нет активного ключа")
-    return row.generation, await _unwrap(box, row)
+    return row.generation, _unwrap(box, row, before)
 
 
 async def of_generation(
@@ -101,16 +112,17 @@ async def of_generation(
 ) -> bytes:
     """Ключ конкретного поколения - им расшифровываются старые версии, которые
     еще не переехали на новый ключ."""
+    before = box.root_candidates()
     row = await session.scalar(
         select(EnvKey).where(
             EnvKey.environment_id == env_id, EnvKey.generation == generation
-        )
+        ).execution_options(populate_existing=True)
     )
     if row is None:
         raise MissingKeyError(
             f"у окружения {env_id} нет ключа поколения {generation}"
         )
-    return await _unwrap(box, row)
+    return _unwrap(box, row, before)
 
 
 async def rewrap_for_new_root(
@@ -122,8 +134,8 @@ async def rewrap_for_new_root(
     корневого ключа (см. api/vault.py). Если оборвется посередине - панель
     останется на старом корневом ключе, а часть оберток будет новой; поэтому все
     идет одной транзакцией, и половинчатого состояния не бывает.
+    Вызывающий берет исключительную блокировку до чтения старого ключа.
     """
-    await lock_material(session, exclusive=True)
     rows = list(await session.scalars(select(EnvKey)))
     for row in rows:
         aad = crypto.env_key_aad(env_id=row.environment_id, generation=row.generation)

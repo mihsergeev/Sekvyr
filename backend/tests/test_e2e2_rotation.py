@@ -313,3 +313,42 @@ async def test_bad_envelope_and_same_cursor_fork_never_change_projection(client,
     async with client._transport.app.state.session_factory() as session:
         projection = await session.get(E2E2AuthorityProjection, view)
         assert projection.record_hash == expected_hash
+
+
+async def test_capabilities_finds_registered_view_after_first_64(
+    client, owner_headers, env_id, authority_peer, monkeypatch
+):
+    import uuid
+
+    monkeypatch.delenv("SEKVYR_E2E2_WITNESS_ORIGIN", raising=False)
+    registered = authority_peer["state"]["scope"]
+    project = (await client.get("/api/projects", headers=owner_headers)).json()[0]
+    _, machine_headers = await machine_for(client, owner_headers, env_id)
+    route = "/api/v1/machine/capabilities"
+
+    async def capabilities():
+        res = await client.get(route, headers=machine_headers)
+        assert res.status_code == 200
+        return res.json()
+
+    spec = {
+        "project_id": project["id"], "environment_id": env_id,
+        "publisher_keys": {public("publisher")["key_id"]: public("publisher")["public_key"]},
+        "read_key_epoch": "1", "publisher_policy_epoch": "1",
+    }
+    for index in range(65):
+        context = registered if index == 64 else {
+            **registered, "view_id": str(uuid.uuid4()), "log_id": str(uuid.uuid4()),
+        }
+        res = await client.post("/api/e2e2/views", headers=owner_headers, json={**spec, "context": context})
+        assert res.status_code == 201, res.text
+        if index == 63:
+            assert "e2e2" not in (await capabilities())["protocols"]
+
+    assert (await capabilities())["e2e2_profile"] == "WholeView-WitnessCurrent-v1"
+    config_path = authority_peer["config_path"]
+    config = json.loads(config_path.read_bytes())
+    config["registrations"][0]["scope"]["log_id"] = str(uuid.uuid4())
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    assert "e2e2" not in (await capabilities())["protocols"]
+    assert not authority_peer["requests"]

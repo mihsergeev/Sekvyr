@@ -209,6 +209,60 @@ func TestForbiddenNamespaceRejectedBeforeAPIAccess(t *testing.T) {
 		t.Fatal("out-of-scope reconcile reached API")
 	}
 }
+
+type replaceAfterRead struct {
+	client.Client
+	key client.ObjectKey
+}
+
+func (r *replaceAfterRead) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := r.Client.Get(ctx, key, obj, opts...); err != nil || key != r.key {
+		return err
+	}
+	replacement := obj.DeepCopyObject().(client.Object)
+	if err := r.Client.Delete(ctx, replacement); err != nil {
+		return err
+	}
+	replacement.SetUID("88888888-8888-4888-8888-888888888888")
+	replacement.SetResourceVersion("")
+	return r.Client.Create(ctx, replacement)
+}
+
+func TestReconcileDoesNotWriteStatusToReplacement(t *testing.T) {
+	for _, obj := range []client.Object{secretFixture(), storeFixture()} {
+		t.Run(obj.GetName(), func(t *testing.T) {
+			r, c, _ := fakeRuntime(t)
+			ctx := context.Background()
+			key := client.ObjectKeyFromObject(obj)
+			r.APIReader = &replaceAfterRead{Client: c, key: key}
+			var reconciler interface {
+				Reconcile(context.Context, ctrl.Request) (ctrl.Result, error)
+			} = r
+			if _, ok := obj.(*api.SekvyrStore); ok {
+				reconciler = &StoreReconciler{Reconciler: r}
+			}
+			if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Get(ctx, key, obj); err != nil {
+				t.Fatal(err)
+			}
+			if obj.GetUID() != "88888888-8888-4888-8888-888888888888" {
+				t.Fatal("fixture did not replace the object")
+			}
+			var status api.ResourceStatus
+			switch typed := obj.(type) {
+			case *api.SekvyrSecret:
+				status = typed.Status
+			case *api.SekvyrStore:
+				status = typed.Status
+			}
+			if status.ObservedGeneration != 0 || len(status.Conditions) != 0 {
+				t.Fatal("reconciliation published the old object's status on its replacement")
+			}
+		})
+	}
+}
 func TestSuspendedAndMissingStateStayClosed(t *testing.T) {
 	for _, suspended := range []bool{false, true} {
 		r, c, reader := fakeRuntime(t)

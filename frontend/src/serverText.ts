@@ -68,6 +68,7 @@ const EXACT: Record<string, string> = {
     'The SVG contains scripts or external links: save the logo without them or upload a PNG',
   'Нужен файл PNG, JPEG, WebP, GIF или SVG': 'A PNG, JPEG, WebP, GIF or SVG file is required',
   'Логотип не задан': 'No logo is set',
+  'Логотип изменился': 'The logo has changed',
   'Выберите файл логотипа': 'Choose a logo file',
   'Файл повреждён': 'The file is damaged',
   'Пустой файл': 'The file is empty',
@@ -247,6 +248,7 @@ const EXACT: Record<string, string> = {
     'A threshold of 1 means every share unseals the panel on its own, so each one equals the whole key. Use a threshold of 2 or more, or choose the environment variable mode',
   'Сейф ещё не заведён': 'The vault is not set up yet',
   'Это не корневой ключ панели': 'This is not the root key of the panel',
+  'Корневой ключ изменился: откройте сейф заново': 'The root key changed: unseal the vault again',
   'Введите долю или корневой ключ': 'Enter a share or the root key',
   'Ключ не сошёлся: среди введённых долей есть чужая. Начните заново':
     'The key did not match: one of the entered shares belongs to another key. Start over',

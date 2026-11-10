@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
+from asyncio import Lock
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -45,7 +47,7 @@ MODE_ENV = "env"
 
 # ключи в app_settings
 _MODE = "vault_mode"
-_GEN = "vault_root_generation"
+ROOT_GENERATION = "vault_root_generation"
 _VERIFIER_NONCE = "vault_verifier_nonce"
 _VERIFIER_CT = "vault_verifier_ct"
 _SHARES = "vault_shares"
@@ -91,7 +93,7 @@ async def read_meta(session: AsyncSession) -> VaultMeta:
     raw = await settings_store.get_many(session, "vault_")
     return VaultMeta(
         mode=raw.get(_MODE, ""),
-        generation=int(raw.get(_GEN, "0") or 0),
+        generation=int(raw.get(ROOT_GENERATION, "0") or 0),
         shares=int(raw.get(_SHARES, "0") or 0),
         threshold=int(raw.get(_THRESHOLD, "0") or 0),
         verifier_nonce=raw.get(_VERIFIER_NONCE, ""),
@@ -102,7 +104,7 @@ async def read_meta(session: AsyncSession) -> VaultMeta:
 
 async def _write_meta(session: AsyncSession, meta: VaultMeta) -> None:
     await settings_store.put(session, _MODE, meta.mode)
-    await settings_store.put(session, _GEN, str(meta.generation))
+    await settings_store.put(session, ROOT_GENERATION, str(meta.generation))
     await settings_store.put(session, _SHARES, str(meta.shares))
     await settings_store.put(session, _THRESHOLD, str(meta.threshold))
     await settings_store.put(session, _VERIFIER_NONCE, meta.verifier_nonce)
@@ -146,6 +148,8 @@ class SealBox:
 
     _root: bytes | None = None
     _pending: dict[int, str] = field(default_factory=dict)
+    _rotation_root: bytes | None = None
+    key_file_lock: Lock = field(default_factory=Lock)
 
     @property
     def unsealed(self) -> bool:
@@ -163,12 +167,29 @@ class SealBox:
     def set_root(self, root: bytes) -> None:
         self._root = root
         self._pending.clear()
+        self._rotation_root = None
+
+    def root_candidates(self) -> tuple[bytes, ...]:
+        root = self.root()
+        return (root,) if self._rotation_root is None else (root, self._rotation_root)
+
+    def begin_rotation(self, old_root: bytes, new_root: bytes) -> None:
+        if self._root == old_root:
+            self._rotation_root = new_root
+
+    def finish_rotation(self, new_root: bytes, *, committed: bool) -> None:
+        if self._rotation_root == new_root:
+            if committed:
+                self.set_root(new_root)
+            else:
+                self._rotation_root = None
 
     def seal(self) -> None:
         """Выбрасывает ключ из памяти. Накопленные доли тоже: иначе "запереть"
         оставляло бы сейф наполовину открытым."""
         self._root = None
         self._pending.clear()
+        self._rotation_root = None
 
     def add_share(self, share: str) -> None:
         """Кладет долю в набор. Ключ по номеру доли - повторная подача той же
@@ -285,3 +306,85 @@ def root_from_env(root_key: str, root_key_file: str) -> bytes | None:
         )
         return None
     return key
+
+
+def staged_key_file(path: Path) -> Path:
+    return path.with_name(path.name + ".new")
+
+
+def read_key_file(path: Path) -> bytes | None:
+    try:
+        return root_from_env("", str(path)) if path.is_file() else None
+    except (OSError, UnicodeError):
+        log.warning("не удалось прочитать файл корневого ключа")
+        return None
+
+
+def _sync_directory(path: Path) -> None:
+    if os.name == "posix":
+        fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
+def replace_key_file(source: Path, destination: Path) -> None:
+    os.replace(source, destination)
+    _sync_directory(destination)
+
+
+def publish_staged_key_file(path: Path) -> None:
+    try:
+        replace_key_file(staged_key_file(path), path)
+    except OSError:
+        log.warning("не удалось завершить замену файла корневого ключа")
+
+
+def discard_staged_key_file(path: Path) -> None:
+    try:
+        staged_key_file(path).unlink(missing_ok=True)
+    except OSError:
+        log.warning("не удалось удалить устаревшую копию файла корневого ключа")
+
+
+def stage_key_file(path: Path, root: bytes) -> None:
+    """Сохраняет подготовленный ключ, не трогая основной файл."""
+    staged = staged_key_file(path)
+    staged.unlink(missing_ok=True)
+    fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(b64(root))
+        handle.flush()
+        os.fsync(handle.fileno())
+    _sync_directory(staged)
+
+
+def forget_key_files(path: Path) -> bool:
+    staged = staged_key_file(path)
+    existed = path.exists() or staged.exists()
+    staged.unlink(missing_ok=True)
+    path.unlink(missing_ok=True)
+    if existed:
+        _sync_directory(path)
+    return existed
+
+
+def saved_root(
+    root_key: str, root_key_file: str, meta: VaultMeta, *, repair: bool = False
+) -> bytes | None:
+    """После прерванной смены ищем файл, который соответствует коммиту БД."""
+    if not root_key_file:
+        return root_from_env(root_key, "")
+    path = Path(root_key_file)
+    current = read_key_file(path)
+    if current is not None and check_root(current, meta):
+        if repair:
+            discard_staged_key_file(path)
+        return current
+    candidate = read_key_file(staged_key_file(path))
+    if candidate is not None and check_root(candidate, meta):
+        if repair:
+            publish_staged_key_file(path)
+        return candidate
+    return current

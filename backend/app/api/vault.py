@@ -13,18 +13,29 @@
    тысяч.
 """
 
+import asyncio
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, status
+from anyio import CancelScope
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-
-import os
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import alerts, audit, crypto, envkeys, sealbox, shamir
 from app.config import get_settings
 from app.deps import BoxDep, MaintainerUser, OwnerUser, SessionDep, peer_ip
 
 router = APIRouter(prefix="/vault", tags=["vault"])
+
+
+async def _key_file_lock(box: BoxDep):
+    # Блокировка БД отпускается при коммите, а файл обновляется сразу после.
+    async with box.key_file_lock:
+        yield
+
+
+KeyFileLock = Annotated[None, Depends(_key_file_lock)]
 
 
 class StatusOut(BaseModel):
@@ -94,7 +105,8 @@ class RotateOut(BaseModel):
 async def _status(session: SessionDep, box) -> StatusOut:
     meta = await sealbox.read_meta(session)
     settings = get_settings()
-    key_file_present = bool(settings.root_key_file) and Path(settings.root_key_file).exists()
+    path = Path(settings.root_key_file) if settings.root_key_file else None
+    key_file_present = path is not None and (path.exists() or sealbox.staged_key_file(path).exists())
     return StatusOut(
         initialized=meta.initialized,
         sealed=not box.unsealed,
@@ -194,6 +206,7 @@ async def init(
 async def unseal(
     body: UnsealIn, request: Request, user: MaintainerUser, session: SessionDep, box: BoxDep
 ) -> UnsealOut:
+    await envkeys.lock_material(session)
     meta = await sealbox.read_meta(session)
     if not meta.initialized:
         raise HTTPException(status.HTTP_409_CONFLICT, "Сейф ещё не заведён")
@@ -302,13 +315,40 @@ async def seal(
     return await _status(session, box)
 
 
+async def _commit_root_rotation(
+    session: AsyncSession, box: sealbox.SealBox, new_root: bytes, key_path: Path | None
+) -> None:
+    try:
+        await session.commit()
+    except (Exception, asyncio.CancelledError):
+        # Ошибка связи могла прийти уже после коммита. Сверяем с БД, прежде
+        # чем решать, какой ключ оставить в памяти и что делать с файлом.
+        try:
+            await session.rollback()
+            meta = await sealbox.read_meta(session)
+        except Exception:
+            box.seal()
+            raise
+        if not sealbox.check_root(new_root, meta):
+            box.finish_rotation(new_root, committed=False)
+            if key_path is not None:
+                sealbox.discard_staged_key_file(key_path)
+            raise
+    box.finish_rotation(new_root, committed=True)
+    if key_path is not None:
+        # При отказе замены .new проверится при старте по маркеру в БД.
+        # Ответ владельцу все равно должен содержать ключ.
+        sealbox.publish_staged_key_file(key_path)
+
+
 @router.post("/rotate-root", response_model=RotateOut)
 async def rotate_root(
-    request: Request, user: OwnerUser, session: SessionDep, box: BoxDep
+    request: Request, user: OwnerUser, session: SessionDep, box: BoxDep, _key_lock: KeyFileLock
 ) -> RotateOut:
     """Новый корневой ключ. Значения не трогаются: перекладываются обертки
     ключей окружений, и все это одной транзакцией - половинчатого состояния,
     в котором часть оберток под новым ключом, а маркер под старым, не бывает."""
+    await envkeys.lock_material(session, exclusive=True)
     meta = await sealbox.read_meta(session)
     if not meta.initialized:
         raise HTTPException(status.HTTP_409_CONFLICT, "Сейф ещё не заведён")
@@ -319,6 +359,8 @@ async def rotate_root(
         )
 
     old_root = box.root()
+    if not sealbox.check_root(old_root, meta):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Корневой ключ изменился: откройте сейф заново")
     new_root = crypto.new_key()
     generation = meta.generation + 1
     count = await envkeys.rewrap_for_new_root(session, old_root, new_root, generation)
@@ -340,33 +382,33 @@ async def rotate_root(
     # иначе после перезапуска панель не отопрется старым ключом из файла, а
     # новый, показанный один раз, мог никто не сохранить, и значения потеряны.
     # Новый файл пишется рядом до коммита и встает на место после него.
-    key_path = Path(get_settings().root_key_file) if get_settings().root_key_file else None
-    staged = None
-    if key_path is not None and key_path.exists():
-        staged = key_path.with_name(key_path.name + ".new")
-        fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(sealbox.b64(new_root))
-    # Новый ключ - в память до коммита. После коммита блокировка ключевого
-    # материала уже отпущена, и новое окружение, заведенное до замены ключа в
-    # памяти, обертывалось бы прежним: его значения не читались бы никогда. До
-    # коммита новые ключи окружений ждут эту блокировку (envkeys.lock_material).
-    # Если панель заперли, пока шла переобертка, запертой она и остается:
-    # иначе "запереть" молча отменялось бы, а значения снова отдавались.
-    sealed_meanwhile = not box.unsealed or box.root() != old_root
-    if not sealed_meanwhile:
-        box.set_root(new_root)
-    try:
-        await session.commit()
-    except Exception:
-        # Упал коммит - в базе прежний ключ, и в памяти должен быть он же.
-        if box.unsealed and box.root() == new_root:
-            box.set_root(old_root)
-        if staged is not None:
-            staged.unlink(missing_ok=True)
-        raise
-    if staged is not None:
-        os.replace(staged, key_path)
+    configured_file = get_settings().root_key_file
+    key_path = Path(configured_file) if configured_file else None
+    if key_path is not None:
+        staged = sealbox.staged_key_file(key_path)
+        # После предыдущей ошибки замены .new может быть единственной
+        # сохраненной копией действующего ключа. Сначала публикуем ее.
+        if sealbox.read_key_file(key_path) != old_root and sealbox.read_key_file(staged) == old_root:
+            sealbox.replace_key_file(staged, key_path)
+        if key_path.exists():
+            sealbox.stage_key_file(key_path, new_root)
+        else:
+            key_path = None
+
+    box.begin_rotation(old_root, new_root)
+    completion = asyncio.create_task(_commit_root_rotation(session, box, new_root, key_path))
+    # Дождаться результата даже после отмены запроса: его dependency иначе
+    # закроет сессию, пока коммит еще идет, а память и файл останутся в переходе.
+    cancelled = False
+    with CancelScope(shield=True):
+        while not completion.done():
+            try:
+                await asyncio.shield(completion)
+            except asyncio.CancelledError:
+                cancelled = True
+    completion.result()
+    if cancelled:
+        raise asyncio.CancelledError
 
     return RotateOut(
         root_generation=generation,
@@ -399,7 +441,7 @@ def _key_file(settings) -> Path:
 
 @router.post("/remember-key", response_model=KeyFileOut)
 async def remember_key(
-    request: Request, user: OwnerUser, session: SessionDep, box: BoxDep
+    request: Request, user: OwnerUser, session: SessionDep, box: BoxDep, _key_lock: KeyFileLock
 ) -> KeyFileOut:
     """Сохранить корневой ключ файлом, чтобы панель поднималась сама.
 
@@ -408,18 +450,25 @@ async def remember_key(
     ручным вводом - поэтому действие отдельное, доступно только владельцу и
     попадает в журнал.
     """
+    await envkeys.lock_material(session, exclusive=True)
     if not box.unsealed:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Панель заперта: сначала введите ключ"
         )
     settings = get_settings()
     path = _key_file(settings)
+    root = box.root()
+    if not sealbox.check_root(root, await sealbox.read_meta(session)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Корневой ключ изменился: откройте сейф заново")
+    if not box.unsealed:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Панель заперта: сначала введите ключ")
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Создаем файл сразу с правами 0600, а не пишем и потом исправляем: между
-    # этими шагами он был бы читаем всем, кто окажется рядом.
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(sealbox.b64(box.root()))
+    if sealbox.read_key_file(path) == root:
+        sealbox.discard_staged_key_file(path)
+    else:
+        if sealbox.read_key_file(sealbox.staged_key_file(path)) != root:
+            sealbox.stage_key_file(path, root)
+        sealbox.publish_staged_key_file(path)
     await audit.record(
         session,
         actor=user.username,
@@ -437,14 +486,13 @@ async def remember_key(
 
 @router.post("/forget-key", response_model=KeyFileOut)
 async def forget_key(
-    request: Request, user: OwnerUser, session: SessionDep
+    request: Request, user: OwnerUser, session: SessionDep, _key_lock: KeyFileLock
 ) -> KeyFileOut:
     """Убрать сохраненный ключ: панель снова будет ждать ручного ввода."""
+    await envkeys.lock_material(session, exclusive=True)
     settings = get_settings()
     path = _key_file(settings)
-    existed = path.exists()
-    if existed:
-        path.unlink()
+    existed = sealbox.forget_key_files(path)
     await audit.record(
         session,
         actor=user.username,

@@ -253,3 +253,83 @@ def test_svg_filter_is_linear():
     start = time.monotonic()
     _SVG_BAD.search(b"<svg>" + b"<use " * 100_000)
     assert time.monotonic() - start < 2
+
+
+async def test_concurrent_logo_writes_use_distinct_versions(client: httpx.AsyncClient, owner_headers):
+    import asyncio
+
+    responses = await asyncio.gather(
+        _save(client, owner_headers, data=b64(PNG_1PX)),
+        _save(client, owner_headers, data=b64(SVG_OK)),
+    )
+    assert [response.status_code for response in responses] == [200, 200]
+    versions = [response.json()["version"] for response in responses]
+    assert set(versions) == {1, 2}
+    current = (PNG_1PX, SVG_OK)[versions.index(2)]
+    revision = responses[versions.index(2)].json()["logo_revision"]
+    logo = await client.get("/api/branding/logo", params={"v": revision})
+    assert logo.content == current and logo.headers["cache-control"] == "public, max-age=604800"
+    for url in ("/api/branding/logo?v=1", "/api/branding/logo?v=2", "/api/branding/logo"):
+        stale = await client.get(url)
+        assert stale.content == current and stale.headers["cache-control"] == "no-store"
+
+    save, reset = await asyncio.gather(
+        _save(client, owner_headers, data=b64(SVG_OK)),
+        client.post("/api/branding/reset", headers=owner_headers),
+    )
+    assert save.status_code == reset.status_code == 200
+    assert {save.json()["version"], reset.json()["version"]} == {3, 4}
+    branding = (await client.get("/api/branding")).json()
+    assert branding["version"] == 4
+    assert branding["logo"] == (save.json()["version"] == 4)
+
+
+async def test_restored_legacy_logo_metadata_cannot_reuse_a_cache_url(client, owner_headers):
+    import json
+
+    from app import settings_store
+    from app.api.branding import LOGO, LOGO_DARK, META
+
+    first = (await _save(client, owner_headers, data=b64(PNG_1PX), dark=b64(SVG_OK))).json()
+    # Restore an older database snapshot that predates content-based URLs.
+    async with client._transport.app.state.session_factory() as session:
+        await settings_store.put(session, META, json.dumps({"v": 0, "media": "image/png", "dark_media": "image/svg+xml"}))
+        await settings_store.put(session, LOGO, b64(PNG_1PX))
+        await settings_store.put(session, LOGO_DARK, b64(SVG_OK))
+        await session.commit()
+
+    legacy = (await client.get("/api/branding")).json()
+    assert legacy["logo_revision"] == first["logo_revision"]
+    assert legacy["dark_logo_revision"] == first["dark_logo_revision"]
+    second = (await _save(client, owner_headers, data=b64(SVG_OK), dark=b64(PNG_1PX))).json()
+    assert second["version"] == first["version"]
+    for endpoint, key, image in (
+        ("logo", "logo_revision", SVG_OK), ("logo-dark", "dark_logo_revision", PNG_1PX),
+    ):
+        assert second[key] != first[key]
+        old = await client.get(f"/api/branding/{endpoint}", params={"v": first[key]})
+        assert old.status_code == 404 and old.headers["cache-control"] == "no-store"
+        current = await client.get(f"/api/branding/{endpoint}", params={"v": second[key]})
+        assert current.content == image and current.headers["cache-control"] == "public, max-age=604800"
+
+
+async def test_damaged_legacy_logo_does_not_hide_company_name_or_dark_logo(client, owner_headers):
+    from app import settings_store
+    from app.api.branding import COMPANY_NAME, LOGO, LOGO_DARK, META
+
+    async with client._transport.app.state.session_factory() as session:
+        await settings_store.put(session, META, '{"media":"image/png","dark_media":"image/svg+xml"}')
+        await settings_store.put(session, COMPANY_NAME, "Example Company")
+        await settings_store.put(session, LOGO, "invalid base64")
+        await settings_store.put(session, LOGO_DARK, b64(SVG_OK))
+        await session.commit()
+
+    metadata = await client.get("/api/branding")
+    assert metadata.status_code == 200
+    assert metadata.json()["company_name"] == "Example Company"
+    assert metadata.json()["logo_revision"] == ""
+    broken = await client.get("/api/branding/logo")
+    assert broken.status_code == 404 and broken.headers["cache-control"] == "no-store"
+    dark = await client.get("/api/branding/logo-dark", params={"v": metadata.json()["dark_logo_revision"]})
+    assert dark.content == SVG_OK
+    assert (await client.post("/api/branding/reset", headers=owner_headers)).status_code == 200

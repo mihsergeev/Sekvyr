@@ -384,8 +384,23 @@ async def witness_snapshot(view_id: str, envelope_hash: str, session: SessionDep
 
 @machine_router.get("/capabilities")
 async def capabilities(_machine: CurrentMachine, session: SessionDep):
-    views = list(await session.scalars(select(E2E2View).limit(64)))
-    supported = bool(views) and (e2e2.configured() or any(e2e2_rotation.configured(scope(view)) for view in views))
+    supported = e2e2.configured() and (
+        await session.scalar(select(E2E2View.id).limit(1)) is not None
+    )
+    if not supported:
+        try:
+            registrations = e2e2_rotation.registrations()
+        except (e2e2.Rejected, ValueError, TypeError):
+            registrations = []
+        if registrations:
+            ids = {entry["scope"]["view_id"] for entry in registrations}
+            views = await session.scalars(select(E2E2View).where(E2E2View.id.in_(ids)))
+            scopes = {view.id: scope(view) for view in views}
+            supported = any(
+                scopes.get(entry["scope"]["view_id"]) == entry["scope"]
+                and e2e2_rotation.tls_configured(entry)
+                for entry in registrations
+            )
     return {"protocols": ["plain", "e2e1"] + (["e2e2"] if supported else []), "e2e2_profile": "WholeView-WitnessCurrent-v1" if supported else ""}
 
 

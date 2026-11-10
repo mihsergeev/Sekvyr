@@ -14,6 +14,7 @@ import {
   deleteSecret,
   getE2eWrap,
   inheritSecret,
+  isCurrentSession,
   listPending,
   listMachines,
   compareEnvs,
@@ -34,7 +35,9 @@ import {
   whoSees,
   rejectSecret,
   renameSecret,
+  requireCurrentSession,
   rollbackSecret,
+  sessionStamp,
   type Machine,
   type PendingRow,
   type Permissions,
@@ -645,10 +648,13 @@ export function EnvironmentPage({
   // работает не везде - в старом браузере, в http-стенде без TLS и при
   // отозванном разрешении он просто отказывает, а значение нужно все равно.
   async function copyText(text: string) {
+    const session = sessionStamp()
+    requireCurrentSession(session)
     try {
       await navigator.clipboard.writeText(text)
       return
     } catch {
+      requireCurrentSession(session)
       const field = document.createElement('textarea')
       field.value = text
       field.style.cssText = 'position:fixed;opacity:0'
@@ -766,7 +772,10 @@ export function EnvironmentPage({
   async function outgoing(value: string): Promise<string> {
     if (!e2e) return value
     if (!projectKey) throw new Error(t('Сначала введите пароль проекта'))
-    return sealValue(projectKey, value)
+    const session = sessionStamp()
+    const sealed = await sealValue(projectKey, value)
+    requireCurrentSession(session)
+    return sealed
   }
 
   /** Значение с сервера: в e2e-проекте это блоб, и раскрыть его можно только здесь. */
@@ -775,10 +784,14 @@ export function EnvironmentPage({
     // Без ключа показывать нечего. Блоб на месте значения выглядит значением:
     // его скопировали бы в конфиг под надписью "скопирован".
     if (!projectKey) throw new Error(t('Сначала введите пароль проекта'))
-    return openValue(projectKey, value)
+    const session = sessionStamp()
+    const plain = await openValue(projectKey, value)
+    requireCurrentSession(session)
+    return plain
   }
 
   async function unlock() {
+    const session = sessionStamp()
     try {
       const wrap = await getE2eWrap(projectId)
       const answer = await ask({
@@ -791,6 +804,7 @@ export function EnvironmentPage({
       })
       if (!answer) return
       const key = await unlockProjectKey(wrap, answer.password)
+      requireCurrentSession(session)
       if (!key) {
         setError(t('Пароль не подошёл'))
         return
@@ -892,10 +906,12 @@ export function EnvironmentPage({
   }
 
   async function act(action: () => Promise<unknown>): Promise<boolean> {
+    const session = sessionStamp()
     setOpenMenu(null)
     try {
       await action()
     } catch (e) {
+      if (!isCurrentSession(session)) return false
       // Пакетный перенос или удаление могли успеть часть ключей: список
       // перечитывается и после отказа, иначе он показывал уже удаленное.
       void reload()
@@ -905,8 +921,9 @@ export function EnvironmentPage({
       await notify(t('Не получилось'), e instanceof Error ? e.message : String(e))
       return false
     }
+    if (!isCurrentSession(session)) return false
     await reload()
-    return true
+    return isCurrentSession(session)
   }
 
   /* Удаленный ключ возвращается откатом к версии, которая действовала до

@@ -27,7 +27,7 @@ export function BrandingSection({
   onChanged,
 }: {
   branding: Branding
-  onChanged: (next: Branding) => void
+  onChanged: () => Promise<void>
 }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
@@ -38,6 +38,8 @@ export function BrandingSection({
   const [plateDraft, setPlate] = useState<Branding['plate'] | null>(null)
   const [titleDraft, setTitle] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [reading, setReading] = useState(false)
+  const logoLocked = busy || reading
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   const [companyDraft, setCompanyDraft] = useState<string | null>(null)
@@ -51,11 +53,11 @@ export function BrandingSection({
   const companyName = companyDraft ?? storedCompany
   const canSaveCompany = !busy && supportsCompanyName && companyName.trim() !== storedCompany
 
-  const version = branding?.version ?? 0
+  const version = `${branding.version}:${branding.logo_revision ?? ''}:${branding.dark_logo_revision ?? ''}`
   const storedDark = !!branding?.dark_logo && !darkRemove
   const hasDark = !!dark || storedDark
-  const mainSrc: LogoSource | null = main ?? (branding?.logo ? { url: brandingUrl(version) } : null)
-  const darkSrc: LogoSource | null = dark ?? (storedDark ? { url: brandingUrl(version, true) } : null)
+  const mainSrc: LogoSource | null = main ?? (branding.logo ? { url: brandingUrl(branding) } : null)
+  const darkSrc: LogoSource | null = dark ?? (storedDark ? { url: brandingUrl(branding, true) } : null)
   const views = useLogoViews(mainSrc, darkSrc, plate)
 
   async function read(file: File | undefined): Promise<LogoSource | null> {
@@ -66,6 +68,7 @@ export function BrandingSection({
       setError(t('Файл больше {n} КБ — уменьшите логотип', { n: MAX_KB }))
       return null
     }
+    setReading(true)
     try {
       const url = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader()
@@ -79,6 +82,8 @@ export function BrandingSection({
     } catch {
       setError(t('Не удалось прочитать файл'))
       return null
+    } finally {
+      setReading(false)
     }
   }
 
@@ -87,7 +92,7 @@ export function BrandingSection({
     setError('')
     setSaved(false)
     try {
-      const next = await saveBranding({
+      await saveBranding({
         data: main?.url ?? '',
         dark: dark?.url ?? '',
         dark_remove: darkRemove && !dark,
@@ -100,7 +105,7 @@ export function BrandingSection({
       setPlate(null)
       setTitle(null)
       setSaved(true)
-      onChanged(next)
+      await onChanged()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
     } finally {
@@ -113,13 +118,13 @@ export function BrandingSection({
     setError('')
     setSaved(false)
     try {
-      const next = await resetBranding()
+      await resetBranding()
       setMain(null)
       setDark(null)
       setDarkRemove(false)
       setPlate(null)
       setTitle(null)
-      onChanged(next)
+      await onChanged()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
     } finally {
@@ -132,8 +137,8 @@ export function BrandingSection({
     setCompanyError('')
     setCompanySaved(false)
     try {
-      const next = await saveCompanyName(companyName.trim())
-      onChanged(next)
+      await saveCompanyName(companyName.trim())
+      await onChanged()
       setCompanyDraft(null)
       setCompanySaved(true)
     } catch (e) {
@@ -167,6 +172,7 @@ export function BrandingSection({
               key={version}
               type="file"
               accept={ACCEPT}
+              disabled={logoLocked}
               onChange={async (e) => {
                 const got = await read(e.target.files?.[0])
                 if (got) setMain(got)
@@ -197,6 +203,7 @@ export function BrandingSection({
                   key={version}
                   type="file"
                   accept={ACCEPT}
+                  disabled={logoLocked}
                   onChange={async (e) => {
                     const got = await read(e.target.files?.[0])
                     if (got) {
@@ -209,6 +216,7 @@ export function BrandingSection({
               {hasDark && (
                 <button
                   className="ghost small-btn brand-dark-remove"
+                  disabled={logoLocked}
                   onClick={() => {
                     setDark(null)
                     setDarkRemove(true)
@@ -222,7 +230,7 @@ export function BrandingSection({
 
           <label className="brand-field">
             {t('Оформление')}
-            <select value={plate} onChange={(e) => setPlate(e.target.value as Branding['plate'])}>
+            <select disabled={logoLocked} value={plate} onChange={(e) => setPlate(e.target.value as Branding['plate'])}>
               <option value="auto">{t('авто: подстроить цвета под тему')}</option>
               <option value="always">{t('всегда на плашке')}</option>
               <option value="never">{t('как есть')}</option>
@@ -233,6 +241,7 @@ export function BrandingSection({
             {t('Подпись на экране входа')}
             <input
               value={title}
+              disabled={logoLocked}
               maxLength={64}
               placeholder={t('например, название компании')}
               onChange={(e) => setTitle(e.target.value)}
@@ -242,11 +251,11 @@ export function BrandingSection({
           {error && <p className="form-error">{error}</p>}
 
           <div className="row-actions">
-            <button disabled={busy || !mainSrc} onClick={() => void save()}>
+            <button disabled={logoLocked || !mainSrc} onClick={() => void save()}>
               {t('Сохранить логотип')}
             </button>
             {branding?.logo && (
-              <button className="ghost" disabled={busy} onClick={() => void reset()}>
+              <button className="ghost" disabled={logoLocked} onClick={() => void reset()}>
                 {t('Вернуть стандартный')}
               </button>
             )}

@@ -26,6 +26,13 @@ async def get_many(session: AsyncSession, prefix: str) -> dict[str, str]:
     return {r.key: r.value for r in rows}
 
 
+async def get_keys(session: AsyncSession, *keys: str) -> dict[str, str]:
+    rows = await session.execute(
+        select(AppSetting.key, AppSetting.value).where(AppSetting.key.in_(keys))
+    )
+    return dict(rows.tuples().all())
+
+
 async def put(session: AsyncSession, key: str, value: str) -> None:
     """Пишет значение. Коммит - на вызывающем: настройка почти всегда меняется
     вместе с чем-то еще (обертки ключей, запись в журнал), и разъехаться они не
@@ -37,10 +44,22 @@ async def put(session: AsyncSession, key: str, value: str) -> None:
         row.value = value
 
 
+def _insert(session: AsyncSession, key: str, value: str):
+    insert = sqlite_insert if session.get_bind().dialect.name == "sqlite" else pg_insert
+    return insert(AppSetting).values(key=key, value=value)
+
+
+async def lock(session: AsyncSession, key: str, default: str) -> None:
+    """Сериализует запись настройки до чтения, включая первое создание строки."""
+    statement = _insert(session, key, default)
+    await session.execute(statement.on_conflict_do_update(
+        index_elements=[AppSetting.key], set_={"value": AppSetting.value}
+    ))
+
+
 async def upsert(session: AsyncSession, key: str, value: str) -> None:
     """Сохраняет настройку при конкурентной записи. Коммит остается у вызывающего."""
-    insert = sqlite_insert if session.get_bind().dialect.name == "sqlite" else pg_insert
-    statement = insert(AppSetting).values(key=key, value=value)
+    statement = _insert(session, key, value)
     await session.execute(statement.on_conflict_do_update(
         index_elements=[AppSetting.key], set_={"value": statement.excluded.value}
     ))

@@ -206,6 +206,34 @@ NEW_TAG=""
 if [ "$GHCR" = "1" ]; then
     OLD_TAG="$(grep -m1 '^SEKVYR_IMAGE_TAG=' .env | cut -d= -f2-)"
     NEW_TAG="${REF#v}"
+    # Переопределение image в Compose может сохранить старый digest при смене тега.
+    # config --images включает зависимости, в том числе отдельно закрепленную БД.
+    if ! panel_images="$(
+        { dc_tag "$NEW_TAG" config backend frontend && printf '\n# compose-config-complete\n'; } | awk '
+        /^services:$/ { services = 1; next }
+        /^[^ ]/ { services = 0 }
+        services && /^  [^ ]/ { panel = /^  (backend|frontend):$/ }
+        services && panel && /^    image: / { print $2; count++ }
+        /^# compose-config-complete$/ { complete = 1 }
+        END { if (!complete || count != 2) exit 1 }
+    ')"; then
+        msg "✗ не удалось определить оба образа панели в конфигурации Compose." \
+            "✗ both panel images must be present in the Compose configuration." >&2
+        exit 1
+    fi
+    case "$panel_images" in
+        *@*)
+            msg "✗ образы панели закреплены по дайджесту. Используйте порядок обновления из docs/panel-rc.md." \
+                "✗ panel images are pinned by digest. Follow the upgrade procedure in docs/panel-rc.md." >&2
+            exit 1 ;;
+    esac
+    if ! printf '%s\n' "$panel_images" | awk -v suffix=":$NEW_TAG" '
+        substr($0, length($0) - length(suffix) + 1) != suffix { exit 1 }
+    '; then
+        msg "✗ тег в конфигурации образов панели не совпадает с $NEW_TAG." \
+            "✗ the configured panel images do not use the requested tag $NEW_TAG." >&2
+        exit 1
+    fi
     msg "→ беру образы $REF" "→ pulling the $REF images"
     if ! dc_tag "$NEW_TAG" pull backend frontend; then
         msg "✗ образы $REF не скачались. Ничего не изменено: панель работает на прежней версии ($WAS)." \

@@ -51,40 +51,41 @@ async def _mark_multiline() -> int:
 
     from sqlalchemy import select
 
-    from app import sealbox, secrets_store
+    from app import envkeys, sealbox, secrets_store
     from app.config import get_settings
     from app.db import create_engine_and_factory
     from app.models import Secret
 
     settings = get_settings()
-    key = sealbox.root_from_env(settings.root_key, settings.root_key_file)
-    if key is None:
-        sys.exit("нет корневого ключа: задайте SEKVYR_ROOT_KEY или SEKVYR_ROOT_KEY_FILE")
-
     engine, factory = create_engine_and_factory(settings.db_url)
     box = sealbox.SealBox()
     changed = looked = 0
-    async with factory() as session:
-        meta = await sealbox.read_meta(session)
-        if not meta.initialized or not sealbox.check_root(key, meta):
-            await engine.dispose()
-            sys.exit("корневой ключ не подходит к этой базе")
-        box.set_root(key)
+    try:
+        async with factory() as session:
+            await envkeys.lock_material(session)
+            meta = await sealbox.read_meta(session)
+            key = sealbox.saved_root(settings.root_key, settings.root_key_file, meta)
+            if key is None:
+                sys.exit("нет корневого ключа: задайте SEKVYR_ROOT_KEY или SEKVYR_ROOT_KEY_FILE")
+            if not sealbox.check_root(key, meta):
+                sys.exit("корневой ключ не подходит к этой базе")
+            box.set_root(key)
 
-        for secret in await session.scalars(select(Secret).where(Secret.deleted.is_(False))):
-            version = await secrets_store.current_version(session, secret)
-            if version is None or version.deleted or version.multiline:
-                continue
-            looked += 1
-            try:
-                value = await secrets_store.read_value(session, box, secret)
-            except Exception:  # noqa: BLE001 - битую версию пропускаем молча
-                continue
-            if "\n" in value:
-                version.multiline = True
-                changed += 1
-        await session.commit()
-    await engine.dispose()
+            for secret in await session.scalars(select(Secret).where(Secret.deleted.is_(False))):
+                version = await secrets_store.current_version(session, secret)
+                if version is None or version.deleted or version.multiline:
+                    continue
+                looked += 1
+                try:
+                    value = await secrets_store.read_value(session, box, secret)
+                except Exception:  # noqa: BLE001 - битую версию пропускаем молча
+                    continue
+                if "\n" in value:
+                    version.multiline = True
+                    changed += 1
+            await session.commit()
+    finally:
+        await engine.dispose()
     print(f"просмотрено значений: {looked}, отмечено многострочных: {changed}")
     return 0
 

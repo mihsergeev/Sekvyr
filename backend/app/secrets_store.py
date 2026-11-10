@@ -751,6 +751,7 @@ async def rotate_env_key(session: AsyncSession, box: SealBox, env_id: int) -> tu
     чтения истории.
     """
     await lock_env(session, env_id)
+    await envkeys.lock_material(session)
     old_generation, old_key = await envkeys.active(session, box, env_id)
     new_generation = old_generation + 1
 
@@ -758,9 +759,7 @@ async def rotate_env_key(session: AsyncSession, box: SealBox, env_id: int) -> tu
         select(EnvKey).where(EnvKey.environment_id == env_id, EnvKey.active.is_(True))
     )
     row.active = False
-    _, new_key = await envkeys.create(
-        session, box, env_id, generation=new_generation, root_generation=row.root_generation
-    )
+    _, new_key = await envkeys.create(session, box, env_id, generation=new_generation)
 
     secrets = list(
         await session.scalars(select(Secret).where(Secret.environment_id == env_id))

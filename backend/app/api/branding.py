@@ -34,6 +34,7 @@ META = "branding_meta"
 LOGO = "branding_logo"
 LOGO_DARK = "branding_logo_dark"
 COMPANY_NAME = "branding_company_name"
+LOGO_FIELDS = (("media", "logo_revision", LOGO), ("dark_media", "dark_logo_revision", LOGO_DARK))
 
 MAX_BYTES = 512 * 1024
 # base64 раздувает файл на треть, data-URL добавляет свою приставку.
@@ -76,8 +77,10 @@ class BrandingOut(BaseModel):
     # Оформление: auto - подстроить цвета под тему, always - на плашке, never - как есть.
     plate: str = "auto"
     dark_logo: bool = False
-    # Растет при каждой правке: адрес картинки меняется, и кэш браузера не мешает.
+    # Счетчик для старых клиентов; кэш современных клиентов привязан к файлу.
     version: int = 0
+    logo_revision: str = ""
+    dark_logo_revision: str = ""
 
 
 class BrandingIn(BaseModel):
@@ -141,9 +144,8 @@ def _checked(raw: str) -> tuple[bytes, str] | None:
     return data, _sniff(data)
 
 
-async def _meta(session: AsyncSession) -> dict:
-    """Мета из базы. Нет её или она битая - логотипа нет."""
-    raw = await settings_store.get(session, META)
+def _parse_meta(raw: str) -> dict:
+    """Нет меты или она битая - логотипа нет."""
     try:
         meta = json.loads(raw) if raw else {}
     except ValueError:
@@ -151,22 +153,55 @@ async def _meta(session: AsyncSession) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
-async def _out(session: AsyncSession, meta: dict) -> BrandingOut:
+def _out(meta: dict, company_name: str) -> BrandingOut:
     return BrandingOut(
         logo=bool(meta.get("media")),
         title=meta.get("title", ""),
-        company_name=await settings_store.get(session, COMPANY_NAME),
+        company_name=company_name,
         plate=meta.get("plate", "auto"),
         dark_logo=bool(meta.get("dark_media")),
         version=int(meta.get("v", 0)),
+        logo_revision=meta.get("logo_revision", ""),
+        dark_logo_revision=meta.get("dark_logo_revision", ""),
     )
+
+
+def _logo_revision(data: bytes) -> str:
+    return "h-" + hashlib.sha256(data).hexdigest()
+
+
+def _stored_logo(value: str) -> bytes | None:
+    try:
+        return base64.b64decode(value, validate=True) or None
+    except (binascii.Error, ValueError):
+        return None
+
+
+def _fill_legacy_revisions(meta: dict, values: dict[str, str]) -> None:
+    for media, revision, key in LOGO_FIELDS:
+        if meta.get(media) and not meta.get(revision):
+            data = _stored_logo(values.get(key, ""))
+            if data is not None:
+                meta[revision] = _logo_revision(data)
+
+
+async def _current(session: AsyncSession) -> BrandingOut:
+    values = await settings_store.get_keys(session, META, COMPANY_NAME)
+    meta = _parse_meta(values.get(META, ""))
+    if any(meta.get(media) and not meta.get(revision) for media, revision, _ in LOGO_FIELDS):
+        # Старый дамп не хранит хеши обеих картинок. Читаем мету и файлы одним
+        # запросом: конкурентная загрузка не должна смешать разные версии.
+        values = await settings_store.get_keys(session, META, COMPANY_NAME, LOGO, LOGO_DARK)
+        meta = _parse_meta(values.get(META, ""))
+        _fill_legacy_revisions(meta, values)
+    return _out(meta, values.get(COMPANY_NAME, ""))
 
 
 @router.get("", response_model=BrandingOut)
 async def get_branding(session: SessionDep, response: Response) -> BrandingOut:
     """Без входа: экран входа рисуется до авторизации."""
     response.headers["Cache-Control"] = "no-store"
-    return await _out(session, await _meta(session))
+    return await _current(session)
 
 
 @router.put("/company-name", response_model=BrandingOut)
@@ -176,38 +211,43 @@ async def set_company_name(
     await settings_store.upsert(session, COMPANY_NAME, body.company_name.strip())
     await audit.record(session, actor=user.username, action="branding_company_set", ip=peer_ip(request))
     await session.commit()
-    return await _out(session, await _meta(session))
+    return await _current(session)
 
 
-async def _serve(session: AsyncSession, dark: bool) -> Response:
-    meta = await _meta(session)
+async def _serve(session: AsyncSession, dark: bool, version: str) -> Response:
+    key = LOGO_DARK if dark else LOGO
+    values = await settings_store.get_keys(session, META, key)
+    meta = _parse_meta(values.get(META, ""))
     media = meta.get("dark_media" if dark else "media")
-    stored = await settings_store.get(session, LOGO_DARK if dark else LOGO)
-    if not media or not stored:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Логотип не задан")
+    data = _stored_logo(values.get(key, ""))
+    if not media or data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Логотип не задан", headers={"Cache-Control": "no-store"})
+    addressed = version.startswith("h-")
+    if addressed and version != _logo_revision(data):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Логотип изменился", headers={"Cache-Control": "no-store"})
     return Response(
-        content=base64.b64decode(stored),
+        content=data,
         media_type=media,
         headers={
             # Файл чужой: ничего не подгружать, не угадывать тип, а открытый
             # напрямую - жить в песочнице без доступа к панели.
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
             "X-Content-Type-Options": "nosniff",
-            # В адресе версия, а она меняется с каждой правкой - кэшируем надолго.
-            "Cache-Control": "public, max-age=604800",
+            # Числовой адрес может повториться после восстановления из бэкапа.
+            "Cache-Control": "public, max-age=604800" if addressed else "no-store",
         },
     )
 
 
 @router.get("/logo")
-async def get_logo(session: SessionDep) -> Response:
-    return await _serve(session, dark=False)
+async def get_logo(session: SessionDep, v: str = "") -> Response:
+    return await _serve(session, dark=False, version=v)
 
 
 @router.get("/logo-dark")
-async def get_logo_dark(session: SessionDep) -> Response:
+async def get_logo_dark(session: SessionDep, v: str = "") -> Response:
     """Своя версия логотипа для темного фона, если у компании такая есть."""
-    return await _serve(session, dark=True)
+    return await _serve(session, dark=True, version=v)
 
 
 @router.post("/save", response_model=BrandingOut)
@@ -219,11 +259,12 @@ async def save_branding(
 ) -> BrandingOut:
     """Логотип и его настройки. Файл необязателен, если логотип уже есть:
     оформление и подпись меняют, не выбирая тот же файл заново."""
-    old = await _meta(session)
     # Оба файла проверяем до записи: иначе годный основной лег бы в базу, а
     # отвергнутый темный оставил бы мету от прежнего.
     main = _checked(body.data)
     dark = _checked(body.dark)
+    await settings_store.lock(session, META, "{}")
+    old = _parse_meta(await settings_store.get(session, META))
     if main is None and not old.get("media"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Выберите файл логотипа")
 
@@ -233,21 +274,26 @@ async def save_branding(
         data, media = main
         await settings_store.put(session, LOGO, base64.b64encode(data).decode())
         meta["media"] = media
-        meta["sha"] = hashlib.sha256(data).hexdigest()[:16]
+        meta["logo_revision"] = _logo_revision(data)
         changed.append(f"{media}, {len(data)} байт")
     if dark is not None:
         data, media = dark
         await settings_store.put(session, LOGO_DARK, base64.b64encode(data).decode())
         meta["dark_media"] = media
+        meta["dark_logo_revision"] = _logo_revision(data)
         changed.append(f"тёмная тема: {media}, {len(data)} байт")
     elif body.dark_remove and old.get("dark_media"):
         await settings_store.put(session, LOGO_DARK, "")
         meta.pop("dark_media", None)
+        meta.pop("dark_logo_revision", None)
         changed.append("вариант для тёмной темы убран")
 
     meta["plate"] = body.plate
     meta["title"] = body.title.strip()[:64]
     meta["v"] = int(old.get("v", 0)) + 1
+    missing = [key for media, revision, key in LOGO_FIELDS if meta.get(media) and not meta.get(revision)]
+    if missing:
+        _fill_legacy_revisions(meta, await settings_store.get_keys(session, *missing))
     await settings_store.put(session, META, json.dumps(meta, ensure_ascii=False))
 
     await audit.record(
@@ -258,14 +304,15 @@ async def save_branding(
         ip=peer_ip(request),
     )
     await session.commit()
-    return await _out(session, meta)
+    return _out(meta, await settings_store.get(session, COMPANY_NAME))
 
 
 @router.post("/reset", response_model=BrandingOut)
 async def reset_branding(request: Request, user: OwnerUser, session: SessionDep) -> BrandingOut:
     """Вернуть стандартный логотип. Версия растет и здесь: иначе браузер показывал
     бы старую картинку из кэша по прежнему адресу."""
-    old = await _meta(session)
+    await settings_store.lock(session, META, "{}")
+    old = _parse_meta(await settings_store.get(session, META))
     meta = {"v": int(old.get("v", 0)) + 1}
     await settings_store.put(session, LOGO, "")
     await settings_store.put(session, LOGO_DARK, "")
@@ -277,4 +324,4 @@ async def reset_branding(request: Request, user: OwnerUser, session: SessionDep)
         ip=peer_ip(request),
     )
     await session.commit()
-    return await _out(session, meta)
+    return _out(meta, await settings_store.get(session, COMPANY_NAME))
