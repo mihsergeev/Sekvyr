@@ -302,6 +302,10 @@ jobs:
       # entrypoint должен сам отдать их панели, оставив себе только нужные права.
       - name: Up
         run: docker compose up -d --build --wait --wait-timeout 300
+      - name: Compose network allocation and boot order
+        run: |
+          python ops/check_compose_networks.py
+          python ops/tests/compose_networks_e2e.py
       - name: Rights, read-only and networks
         run: |
           set -eu

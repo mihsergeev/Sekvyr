@@ -110,6 +110,10 @@ else
     curl -fsSL https://get.docker.com | sh >/dev/null || die "не удалось поставить Docker"
 fi
 docker compose version >/dev/null 2>&1 || die "нужен Docker Compose v2 (плагин compose)"
+if ! command -v python3 >/dev/null 2>&1; then
+    command -v apt-get >/dev/null 2>&1 || die "Установите python3 для проверки сетей Docker перед установкой"
+    apt-get update -qq && apt-get install -y -qq python3 || die "не удалось установить python3"
+fi
 
 # -- 2b. Панель, поставленная в другой каталог --------------------------------
 # Каталог по умолчанию /opt/sekvyr, но панель может стоять где угодно (--dir
@@ -287,6 +291,9 @@ else
 fi
 cd "$DIR"
 
+# Проверка сохраняется и при переходе на старый стабильный выпуск.
+NETWORK_CHECK=$(git show refs/remotes/origin/main:ops/check_compose_networks.py) || die "не удалось загрузить проверку сетей Docker"
+
 # Повторный запуск сохраняет способ установки. Перевод сборки из исходников
 # на готовые образы увел бы код с main обратно на последний тег, под базой,
 # которую main мог уже перевести на новую схему.
@@ -440,6 +447,7 @@ if [ "$BUILD" = "0" ]; then
 fi
 
 # -- 7. Запуск ---------------------------------------------------------------
+SEKVYR_LANG=ru python3 -c "$NETWORK_CHECK" || die "Проверка сети Docker не прошла, панель не запущена"
 if [ "$BUILD" = "1" ]; then
     say "Собираю образы (несколько минут, нужно около 2 ГБ памяти)"
     docker compose $FILES up -d --build || die "сборка не прошла"

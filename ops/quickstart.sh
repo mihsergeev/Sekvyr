@@ -110,6 +110,10 @@ else
     curl -fsSL https://get.docker.com | sh >/dev/null || die "could not install Docker"
 fi
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
+if ! command -v python3 >/dev/null 2>&1; then
+    command -v apt-get >/dev/null 2>&1 || die "Install python3 to check Docker networks before installation"
+    apt-get update -qq && apt-get install -y -qq python3 || die "could not install python3"
+fi
 
 # -- 2b. A panel installed elsewhere ------------------------------------------
 # The default directory is /opt/sekvyr, but a panel may live anywhere (--dir
@@ -290,6 +294,9 @@ else
 fi
 cd "$DIR"
 
+# Keep the check when installation checks out an older stable release.
+NETWORK_CHECK=$(git show refs/remotes/origin/main:ops/check_compose_networks.py) || die "could not load the Docker network check"
+
 # A rerun keeps the way the panel was installed. Switching a source build
 # to the released images would move the code from main back to the last tag,
 # under a database that main may already have migrated.
@@ -444,6 +451,7 @@ if [ "$BUILD" = "0" ]; then
 fi
 
 # -- 7. Start ----------------------------------------------------------------
+SEKVYR_LANG=en python3 -c "$NETWORK_CHECK" || die "Docker network check failed; the panel was not started"
 if [ "$BUILD" = "1" ]; then
     say "Building the images (a few minutes, needs about 2 GB of RAM)"
     docker compose $FILES up -d --build || die "the build failed"

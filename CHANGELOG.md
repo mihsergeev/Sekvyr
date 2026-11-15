@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0-rc.5] - 2026-11-15
+
+### Fixed
+
+- Check the effective Docker Compose networks before installation and updates.
+  Reject duplicate static addresses and static addresses that a dynamic peer
+  could claim after a reboot. Support IPv4, IPv6 and existing external IPAM pools.
+- Document safe allocation ranges for custom witness deployments and the same
+  network check for manually installed, digest-pinned RCs.
+
+### Changed
+
+- The installation and update network check requires Python 3. Quickstart
+  installs it automatically on systems with apt-get when it is missing.
+
 ## [1.1.0-rc.4] - 2026-11-10
 
 ### Fixed

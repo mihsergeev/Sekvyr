@@ -78,6 +78,20 @@ if docker compose ps >/dev/null 2>&1; then DC="docker compose"
 elif sudo -n docker compose ps >/dev/null 2>&1; then DC="sudo docker compose"
 else msg "docker compose недоступен из-под $(id -un)" "docker compose is not available to $(id -un)" >&2; exit 1; fi
 
+command -v python3 >/dev/null 2>&1 || {
+    msg "Для проверки сетей перед обновлением установите python3." "Install python3 to check Docker networks before updating." >&2
+    exit 1
+}
+NETWORK_CHECK=$(cat "$APP/ops/check_compose_networks.py") || exit 1
+check_networks() {
+    if [ "$DC" = "docker compose" ]; then
+        SEKVYR_LANG="$L" python3 -c "$NETWORK_CHECK"
+    else
+        SEKVYR_LANG="$L" python3 -c "$NETWORK_CHECK" --sudo
+    fi
+}
+check_networks || exit 1
+
 WAS="$(git rev-parse --short HEAD 2>/dev/null || echo '?')"
 
 # Сборка из исходников после "update.sh vX.Y.Z" стоит на теге, а не на ветке, и
@@ -267,7 +281,19 @@ while :; do
 done
 
 if [ "$GHCR" = "1" ]; then
+    PREVIOUS_COMMIT=$(git rev-parse HEAD)
+    PREVIOUS_BRANCH=$(git symbolic-ref -q --short HEAD || true)
     git checkout --quiet "$REF"
+    if ! check_networks; then
+        if [ -n "$PREVIOUS_BRANCH" ]; then
+            git checkout --quiet "$PREVIOUS_BRANCH"
+        else
+            git checkout --quiet --detach "$PREVIOUS_COMMIT"
+        fi
+        msg "Конфигурация сети нового выпуска небезопасна. Вернул прежний checkout." \
+            "The new release has an unsafe network configuration. Restored the previous checkout." >&2
+        exit 1
+    fi
     if grep -q '^SEKVYR_IMAGE_TAG=' .env; then
         sed -i "s|^SEKVYR_IMAGE_TAG=.*|SEKVYR_IMAGE_TAG=${REF#v}|" .env
     else
@@ -313,6 +339,7 @@ if ! grep -q '^COMPOSE_FILE=' .env 2>/dev/null && [ -f compose.caddy.yml ]; then
     fi
 fi
 
+check_networks || exit 1
 if [ "$GHCR" = "1" ]; then
     msg "→ поднимаю $REF" "→ starting $REF"
     $DC up -d --pull missing

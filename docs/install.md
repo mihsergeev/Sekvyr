@@ -170,6 +170,24 @@ What to set in `.env`:
 A value with a `$` in it goes in single quotes: docker compose substitutes
 `$NAME` in `.env`, and part of an unquoted password would silently disappear.
 
+The installer and updater check the effective Compose networks before starting
+containers. The check requires Python 3, which Quickstart installs with apt-get
+when needed. You can also run it explicitly from the installation directory.
+
+```sh
+python3 ops/check_compose_networks.py
+# If Docker requires sudo, use --sudo.
+```
+
+A custom overlay that pins the backend address must keep that address outside
+the dynamic allocation range. Otherwise a frontend starting first after a reboot
+can claim it and prevent the backend from starting. Assign distinct static
+addresses to all services on a private network, or set `networks.<name>.ipam.config`
+with an `ip_range` excluding static addresses. For external networks, configure
+this range when creating the network. Changing an existing network's IPAM settings
+requires a planned network recreation. Updating a container restart policy alone
+does not reserve an IP address.
+
 To build from source, set `COMPOSE_FILE=compose.yml:compose.caddy.yml`, skip
 `SEKVYR_IMAGE_TAG` and run `docker compose up -d --build`. `COMPOSE_FILE` matters
 in both cases: `ops/update.sh` and any plain `docker compose up` take the file

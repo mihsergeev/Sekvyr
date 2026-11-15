@@ -16,6 +16,8 @@ class UpdateImagePinsTest(unittest.TestCase):
     def run_update(self, backend, frontend, *, config_status=0):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            (root / "ops").mkdir()
+            shutil.copyfile(UPDATE.with_name("check_compose_networks.py"), root / "ops/check_compose_networks.py")
             (root / ".env").write_text("COMPOSE_FILE=compose.yml:compose.ghcr.yml\nSEKVYR_IMAGE_TAG=1.1.0\n")
             (root / "compose.yml").touch()
             git = root / "git"
@@ -31,6 +33,7 @@ esac
             docker.write_text('''#!/bin/sh
 case "$*" in
     'compose ps') exit 0;;
+    'compose config --format json') printf '%s\n' '{"services":{}}';;
     'compose config backend frontend') cat compose-rendered.yml; exit "$CONFIG_STATUS";;
     'compose pull backend frontend') touch pull-was-called; exit 42;;
     *) exit 99;;

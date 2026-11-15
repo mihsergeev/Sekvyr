@@ -69,7 +69,9 @@ jq '{services: (.images | map_values({image: .}))}' release-manifest.json > comp
 
 Append `compose.panel-rc.json` after `compose.ghcr.yml` and the installation's
 other overlays in `COMPOSE_FILE`. Check both pins with
-`docker compose config --images` and use the usual backup and deploy procedure.
+`docker compose config --images`, then run `python3 ops/check_compose_networks.py`
+with the same `COMPOSE_FILE`. Resolve unsafe static/dynamic allocation before
+using the usual backup and deploy procedure.
 
 ## Upgrade a digest-pinned installation
 
@@ -77,7 +79,8 @@ For the next RC, verify its manifest and image attestations as above and write
 the resulting override to a new file. Back up the running installation with
 `ops/backup.sh` using its current configuration. Check out the new RC source tag,
 replace the active override with the new file and check both pins with
-`docker compose config --images`. Pull both images with
+`docker compose config --images`. Before starting the new containers, run
+`python3 ops/check_compose_networks.py` with the new override. Pull both images with
 `docker compose pull backend frontend`, then apply the configuration with
 `docker compose up -d` and check the running version.
 
