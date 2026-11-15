@@ -18,6 +18,8 @@ All notable changes to this project are documented here. The format is based on
 
 - Upgrade the frontend libxslt package for CVE-2026-125350, CVE-2026-87636
   and CVE-2026-9947.
+- Rebuild the bundled signed node agent 1.0.4 and operator tooling 0.1.0-rc.3
+  with pinned Go 1.27.4 to fix GO-2026-6859.
 
 ### Changed
 

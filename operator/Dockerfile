@@ -1,5 +1,5 @@
 # Build from the operator directory, with the reviewed project compiler pin.
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf AS build
 ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -25,7 +25,7 @@ COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifica
 COPY --from=build /out/ /
 USER 65532:65532
 ENTRYPOINT ["/sekvyr-operator"]
-ARG VERSION=0.1.0-rc.2
+ARG VERSION=0.1.0-rc.3
 ARG REVISION=
 LABEL org.opencontainers.image.title="Sekvyr operator" \
       org.opencontainers.image.description="Explicit Plain and E2E2 synchronization, canonical journal and opt-in HA fencing trial" \

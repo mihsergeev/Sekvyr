@@ -4,7 +4,7 @@
 # тот же Go и те же флаги, поэтому хеш совпадает с подписанным manifest.json.
 # Сборка идет на платформе сборщика, а GOARCH берется из целевой: без этого
 # arm64 собирался бы в эмуляции, долго и тем же самым результатом.
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf AS build
 ARG TARGETARCH
 WORKDIR /src
 COPY . ./
