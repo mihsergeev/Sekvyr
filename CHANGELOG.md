@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format is based on
 - Document safe allocation ranges for custom witness deployments and the same
   network check for manually installed, digest-pinned RCs.
 
+### Security
+
+- Upgrade the frontend libxslt package for CVE-2026-125350, CVE-2026-87636
+  and CVE-2026-9947.
+
 ### Changed
 
 - The installation and update network check requires Python 3. Quickstart

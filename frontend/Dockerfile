@@ -13,7 +13,7 @@ FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c68
 
 # Apply stable fixes for the libraries bundled in the pinned base.
 USER root
-RUN apk upgrade --no-cache brotli-libs curl libcurl libexpat musl musl-utils zlib
+RUN apk upgrade --no-cache brotli-libs curl libcurl libexpat libxslt musl musl-utils zlib
 USER 101
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
