@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
 
 # alpine, а не scratch: --on-change выполняется через /bin/sh, а корневые
 # сертификаты для TLS к панели в alpine уже есть.
-FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 COPY --from=build /out/sekvyr /usr/local/bin/sekvyr
 USER 65534:65534
 ENTRYPOINT ["/usr/local/bin/sekvyr"]
