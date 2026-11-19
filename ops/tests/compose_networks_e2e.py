@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def main():
     image = next(line.split()[1] for line in (ROOT / "frontend/Dockerfile").read_text().splitlines()
-                 if line.startswith("FROM nginxinc/"))
+                 if line.startswith("FROM ghcr.io/nginx/nginx-unprivileged:"))
     with TemporaryDirectory(prefix="sekvyr-network-e2e-") as directory:
         file = Path(directory) / "compose.json"
         project = "sekvyr-network-e2e-" + uuid.uuid4().hex[:12]
