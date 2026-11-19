@@ -130,7 +130,7 @@ class ReleaseInputsTest(unittest.TestCase):
                 release.checked_manifest(root, repo, version, REVISION, operator=True)
 
     def test_candidate_artifacts_from_one_attempt(self):
-        names = ["backend-amd64", "backend-arm64", "frontend-amd64"]
+        names = [f"{component}-{arch}" for component, arches in oci.PLATFORMS.items() for arch in arches]
         items = [
             {"name": f"{name}-attempt-{attempt}", "id": i, "digest": sha256(str(i).encode()),
              "expired": False, "workflow_run": {"id": 12, "head_branch": BRANCH, "head_sha": REVISION}}
@@ -140,7 +140,7 @@ class ReleaseInputsTest(unittest.TestCase):
         def select(artifacts):
             return release.candidate_artifacts([{"artifacts": artifacts}], BRANCH, REVISION, 12, 2)
 
-        self.assertEqual({a["id"] for a in select(items).values()}, {4, 5, 6})
+        self.assertEqual({a["id"] for a in select(items).values()}, set(range(len(names) + 1, 2 * len(names) + 1)))
         with self.assertRaisesRegex(ValueError, "exactly one"):
             select(items[:-1])
         with self.assertRaisesRegex(ValueError, "exactly one"):

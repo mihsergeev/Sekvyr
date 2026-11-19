@@ -1,11 +1,12 @@
 # Publishing a reviewed panel RC
 
-Use the signed backend/frontend digest pair from the immutable GitHub release.
+Use the signed backend, frontend and PostgreSQL image digests from the immutable
+GitHub release.
 
 ## Prepare and review
 
 1. Push the exact RC commit to `rc/panel-v<version>`. Wait for CI and the
-   backend, frontend and operator native builds and scans to pass. Record the
+   backend, frontend, PostgreSQL and operator native builds and scans to pass. Record the
    candidate run ID and attempt. If a rebuild is needed, rerun **all** candidate
    jobs so their artifacts belong to one attempt.
 2. Tag that commit as `v<version>`. Run **Build and promote reviewed RC images**
@@ -17,7 +18,7 @@ Use the signed backend/frontend digest pair from the immutable GitHub release.
    directory. Review the source and final assets for secrets and private data.
    Keep the manifest and its Sigstore bundle with the OCI archives and SBOMs.
    Confirm immutable releases are enabled in the repository settings. Create a
-   draft for the existing tag with exactly those seven assets and the reviewed
+   draft for the existing tag with exactly the prepared assets and the reviewed
    release notes.
 
    ```sh
@@ -32,7 +33,7 @@ Use the signed backend/frontend digest pair from the immutable GitHub release.
 Run the same workflow with `--ref "$tag" -f phase=promote`,
 `-f release_id=<draft-id>` and `-f manifest_sha256=<reviewed-sha256>`.
 It fetches the exact draft assets, verifies the signature and hashes, and
-copies and checks both images by digest before attesting them. If a push fails,
+copies and checks the images by digest before attesting them. If a push fails,
 dispatch the same inputs again. The draft has the reviewed bytes needed for the
 retry even after the candidate and prepare artifacts expire. An immutable
 published RC also works as a source for restoring its image digests.
@@ -47,7 +48,7 @@ published manifest with `gh release verify "$tag"` and
 
 Check out the RC source tag and verify the downloaded release manifest with
 `gh release verify-asset "$tag" release-manifest.json`. Verify its workflow
-signature and the attestations for both image digests before deploying. In the
+signature and the attestations for all image digests before deploying. In the
 following example, `repo` is the GitHub repository, `tag` the published tag,
 and `revision` its checked-out commit SHA.
 
@@ -58,17 +59,20 @@ gh attestation verify release-manifest.json --repo "$repo" \
   --bundle release-manifest.sigstore.json --signer-workflow "$workflow" \
   --signer-digest "$revision" --source-digest "$revision" \
   --source-ref "refs/tags/$tag" --deny-self-hosted-runners
-for component in backend frontend; do
+for component in backend frontend postgres; do
   ref=$(jq -er --arg component "$component" '.images[$component]' release-manifest.json)
   gh attestation verify "oci://$ref" --repo "$repo" --signer-workflow "$workflow" \
     --signer-digest "$revision" --source-digest "$revision" \
     --source-ref "refs/tags/$tag" --deny-self-hosted-runners
 done
-jq '{services: (.images | map_values({image: .}))}' release-manifest.json > compose.panel-rc.json
+jq '{services: (.images | map_values({image: .}) |
+  with_entries(if .key == "postgres" then .key = "db" else . end))}' \
+  release-manifest.json > compose.panel-rc.json
 ```
 
 Append `compose.panel-rc.json` after `compose.ghcr.yml` and the installation's
-other overlays in `COMPOSE_FILE`. Check both pins with
+other overlays in `COMPOSE_FILE`. Use the released database image without
+the local-build `compose.postgres-hardened.yml` overlay. Check all three pins with
 `docker compose config --images`, then run `python3 ops/check_compose_networks.py`
 with the same `COMPOSE_FILE`. Resolve unsafe static/dynamic allocation before
 using the usual backup and deploy procedure.
@@ -78,10 +82,11 @@ using the usual backup and deploy procedure.
 For the next RC, verify its manifest and image attestations as above and write
 the resulting override to a new file. Back up the running installation with
 `ops/backup.sh` using its current configuration. Check out the new RC source tag,
-replace the active override with the new file and check both pins with
+replace the active override with the new file and check all three pins with
 `docker compose config --images`. Before starting the new containers, run
-`python3 ops/check_compose_networks.py` with the new override. Pull both images with
-`docker compose pull backend frontend`, then apply the configuration with
+`python3 ops/check_compose_networks.py` with the new override. Confirm the running
+database uses PostgreSQL 18 before applying the 18.7 image to its data directory.
+Pull the pinned images with `docker compose pull db backend frontend`, then apply the configuration with
 `docker compose up -d` and check the running version.
 
 `ops/update.sh` requires both panel images to use the requested tag. To move

@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0-rc.6] - 2026-11-19
+
+### Security
+
+- Update the panel frontend to Nginx 1.31.9 and its build image to Node.js 24.22.3.
+- Provide PostgreSQL 18.7 with gosu 1.20 rebuilt on Go 1.27.4 for the RC stack.
+
+### Changed
+
+- Include the PostgreSQL image and its SBOMs in the signed panel RC manifest.
+  Verify and pin that image alongside the backend and frontend when deploying the RC.
+
 ## [1.1.0-rc.5] - 2026-11-15
 
 ### Fixed

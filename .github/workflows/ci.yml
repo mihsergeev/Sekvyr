@@ -280,6 +280,7 @@ jobs:
   compose-smoke:
     runs-on: ubuntu-latest
     env:
+      COMPOSE_FILE: compose.yml:compose.postgres-hardened.yml
       SEKVYR_ADMIN_PASSWORD: ci-password-2026-long
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -302,6 +303,12 @@ jobs:
       # entrypoint должен сам отдать их панели, оставив себе только нужные права.
       - name: Up
         run: docker compose up -d --build --wait --wait-timeout 300
+      - name: Assert database and proxy runtime versions
+        run: |
+          set -euo pipefail
+          docker compose exec -T db postgres --version | grep -Fx 'postgres (PostgreSQL) 18.7'
+          docker compose exec -T db gosu --version | grep -E '^1\.20 \(go1\.27\.4 '
+          docker compose exec -T frontend nginx -v 2>&1 | grep -Fx 'nginx version: nginx/1.31.9'
       - name: Compose network allocation and boot order
         run: |
           python ops/check_compose_networks.py

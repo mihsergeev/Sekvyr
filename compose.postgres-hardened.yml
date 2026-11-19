@@ -1,0 +1,6 @@
+# Add after compose.yml to build PostgreSQL with the patched gosu binary.
+# The original entrypoint, postgres user and data volume stay in use.
+services:
+  db:
+    image: !reset null
+    build: ./ops/postgres

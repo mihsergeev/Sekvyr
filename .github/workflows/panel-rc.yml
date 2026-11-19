@@ -46,6 +46,16 @@ jobs:
             runner: ubuntu-latest
             context: frontend
             dockerfile: frontend/Dockerfile
+          - component: postgres
+            architecture: amd64
+            runner: ubuntu-latest
+            context: ops/postgres
+            dockerfile: ops/postgres/Dockerfile
+          - component: postgres
+            architecture: arm64
+            runner: ubuntu-24.04-arm
+            context: ops/postgres
+            dockerfile: ops/postgres/Dockerfile
           - component: operator
             architecture: amd64
             runner: ubuntu-latest
@@ -232,6 +242,11 @@ jobs:
         with:
           subject-name: ${{ steps.stage.outputs.frontend }}
           subject-digest: ${{ steps.stage.outputs.frontend_digest }}
+      - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          subject-name: ${{ steps.stage.outputs.postgres }}
+          subject-digest: ${{ steps.stage.outputs.postgres_digest }}
       - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         if: startsWith(github.ref, 'refs/tags/sekvyr-operator-v')
         with:

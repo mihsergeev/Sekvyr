@@ -13,7 +13,7 @@ INDEX = "application/vnd.oci.image.index.v1+json"
 MANIFEST = "application/vnd.oci.image.manifest.v1+json"
 CONFIG = "application/vnd.oci.image.config.v1+json"
 LAYER = "application/vnd.oci.image.layer.v1.tar"
-PLATFORMS = {"backend": ("amd64", "arm64"), "frontend": ("amd64",)}
+PLATFORMS = {"backend": ("amd64", "arm64"), "frontend": ("amd64",), "postgres": ("amd64", "arm64")}
 
 
 def digest(path):

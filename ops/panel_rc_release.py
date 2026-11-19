@@ -13,7 +13,7 @@ import zipfile
 from ops.panel_rc import PLATFORMS, assemble, check, digest
 
 WORKFLOW = ".github/workflows/panel-rc.yml"
-FORMAT = "sekvyr-panel-rc-v1"
+FORMAT = "sekvyr-panel-rc-v2"
 OPERATOR_FORMAT = "sekvyr-operator-rc-v1"
 OPERATOR_PLATFORMS = {"operator": ("amd64", "arm64")}
 MANIFEST = "release-manifest.json"

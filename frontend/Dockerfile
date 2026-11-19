@@ -1,4 +1,4 @@
-FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS build
+FROM node:24.22.3-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS build
 
 WORKDIR /build
 COPY package.json package-lock.json ./
@@ -9,7 +9,7 @@ RUN npm run build
 # Официальный nginx стартует мастер-процесс от root - только чтобы занять 80-й
 # порт, который панели не нужен: наружу её публикует обратный прокси. Этот образ
 # собран под работу от uid 101 и порт 8080.
-FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
+FROM ghcr.io/nginx/nginx-unprivileged:1.31.9-alpine@sha256:60214a103e6f38e953ff957f34b1f2e97a9db801ab2df3821da955d0fe6cadd6
 
 # Apply stable fixes for the libraries bundled in the pinned base.
 USER root
