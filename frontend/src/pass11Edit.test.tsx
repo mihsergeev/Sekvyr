@@ -9,6 +9,7 @@ import * as api from './api'
 import { AuthProvider, toAuth } from './auth'
 import { forgetLater } from './clipboard'
 import { DialogProvider } from './Dialogs'
+import * as e2e from './e2e'
 import { I18nProvider } from './i18n'
 import { ProjectSettingsModal } from './ProjectSettingsModal'
 import { holdLeave, leaveGuard, setLeaveGuard } from './leave'
@@ -54,6 +55,7 @@ afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  e2e.forgetAllKeys()
   localStorage.removeItem('sekvyr_token')
   localStorage.removeItem('sekvyr_idle_minutes')
   localStorage.removeItem('sekvyr_active_at')
@@ -277,6 +279,36 @@ describe('окно всех значений', () => {
     await tick(HIDE_AFTER_MS + 1000)
     expect(screen.queryAllByRole('textbox')).toHaveLength(0)
     expect(screen.getByText(/Значения скрыты/)).toBeTruthy()
+  })
+})
+
+describe('выдача ключа проекта машине', () => {
+  it('привязывает обертку к ключу машины, под который она сделана', async () => {
+    vi.spyOn(api, 'listProjects').mockResolvedValue([])
+    vi.spyOn(api, 'listEnvironments').mockResolvedValue([])
+    const machine = { machine_id: 7, name: 'fixture', has_key: true, has_wrap: false }
+    vi.spyOn(api, 'listE2eMachines').mockResolvedValue([machine])
+    vi.spyOn(api, 'machinePublicKey').mockResolvedValue({ public_key: 'node-public-key' })
+    const issue = vi.spyOn(api, 'wrapE2eForMachine').mockResolvedValue({ ...machine, has_wrap: true })
+    const sealed = { ephemeral_public: 'fixture-public', nonce: 'fixture-nonce', wrapped_key: 'fixture-wrap' }
+    const wrapKey = vi.spyOn(e2e, 'wrapForMachine').mockResolvedValue(sealed)
+    const key = new Uint8Array([1, 2, 3])
+    e2e.rememberKey(1, key)
+    const project = {
+      id: 1, slug: 'shop', title: '', e2e: true, approval_min_level: 0, required_keys: '',
+      stale_after_days: 365, group_name: '', group_slug: '', manage: true,
+    } as api.Project
+    const auth = toAuth({ username: 'alice', role: 'owner', level: 40, role_title: '', totp_enabled: false })
+    wrap(
+      <AuthProvider value={auth}>
+        <ProjectSettingsModal project={project} onClose={() => {}} onSaved={() => {}} onDeleted={() => {}} />
+      </AuthProvider>,
+    )
+    const grant = await screen.findByRole('button', { name: 'Выдать ключ' })
+    await act(async () => { fireEvent.click(grant) })
+    await settle()
+    expect(wrapKey).toHaveBeenCalledWith(key, 'node-public-key')
+    expect(issue).toHaveBeenCalledWith(1, { machine_id: 7, expected_public_key: 'node-public-key', ...sealed })
   })
 })
 

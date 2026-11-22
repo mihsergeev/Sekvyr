@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app import access, audit, e2e, secrets_store
 from app.deps import CurrentUser, MaintainerUser, SessionDep, peer_ip
@@ -57,6 +57,9 @@ class WrapOut(BaseModel):
 
 class MachineWrapIn(BaseModel):
     machine_id: int
+    # Ключ машины, под который браузер сделал обертку. Старые клиенты его
+    # не присылают.
+    expected_public_key: str | None = Field(default=None, min_length=8, max_length=200)
     # Эфемерный публичный ключ браузера (P-256): по нему агент повторит общий
     # секрет и раскроет обертку.
     ephemeral_public: str = Field(min_length=8, max_length=200)
@@ -305,7 +308,13 @@ async def add_machine_wrap(
     await _require(session, user, project, access.WRITE)
     if not project.e2e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "У проекта нет шифрования в браузере")
-    machine = await session.get(MachineIdentity, body.machine_id)
+    machine_id = MachineIdentity.id == body.machine_id
+    # Отчет агента сначала меняет строку машины, потом снимает старые обертки.
+    # Берем ту же блокировку, чтобы смена ключа не вклинилась между проверкой
+    # и записью.
+    if session.get_bind().dialect.name == "sqlite":
+        await session.execute(update(MachineIdentity).where(machine_id).values(id=MachineIdentity.id))
+    machine = await session.scalar(select(MachineIdentity).where(machine_id).with_for_update(key_share=True))
     if machine is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Машина не найдена")
     # Ключ проекта открывает машине все, что ей выдано в проекте: выдавать его
@@ -317,6 +326,11 @@ async def add_machine_wrap(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "У машины ещё нет ключа: агент присылает его при первом обращении",
+        )
+    if body.expected_public_key is not None and body.expected_public_key != machine.public_key:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Ключ машины изменился: обновите список и выдайте ключ заново",
         )
     try:
         e2e.check_wrap(body.nonce, body.wrapped_key)

@@ -1252,7 +1252,13 @@ export const listE2eMachines = (projectId: number) =>
 
 export const wrapE2eForMachine = (
   projectId: number,
-  body: { machine_id: number; ephemeral_public: string; nonce: string; wrapped_key: string },
+  body: {
+    machine_id: number
+    expected_public_key: string
+    ephemeral_public: string
+    nonce: string
+    wrapped_key: string
+  },
 ) =>
   api<E2eMachine>(`/api/projects/${projectId}/e2e/machines`, {
     method: 'POST',

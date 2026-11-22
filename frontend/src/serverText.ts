@@ -82,6 +82,8 @@ const EXACT: Record<string, string> = {
   'Машина не найдена': 'Machine not found',
   'У машины ещё нет ключа: агент присылает его при первом обращении':
     'The machine has no key yet: the agent sends it on its first request',
+  'Ключ машины изменился: обновите список и выдайте ключ заново':
+    'The machine key changed. Refresh the list and issue the key again.',
   'Проект не найден': 'Project not found',
   'публичный ключ не разбирается как base64': 'the public key is not valid base64',
   'публичный ключ должен быть длиной 32 или 65 байт':

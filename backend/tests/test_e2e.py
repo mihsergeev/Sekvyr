@@ -354,21 +354,22 @@ async def test_new_agent_key_drops_old_wraps(client: httpx.AsyncClient, owner_he
         )
     ).json()["access_token"]
     head = {"Authorization": f"Bearer {token}"}
+    original_key = base64.b64encode(b"k" * 32).decode()
+    next_key = base64.b64encode(b"z" * 32).decode()
     await client.post(
         "/api/v1/machine/report",
         headers=head,
-        json={"public_key": base64.b64encode(b"k" * 32).decode()},
+        json={"public_key": original_key},
     )
-    await client.post(
-        f"/api/projects/{project['id']}/e2e/machines",
-        headers=owner_headers,
-        json={
-            "machine_id": machine["id"],
-            "ephemeral_public": base64.b64encode(b"e" * 32).decode(),
-            "nonce": base64.b64encode(b"n" * 12).decode(),
-            "wrapped_key": base64.b64encode(b"w" * 48).decode(),
-        },
-    )
+    wrap_url = f"/api/projects/{project['id']}/e2e/machines"
+    wrap = {
+        "machine_id": machine["id"],
+        "expected_public_key": original_key,
+        "ephemeral_public": base64.b64encode(b"e" * 32).decode(),
+        "nonce": base64.b64encode(b"n" * 12).decode(),
+        "wrapped_key": base64.b64encode(b"w" * 48).decode(),
+    }
+    assert (await client.post(wrap_url, headers=owner_headers, json=wrap)).status_code == 200
     rows = (
         await client.get(f"/api/projects/{project['id']}/e2e/machines", headers=owner_headers)
     ).json()
@@ -377,12 +378,16 @@ async def test_new_agent_key_drops_old_wraps(client: httpx.AsyncClient, owner_he
     await client.post(
         "/api/v1/machine/report",
         headers=head,
-        json={"public_key": base64.b64encode(b"z" * 32).decode()},
+        json={"public_key": next_key},
     )
+    stale = await client.post(wrap_url, headers=owner_headers, json=wrap)
+    assert stale.status_code == 409
     rows = (
         await client.get(f"/api/projects/{project['id']}/e2e/machines", headers=owner_headers)
     ).json()
     assert rows[0]["has_wrap"] is False
+    wrap["expected_public_key"] = next_key
+    assert (await client.post(wrap_url, headers=owner_headers, json=wrap)).status_code == 200
     # Смена ключа названа в журнале: перед "Выдать заново" ее должно быть видно.
     log = (await client.get("/api/audit", headers=owner_headers, params={"q": "ключ ноды"})).json()
     assert any("ключ ноды сменился" in e["detail"] for e in log["entries"])

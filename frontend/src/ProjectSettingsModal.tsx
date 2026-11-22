@@ -282,7 +282,11 @@ export function ProjectSettingsModal({
       }
       const sealed = await wrapForMachine(key, public_key)
       requireCurrentSession(session)
-      await wrapE2eForMachine(project.id, { machine_id: machine.machine_id, ...sealed })
+      await wrapE2eForMachine(project.id, {
+        machine_id: machine.machine_id,
+        expected_public_key: public_key,
+        ...sealed,
+      })
       setE2eMachines(await listE2eMachines(project.id))
       setError('')
     } catch (err) {
