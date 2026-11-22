@@ -53,6 +53,7 @@ const EXACT: Record<string, string> = {
   бессрочно: 'no expiry',
   'Неверный логин или пароль': 'Wrong login or password',
   'Недействительный или отсутствующий токен': 'Invalid or missing token',
+  'Учётная запись изменилась — войдите снова': 'The account has changed. Sign in again',
   'Этой учётной записи не разрешён вход с вашего адреса':
     'This account may not log in from your address',
   'Учётная запись только для просмотра — изменения запрещены':

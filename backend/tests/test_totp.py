@@ -1,10 +1,14 @@
 """Второй фактор."""
 
+import asyncio
 import time
 
 import httpx
+from sqlalchemy import Update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import ratelimit, totp
+from app.api import auth
 from tests.conftest import OWNER_PASSWORD
 
 
@@ -73,6 +77,50 @@ async def test_enable_and_login_with_code(client: httpx.AsyncClient, owner_heade
     assert res.status_code == 200, res.text
 
 
+async def test_in_flight_start_cannot_replace_enabled_factor(client, owner_headers, monkeypatch):
+    initial = await client.post("/api/auth/2fa/start", headers=owner_headers)
+    assert initial.status_code == 200
+    secret = initial.json()["secret"]
+    started, release = asyncio.Event(), asyncio.Event()
+    commit = AsyncSession.commit
+    scalar = AsyncSession.scalar
+
+    async def pause_stale_start():
+        if asyncio.current_task() is stale_start and not started.is_set():
+            started.set()
+            await release.wait()
+
+    async def pause_scalar(session, statement, *args, **kwargs):
+        if isinstance(statement, Update):
+            await pause_stale_start()
+        return await scalar(session, statement, *args, **kwargs)
+
+    async def pause_commit(session):
+        await pause_stale_start()
+        await commit(session)
+
+    monkeypatch.setattr(AsyncSession, "scalar", pause_scalar)
+    monkeypatch.setattr(AsyncSession, "commit", pause_commit)
+    stale_start = asyncio.create_task(client.post("/api/auth/2fa/start", headers=owner_headers))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        enabled = await client.post(
+            "/api/auth/2fa/enable", headers=owner_headers,
+            json={"code": _code(secret, shift=-1), "password": OWNER_PASSWORD},
+        )
+        assert enabled.status_code == 200
+    finally:
+        release.set()
+        stale = await stale_start
+
+    assert stale.status_code == 401
+    logged_in = await client.post(
+        "/api/auth/login",
+        json={"username": "owner", "password": OWNER_PASSWORD, "otp": _code(secret)},
+    )
+    assert logged_in.status_code == 200
+
+
 async def test_enable_needs_the_password(client: httpx.AsyncClient, owner_headers):
     """С украденной сессией без пароля фактор не привязать к своему телефону."""
     secret = (await client.post("/api/auth/2fa/start", headers=owner_headers)).json()["secret"]
@@ -129,6 +177,39 @@ async def test_disable_requires_password_and_code(client: httpx.AsyncClient, own
     fresh = {"Authorization": f"Bearer {ok.json()['access_token']}"}
     assert (await client.get("/api/auth/me", headers=fresh)).json()["totp_enabled"] is False
     assert (await client.get("/api/auth/me", headers=headers)).status_code == 401
+
+
+async def test_reauth_keeps_reservation_until_totp_is_checked(client, owner_headers, monkeypatch):
+    _, headers = await _enable(client, owner_headers)
+    app = client._transport.app
+    async with app.state.session_factory() as session:
+        for _ in range(ratelimit.MAX_FAILURES - 1):
+            await ratelimit.record_failure(session, "reauth:1")
+
+    started, release = asyncio.Event(), asyncio.Event()
+    checked = 0
+
+    async def wrong_code(*_args):
+        nonlocal checked
+        checked += 1
+        if checked == 1:
+            started.set()
+            await release.wait()
+        return False
+
+    monkeypatch.setattr(auth, "consume_totp", wrong_code)
+    body = {"password": OWNER_PASSWORD, "code": "000000"}
+    first = asyncio.create_task(client.post("/api/auth/2fa/disable", headers=headers, json=body))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        second = await client.post("/api/auth/2fa/disable", headers=headers, json=body)
+    finally:
+        release.set()
+        result = await first
+
+    assert result.status_code == 400
+    assert second.status_code == 429
+    assert checked == 1
 
 
 async def test_foreign_digits_are_a_wrong_code(client: httpx.AsyncClient, owner_headers):

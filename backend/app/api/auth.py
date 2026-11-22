@@ -10,10 +10,10 @@ import hashlib
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app import alerts, audit, machines, ratelimit, roles, totp
 from app.config import get_settings
-from app.db import bump_token_version
 from app.deps import CurrentUser, SessionDep, peer_ip
 from app.models import User
 from app.security import (
@@ -124,6 +124,7 @@ async def consume_totp(session, user: User, code: str) -> bool:
         update(User)
         .where(
             User.id == user.id,
+            User.token_version == user.token_version,
             User.totp_last_counter < counter,
             User.totp_secret == user.totp_secret,
         )
@@ -132,7 +133,7 @@ async def consume_totp(session, user: User, code: str) -> bool:
     )
     if done.rowcount != 1:
         return False
-    user.totp_last_counter = counter
+    set_committed_value(user, "totp_last_counter", counter)
     return True
 
 
@@ -144,10 +145,11 @@ async def confirm_password(
     *,
     message: str,
     code: int = status.HTTP_400_BAD_REQUEST,
-) -> None:
+) -> ratelimit.Attempt:
     """Повторная проверка пароля перед опасным действием: смена пароля, второй
     фактор, аварийный архив. Со своим счетчиком и следом в журнале: иначе с
-    украденной сессией пароль подбирали бы здесь, мимо лимитера входа."""
+    украденной сессией пароль подбирали бы здесь, мимо лимитера входа.
+    Вызывающий снимает попытку после всех проверок, включая второй фактор."""
     key = f"reauth:{user.id}"
     if await ratelimit.is_locked(session, key):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, TOO_MANY)
@@ -157,18 +159,12 @@ async def confirm_password(
     if attempt is None:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, TOO_MANY)
     if await verify_password_async(password, user.password_hash):
-        await ratelimit.forget(session, attempt)
-        return
-    await _reauth_logged(session, user, request)
+        return attempt
+    await reauth_failed(session, user, request)
     raise HTTPException(code, message)
 
 
 async def reauth_failed(session, user: User, request: Request) -> None:
-    await ratelimit.record_failure(session, f"reauth:{user.id}")
-    await _reauth_logged(session, user, request)
-
-
-async def _reauth_logged(session, user: User, request: Request) -> None:
     await audit.record(session, actor=user.username, action="reauth_failed", ip=peer_ip(request))
     await session.commit()
 
@@ -210,6 +206,7 @@ async def login(body: LoginIn, request: Request, session: SessionDep) -> TokenOu
             # Отдельный код ответа, а не "неверный пароль": пароль-то верный, и
             # человеку надо показать поле для кода, а не заставлять гадать.
             await ratelimit.forget(session, attempt)
+            await session.commit()
             raise HTTPException(
                 status.HTTP_401_UNAUTHORIZED, "2fa_required"
             )
@@ -221,6 +218,7 @@ async def login(body: LoginIn, request: Request, session: SessionDep) -> TokenOu
             # Верный код сейчас тоже не пускает: иначе блокировка ничего бы не
             # стоила тому, кто подбирает.
             await ratelimit.forget(session, attempt)
+            await session.commit()
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, TOO_MANY_LOGINS)
         if not await consume_totp(session, user, body.otp):
             await _login_failed(session, attempt, user.username, ip, "неверный код 2FA")
@@ -258,17 +256,37 @@ async def me(user: CurrentUser) -> MeOut:
     )
 
 
+async def _update_auth_state(session, user: User, *, revoke_sessions: bool = True, **values) -> int:
+    # Пока проверяли пароль, пароль или второй фактор могли уже сменить.
+    # Проверка версии и запись должны пройти одним UPDATE.
+    version = user.token_version
+    if revoke_sessions:
+        values["token_version"] = version + 1
+    current = await session.scalar(
+        update(User)
+        .where(User.id == user.id, User.token_version == version)
+        .values(**values)
+        .returning(User.token_version)
+        .execution_options(synchronize_session=False)
+    )
+    if current is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Учётная запись изменилась — войдите снова")
+    return current
+
+
 @router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
     body: PasswordIn, request: Request, user: CurrentUser, session: SessionDep
 ) -> None:
     """Смена своего пароля. Все прежние токены (в том числе на других
     устройствах) после нее недействительны - за это отвечает token_version."""
-    await confirm_password(
+    attempt = await confirm_password(
         session, user, body.current_password, request, message="Текущий пароль неверен"
     )
-    user.password_hash = await hash_password_async(body.new_password)
-    await bump_token_version(session, user)
+    await ratelimit.forget(session, attempt)
+    await session.commit()
+    password_hash = await hash_password_async(body.new_password)
+    await _update_auth_state(session, user, password_hash=password_hash)
     await audit.record(
         session, actor=user.username, action="password_changed", ip=peer_ip(request)
     )
@@ -293,11 +311,11 @@ class TotpDisableIn(BaseModel):
     code: str = Field(min_length=6, max_length=8)
 
 
-def _fresh_token(user: User) -> TokenOut:
+def _fresh_token(user: User, token_version: int) -> TokenOut:
     settings = get_settings()
     return TokenOut(
         access_token=create_access_token(
-            user.username, settings.jwt_secret, settings.jwt_ttl_minutes, user.token_version
+            user.username, settings.jwt_secret, settings.jwt_ttl_minutes, token_version
         )
     )
 
@@ -312,7 +330,7 @@ async def start_totp(
     if user.totp_enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, "Второй фактор уже включён")
     secret = totp.new_secret()
-    user.totp_secret = secret
+    await _update_auth_state(session, user, revoke_sessions=False, totp_secret=secret)
     await session.commit()
     return TotpStartOut(
         secret=secret, otpauth_url=totp.provisioning_uri(secret, user.username)
@@ -333,16 +351,17 @@ async def enable_totp(
         raise HTTPException(status.HTTP_409_CONFLICT, "Второй фактор уже включён")
     if not user.totp_secret:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Сначала запросите секрет")
-    await confirm_password(session, user, body.password, request, message="Пароль неверен")
+    attempt = await confirm_password(session, user, body.password, request, message="Пароль неверен")
     if not await consume_totp(session, user, body.code):
+        await reauth_failed(session, user, request)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Код не подошёл")
-    user.totp_enabled = True
-    await bump_token_version(session, user)
+    token_version = await _update_auth_state(session, user, totp_enabled=True)
+    await ratelimit.forget(session, attempt)
     await audit.record(
         session, actor=user.username, action="totp_enabled", ip=peer_ip(request)
     )
     await session.commit()
-    return _fresh_token(user)
+    return _fresh_token(user, token_version)
 
 
 @router.post("/2fa/disable", response_model=TokenOut)
@@ -354,16 +373,16 @@ async def disable_totp(
     сессии закрываются, эта получает новый токен."""
     if not user.totp_enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, "Второй фактор не включен")
-    await confirm_password(session, user, body.password, request, message="Пароль неверен")
+    attempt = await confirm_password(session, user, body.password, request, message="Пароль неверен")
     if not await consume_totp(session, user, body.code):
         await reauth_failed(session, user, request)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Код не подошёл")
-    user.totp_enabled = False
-    user.totp_secret = ""
-    user.totp_last_counter = 0
-    await bump_token_version(session, user)
+    token_version = await _update_auth_state(
+        session, user, totp_enabled=False, totp_secret="", totp_last_counter=0
+    )
+    await ratelimit.forget(session, attempt)
     await audit.record(
         session, actor=user.username, action="totp_disabled", ip=peer_ip(request)
     )
     await session.commit()
-    return _fresh_token(user)
+    return _fresh_token(user, token_version)

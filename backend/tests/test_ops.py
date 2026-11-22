@@ -8,6 +8,7 @@
 """
 
 import argparse
+import asyncio
 import base64
 import importlib.util
 import io
@@ -19,7 +20,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from app import sealedfile
+from app import alerts, sealedfile
 from app.config import get_settings
 from app.db import create_engine_and_factory
 from app.models import EnvKey, Environment, Project, Secret, SecretVersion
@@ -151,6 +152,37 @@ async def test_emergency_archive_opens_without_panel(
         "DB_PASSWORD": "prod-пароль",
         "TOKEN": "многострочное\nзначение",
     }
+
+
+async def test_emergency_does_not_return_archive_to_revoked_session(
+    client, owner_headers, env_id, monkeypatch
+):
+    notifying, release = asyncio.Event(), asyncio.Event()
+
+    async def pause_notice(*_args):
+        notifying.set()
+        await release.wait()
+
+    monkeypatch.setattr(alerts, "notify", pause_notice)
+    export = asyncio.create_task(client.post(
+        "/api/ops/emergency",
+        headers=owner_headers,
+        json={"password": "archive-fixture-password", "login_password": OWNER_PASSWORD},
+    ))
+    try:
+        await asyncio.wait_for(notifying.wait(), timeout=5)
+        changed = await client.post(
+            "/api/auth/password",
+            headers=owner_headers,
+            json={"current_password": OWNER_PASSWORD, "new_password": "new-fixture-password"},
+        )
+        assert changed.status_code == 204
+    finally:
+        release.set()
+        response = await export
+
+    assert response.status_code == 401
+    assert "Content-Disposition" not in response.headers
 
 
 async def test_emergency_needs_own_password(client: httpx.AsyncClient, owner_headers, env_id):

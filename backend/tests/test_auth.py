@@ -1,8 +1,11 @@
 """Вход, срок жизни токена и лимит попыток."""
 
+import asyncio
+
 import httpx
 
 from app import ratelimit
+from app.api import auth
 from tests.conftest import OWNER_PASSWORD, login
 
 
@@ -52,6 +55,42 @@ async def test_password_change_kills_old_tokens(
     assert (await client.get("/api/auth/me", headers=owner_headers)).status_code == 401
     fresh = await login(client, "owner", "new-owner-pass-2026")
     assert (await client.get("/api/auth/me", headers=fresh)).status_code == 200
+
+
+async def test_in_flight_password_change_cannot_overwrite_reset(client, owner_headers, monkeypatch):
+    original, reset, stale = "original-password", "reset-password", "stale-password"
+    created = await client.post(
+        "/api/users", headers=owner_headers,
+        json={"username": "developer", "password": original, "role": "developer"},
+    )
+    assert created.status_code == 201
+    user_id = created.json()["id"]
+    headers = await login(client, "developer", original)
+    hashing, release = asyncio.Event(), asyncio.Event()
+    hash_password = auth.hash_password_async
+
+    async def pause_hashing(password):
+        hashing.set()
+        await release.wait()
+        return await hash_password(password)
+
+    monkeypatch.setattr(auth, "hash_password_async", pause_hashing)
+    change = asyncio.create_task(client.post(
+        "/api/auth/password", headers=headers,
+        json={"current_password": original, "new_password": stale},
+    ))
+    try:
+        await asyncio.wait_for(hashing.wait(), timeout=5)
+        reset_response = await client.post(
+            f"/api/users/{user_id}/password", headers=owner_headers, json={"new_password": reset},
+        )
+        assert reset_response.status_code == 204
+    finally:
+        release.set()
+        changed = await change
+
+    assert changed.status_code == 401
+    assert await login(client, "developer", reset)
 
 
 async def test_short_password_refused(

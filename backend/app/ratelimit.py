@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import LoginFailure
@@ -56,28 +56,20 @@ async def is_locked(
     return await _recent(session, key, _now(now)) >= limit
 
 
-async def _rank(session: AsyncSession, key: str, moment: datetime, row_id: int) -> int:
-    """Место записи в окне по порядку вставки. По общему счету два одновременных
-    коммита оба видели 11 при пороге 10, и оповещение не уходило вовсе."""
-    return int(await session.scalar(
-        select(func.count())
-        .select_from(LoginFailure)
-        .where(
-            LoginFailure.key == key,
-            LoginFailure.ts >= moment - timedelta(seconds=WINDOW),
-            LoginFailure.id <= row_id,
-        )
-    ) or 0)
-
-
 async def _add(session: AsyncSession, key: str, moment: datetime) -> LoginFailure:
+    if session.get_bind().dialect.name == "postgresql":
+        # Sequence IDs can be allocated in a different order from commits.
+        # Serialize reservations and counts for this subject until commit.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext('sekvyr:ratelimit'), hashtext(:key))"),
+            {"key": key},
+        )
     row = LoginFailure(key=key, ts=moment)
     session.add(row)
     # чистим то, что уже никогда не попадет в окно, - таблица не растет
     await session.execute(
         delete(LoginFailure).where(LoginFailure.ts < moment - timedelta(seconds=LOCKOUT))
     )
-    await session.commit()
     return row
 
 
@@ -87,8 +79,10 @@ async def record_failure(
     """Регистрирует неудачу. True, если ИМЕННО эта попытка включила блокировку -
     чтобы уведомление ушло один раз, а не на каждую следующую попытку."""
     moment = _now(now)
-    row = await _add(session, key, moment)
-    return await _rank(session, key, moment, row.id) == limit
+    await _add(session, key, moment)
+    closes = await _recent(session, key, moment) == limit
+    await session.commit()
+    return closes
 
 
 @dataclass
@@ -110,18 +104,18 @@ async def attempt(
     """
     moment = _now(now)
     row = await _add(session, key, moment)
-    rank = await _rank(session, key, moment, row.id)
+    rank = await _recent(session, key, moment)
     if rank > limit:
         # Ее не проверяли: в счете неудач ей не место (иначе пачка верных
         # входов из одного офиса запирала адрес на окно).
         await forget(session, Attempt(row.id, False))
-        return None
-    return Attempt(row.id, rank == limit)
+    await session.commit()
+    return Attempt(row.id, rank == limit) if rank <= limit else None
 
 
 async def forget(session: AsyncSession, attempt: Attempt) -> None:
+    """Remove the reservation in the caller's transaction."""
     await session.execute(delete(LoginFailure).where(LoginFailure.id == attempt.id))
-    await session.commit()
 
 
 async def clear(session: AsyncSession, key: str) -> None:

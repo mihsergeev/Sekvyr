@@ -18,11 +18,11 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from app import alerts, audit, backups, e2e2, emergency, settings_store, urlguard
+from app import alerts, audit, backups, e2e2, emergency, machines, ratelimit, roles, settings_store, urlguard
+from app.api.auth import confirm_password, consume_totp, reauth_failed
 from app.config import get_settings
 from app.deps import OwnerUser, SessionDep, UnsealedBox, peer_ip
-from app.api.auth import confirm_password, consume_totp, reauth_failed
-from app.models import E2E2View
+from app.models import E2E2View, User
 
 router = APIRouter(prefix="/ops", tags=["ops"])
 
@@ -228,16 +228,20 @@ async def emergency_archive(
     сессии владельца не должно хватать, чтобы вынести все хранилище одним
     запросом.
     """
-    await confirm_password(
+    attempt = await confirm_password(
         session, user, body.login_password, request,
         message="Неверный пароль", code=status.HTTP_403_FORBIDDEN,
     )
     if user.totp_enabled:
         if not body.otp:
+            await ratelimit.forget(session, attempt)
+            await session.commit()
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Нужен код второго фактора")
         if not await consume_totp(session, user, body.otp):
             await reauth_failed(session, user, request)
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Неверный код второго фактора")
+    await ratelimit.forget(session, attempt)
+    await session.commit()
 
     # This legacy archive cannot recover E2E2 read keys or authenticated history.
     # Refuse the whole archive instead of presenting an empty view as a backup.
@@ -263,6 +267,21 @@ async def emergency_archive(
         f"🧨 Sekvyr: {user.username} собрал аварийный архив — {detail}. "
         "Если это не запланированная выгрузка, разбирайтесь сейчас.",
     )
+    # The password or factor can change while the archive is being assembled.
+    allow_ips = await session.scalar(
+        select(User.allow_ips).where(
+            User.id == user.id,
+            User.token_version == user.token_version,
+            User.role == roles.OWNER,
+            User.disabled.is_(False),
+        )
+    )
+    if allow_ips is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Учётная запись изменилась — войдите снова")
+    if not machines.ip_allowed(allow_ips, peer_ip(request)):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Этой учётной записи не разрешён вход с вашего адреса"
+        )
     return Response(
         content=blob,
         media_type="application/octet-stream",

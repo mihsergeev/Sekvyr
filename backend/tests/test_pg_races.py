@@ -12,7 +12,9 @@ import os
 import httpx
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import ratelimit
 from app.models import MachineApp, Secret, SecretVersion, User
 from tests.conftest import PG
 from tests.test_pass8b_backend import PASS, _user
@@ -44,6 +46,41 @@ def _check(name, results, allowed=(200, 201, 204, 409)):
 
 def _app(client):
     return client._transport.app
+
+
+async def test_pg_rate_limit_serializes_uncommitted_reservations(client, monkeypatch):
+    async with _app(client).state.session_factory() as session:
+        for _ in range(ratelimit.MAX_FAILURES - 1):
+            await ratelimit.record_failure(session, "test-reauth-race")
+
+    before_commit, release = asyncio.Event(), asyncio.Event()
+    commit = AsyncSession.commit
+
+    async def pause_first_commit(session):
+        if asyncio.current_task() is first and not before_commit.is_set():
+            await session.flush()
+            before_commit.set()
+            await release.wait()
+        await commit(session)
+
+    async def reserve():
+        async with _app(client).state.session_factory() as session:
+            return await ratelimit.attempt(session, "test-reauth-race")
+
+    monkeypatch.setattr(AsyncSession, "commit", pause_first_commit)
+    first = asyncio.create_task(reserve())
+    second = None
+    try:
+        await asyncio.wait_for(before_commit.wait(), timeout=5)
+        second = asyncio.create_task(reserve())
+        await asyncio.wait({second}, timeout=0.5)
+    finally:
+        release.set()
+        first_result = await first
+        second_result = await second if second is not None else None
+
+    assert first_result is not None and first_result.closes
+    assert second_result is None
 
 
 async def _put(client, h, env, name, value, path="/"):
