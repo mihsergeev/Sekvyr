@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app import access, audit, geoip, kube, machines, secrets_store
 from app.audit import to_utc
@@ -41,6 +41,22 @@ REACH_DENIED = (
     "Учетные данные этой машины открывают окружение, которое вам не выдано: "
     "распоряжаться ими может тот, кто сам читает это окружение, или владелец"
 )
+
+
+async def _lock_cluster(session: SessionDep, cluster_id: int) -> Cluster | None:
+    # Создание и удаление подов, смена доверия и владельца кластера сначала
+    # блокируют кластер. Иначе ротация могла пропустить новую личность при
+    # отзыве токенов или ждать удаления личности, держащего ее строку.
+    condition = Cluster.id == cluster_id
+    if session.get_bind().dialect.name == "sqlite":
+        await session.execute(
+            update(Cluster).where(condition).values(id=Cluster.id)
+            .execution_options(synchronize_session=False)
+        )
+    return await session.scalar(
+        select(Cluster).where(condition).with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    )
 
 
 async def _require_read(session, user, environment: Environment) -> None:
@@ -363,7 +379,7 @@ async def create_machine(
     client_id, secret = machines.new_credentials()
     kubernetes = body.cluster_id is not None
     if kubernetes:
-        if await session.get(Cluster, body.cluster_id) is None:
+        if await _lock_cluster(session, body.cluster_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Кластер не найден")
         if not body.k8s_namespace.strip() or not body.k8s_service_account.strip():
             raise HTTPException(
@@ -898,7 +914,7 @@ async def update_cluster(
     перестают проходить. Раньше запись можно было только удалить и завести
     заново, а вместе с ней уходили личности подов и выданные им права.
     """
-    cluster = await session.get(Cluster, cluster_id)
+    cluster = await _lock_cluster(session, cluster_id)
     if cluster is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Кластер не найден")
     # Своими ключами можно выписывать токены подам этого кластера: менять их
@@ -916,14 +932,26 @@ async def update_cluster(
         kube.load_keys(body.jwks)
     except kube.TokenError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    trust_changed = body.jwks != cluster.jwks
     changes = ["ключи"]
     if body.issuer.strip() and body.issuer.strip() != cluster.issuer:
         cluster.issuer = body.issuer.strip()
         changes.append(f"issuer {cluster.issuer}")
+        trust_changed = True
     if body.audience.strip() and body.audience.strip() != cluster.audience:
         cluster.audience = body.audience.strip()
         changes.append(f"audience {cluster.audience}")
+        trust_changed = True
     cluster.jwks = body.jwks
+    if trust_changed:
+        # Уже обменянные JWT не проверяют подпись кластера повторно. Отзываем
+        # их в одной транзакции с обновлением доверия, сохраняя права подов.
+        await session.flush()
+        await session.execute(
+            update(MachineIdentity).where(MachineIdentity.cluster_id == cluster.id)
+            .values(token_version=MachineIdentity.token_version + 1)
+            .execution_options(synchronize_session=False)
+        )
     await audit.record(
         session,
         actor=user.username,
@@ -961,7 +989,7 @@ async def adopt_cluster(
     тот, кто читает все, что читают поды этого кластера, или владелец, как и
     при смене ключей кластера.
     """
-    cluster = await session.get(Cluster, cluster_id)
+    cluster = await _lock_cluster(session, cluster_id)
     if cluster is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Кластер не найден")
     identities = list(
@@ -1002,7 +1030,7 @@ async def delete_cluster(
     session: SessionDep,
     confirm: str = Query(default="", max_length=120),
 ) -> None:
-    cluster = await session.get(Cluster, cluster_id)
+    cluster = await _lock_cluster(session, cluster_id)
     if cluster is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Кластер не найден")
     if confirm != cluster.name:

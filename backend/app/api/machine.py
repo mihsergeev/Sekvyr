@@ -306,6 +306,7 @@ async def _machine_by_kubernetes(
     """
     clusters = list(await session.scalars(select(Cluster).where(Cluster.disabled.is_(False))))
     for cluster in clusters:
+        trust = (cluster.jwks, cluster.issuer, cluster.audience, cluster.disabled)
         try:
             namespace, account = kube.verify(
                 token,
@@ -327,6 +328,15 @@ async def _machine_by_kubernetes(
         )
         if machine is None:
             continue
+        # Смена ключей отзывает токены подов вместе с записью новых ключей.
+        # Если прочитали версию личности уже после этого коммита, нельзя
+        # подписывать новый токен на основе прежних настроек доверия.
+        current_trust = (await session.execute(
+            select(Cluster.jwks, Cluster.issuer, Cluster.audience, Cluster.disabled)
+            .where(Cluster.id == cluster.id)
+        )).one_or_none()
+        if current_trust != trust:
+            return machine, False
         return machine, machines.alive(machine) and machines.ip_allowed(machine.allow_ips, ip)
     return None, False
 

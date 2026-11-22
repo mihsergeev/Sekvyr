@@ -1,5 +1,6 @@
 """Кластер: под входит своим ServiceAccount-токеном, без статического секрета."""
 
+import asyncio
 import json
 import time
 
@@ -306,6 +307,10 @@ async def test_new_cluster_keys_keep_identities_and_rights(
         return res.status_code
 
     assert await login(new_pem) == 401
+    exchanged = await client.post("/api/v1/machine/token", json={"kubernetes_token": _sa_token(old_pem)})
+    assert exchanged.status_code == 200
+    old_bearer = {"Authorization": "Bearer " + exchanged.json()["access_token"]}
+    assert (await client.get("/api/v1/machine/whoami", headers=old_bearer)).status_code == 200
 
     bad = await client.patch(
         f"/api/machines/clusters/{cluster['id']}", headers=owner_headers, json={"jwks": "{}"}
@@ -322,10 +327,99 @@ async def test_new_cluster_keys_keep_identities_and_rights(
 
     assert await login(new_pem) == 200
     assert await login(old_pem) == 401
+    assert (await client.get("/api/v1/machine/whoami", headers=old_bearer)).status_code == 401
     policies = (await client.get("/api/policies", headers=owner_headers)).json()
     assert [row for row in policies if row["subject_id"] == machine["id"]]
     log = (await client.get("/api/audit", headers=owner_headers)).json()["entries"]
     assert [e["detail"] for e in log if e["action"] == "cluster_updated"] == ["ключи"]
+
+
+async def test_old_cluster_token_cannot_get_fresh_bearer_during_key_rotation(
+    client: httpx.AsyncClient, owner_headers, env_id, monkeypatch
+):
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.models import MachineIdentity
+
+    old_pem, old_jwks = _keypair()
+    new_pem, new_jwks = _keypair()
+    cluster = await _cluster(client, owner_headers, old_jwks)
+    await _identity(client, owner_headers, cluster["id"], env_id)
+    verified, resume = asyncio.Event(), asyncio.Event()
+    scalar = AsyncSession.scalar
+
+    async def wait_before_machine_lookup(session, statement, *args, **kwargs):
+        descriptions = getattr(statement, "column_descriptions", [])
+        if not verified.is_set() and descriptions and descriptions[0].get("entity") is MachineIdentity:
+            verified.set()
+            await resume.wait()
+        return await scalar(session, statement, *args, **kwargs)
+
+    monkeypatch.setattr(AsyncSession, "scalar", wait_before_machine_lookup)
+    token_path = "/api/v1/machine/token"
+    exchanging = asyncio.create_task(client.post(token_path, json={"kubernetes_token": _sa_token(old_pem)}))
+    try:
+        await asyncio.wait_for(verified.wait(), timeout=5)
+        rotated = await client.patch(
+            f"/api/machines/clusters/{cluster['id']}", headers=owner_headers, json={"jwks": new_jwks}
+        )
+        assert rotated.status_code == 200, rotated.text
+    finally:
+        resume.set()
+    assert (await exchanging).status_code == 401
+    fresh = await client.post(token_path, json={"kubernetes_token": _sa_token(new_pem)})
+    assert fresh.status_code == 200, fresh.text
+
+
+@pytest.mark.parametrize("concurrent_change", ["create", "delete"])
+async def test_cluster_rotation_serializes_identity_changes(
+    client: httpx.AsyncClient, owner_headers, env_id, monkeypatch, concurrent_change
+):
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.models import MachineIdentity
+
+    _, old_jwks = _keypair()
+    _, new_jwks = _keypair()
+    cluster = await _cluster(client, owner_headers, old_jwks)
+    await _identity(client, owner_headers, cluster["id"], env_id)
+    rotating, resume = asyncio.Event(), asyncio.Event()
+    execute = AsyncSession.execute
+
+    async def wait_at_revoke(session, statement, *args, **kwargs):
+        entity = getattr(statement, "entity_description", {}).get("entity")
+        if not getattr(statement, "is_update", False) or entity is not MachineIdentity:
+            return await execute(session, statement, *args, **kwargs)
+        if concurrent_change == "create":
+            # Новая личность не должна проскочить между этим UPDATE и COMMIT.
+            result = await execute(session, statement, *args, **kwargs)
+            rotating.set()
+            await resume.wait()
+            return result
+        # Удаление не должно блокировать личность, пока ротация держит кластер.
+        rotating.set()
+        await resume.wait()
+        return await execute(session, statement, *args, **kwargs)
+
+    monkeypatch.setattr(AsyncSession, "execute", wait_at_revoke)
+    route = f"/api/machines/clusters/{cluster['id']}"
+    rotation = asyncio.create_task(client.patch(route, headers=owner_headers, json={"jwks": new_jwks}))
+    try:
+        await asyncio.wait_for(rotating.wait(), timeout=5)
+        if concurrent_change == "create":
+            change = asyncio.create_task(client.post("/api/machines", headers=owner_headers, json={
+                "name": "new-pod", "cluster_id": cluster["id"],
+                "k8s_namespace": "billing", "k8s_service_account": "new-app",
+            }))
+        else:
+            change = asyncio.create_task(client.delete(route, headers=owner_headers, params={"confirm": "cluster-a"}))
+        completed, _ = await asyncio.wait([change], timeout=0.2)
+    finally:
+        resume.set()
+    rotated, changed = await asyncio.wait_for(asyncio.gather(rotation, change), timeout=8)
+    assert not completed
+    assert rotated.status_code == 200, rotated.text
+    assert changed.status_code == (201 if concurrent_change == "create" else 204), changed.text
 
 
 async def test_maintainer_cannot_swap_keys_of_a_cluster_reaching_beyond_them(
