@@ -399,6 +399,44 @@ async def test_token_algorithm_comes_from_the_cluster_key(
         assert res.status_code == 401, f"{alg}: {res.status_code} {res.text}"
 
 
+async def test_token_requires_well_formed_and_consistent_service_account_claims(
+    client: httpx.AsyncClient, owner_headers, env_id
+):
+    pem, jwks = _keypair()
+    cluster = await _cluster(client, owner_headers, jwks)
+    await _identity(client, owner_headers, cluster["id"], env_id)
+    payload = jwt.decode(_sa_token(pem), options={"verify_signature": False})
+    # Заголовок читается до проверки подписи: прислать его может кто угодно.
+    for kid in ([], {}):
+        forged = _forged({"alg": "RS256", "kid": kid}, payload)
+        response = await client.post("/api/v1/machine/token", json={"kubernetes_token": forged})
+        assert response.status_code == 401, f"{kid!r}: {response.status_code} {response.text}"
+    for changes in (
+        {"kubernetes.io": ["malformed"]},
+        {"kubernetes.io": {"namespace": "billing", "serviceaccount": ["malformed"]}},
+        {"kubernetes.io": {"namespace": "billing"}},
+        {"sub": "system:serviceaccount:billing:other"},
+        {"sub": "not-a-service-account"},
+        {"sub": "system:serviceaccount::app"},
+        {"exp": float("inf")},
+    ):
+        signed = jwt.encode({**payload, **changes}, pem, algorithm="RS256", headers={"kid": "test-key"})
+        response = await client.post("/api/v1/machine/token", json={"kubernetes_token": signed})
+        assert response.status_code == 401, f"{changes!r}: {response.status_code} {response.text}"
+    # Старые выпуски Kubernetes могут не содержать отдельного блока, но sub остается.
+    del payload["kubernetes.io"]
+    legacy = jwt.encode(payload, pem, algorithm="RS256", headers={"kid": "test-key"})
+    assert (await client.post("/api/v1/machine/token", json={"kubernetes_token": legacy})).status_code == 200
+
+
+def test_cluster_keys_need_a_string_kid():
+    _, jwks = _keypair()
+    keys = json.loads(jwks)
+    keys["keys"][0]["kid"] = ["test-key"]
+    with pytest.raises(kube.TokenError):
+        kube.load_keys(json.dumps(keys))
+
+
 async def test_long_lived_token_is_refused(
     client: httpx.AsyncClient, owner_headers, env_id, unsealed
 ):

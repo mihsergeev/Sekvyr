@@ -52,7 +52,7 @@ def load_keys(jwks_text: str) -> dict[str, PyJWK]:
             continue
         # Только ключи с открытой половиной: общий секрет в JWKS кластера
         # подписал бы токен кем угодно, кто его видел.
-        if key.key_id and key.algorithm_name[:2] in ("RS", "PS", "ES", "Ed"):
+        if isinstance(key.key_id, str) and key.key_id and key.algorithm_name[:2] in ("RS", "PS", "ES", "Ed"):
             keys[key.key_id] = key
     if not keys:
         raise TokenError("в ключах кластера нет ни одного пригодного")
@@ -71,8 +71,10 @@ def verify(token: str, *, jwks_text: str, issuer: str, audience: str) -> tuple[s
     except jwt.PyJWTError as exc:
         raise TokenError(f"заголовок токена не разобрался: {exc}") from exc
 
-    keys = load_keys(jwks_text)
-    key = keys.get(header.get("kid", ""))
+    kid = header.get("kid")
+    if not isinstance(kid, str) or not kid:
+        raise TokenError("заголовок токена не содержит допустимый kid")
+    key = load_keys(jwks_text).get(kid)
     if key is None:
         raise TokenError("ключ с таким kid кластеру не принадлежит")
 
@@ -89,22 +91,26 @@ def verify(token: str, *, jwks_text: str, issuer: str, audience: str) -> tuple[s
             options={"require": ["exp", "iat", "iss", "aud", "sub"]},
         )
         lifetime = int(claims["exp"]) - int(claims["iat"])
-    except (jwt.PyJWTError, TypeError, ValueError) as exc:
+    except (jwt.PyJWTError, TypeError, ValueError, OverflowError) as exc:
         # Не только PyJWTError: на ключе не того типа библиотека бросает
         # TypeError, и отказ без учетки превращался в 500 мимо лимитера.
         raise TokenError(f"токен не прошёл проверку: {exc}") from exc
     if lifetime > MAX_LIFETIME:
         raise TokenError("токен живет дольше суток: это уже статический секрет")
 
-    # Современный kubernetes кладет разбор в отдельный блок, но `sub` есть
-    # всегда и выглядит одинаково: system:serviceaccount:<ns>:<имя>.
-    kube = claims.get("kubernetes.io") or {}
-    namespace = str(kube.get("namespace", ""))
-    account = str((kube.get("serviceaccount") or {}).get("name", ""))
-    if not namespace or not account:
-        sub = str(claims.get("sub", ""))
-        parts = sub.split(":")
-        if len(parts) != 4 or parts[0] != "system" or parts[1] != "serviceaccount":
-            raise TokenError("это не токен ServiceAccount")
-        namespace, account = parts[2], parts[3]
+    # `sub` остается идентификатором и в старых токенах без отдельного блока.
+    # Если блок есть, он должен подтверждать sub, а не подменять личность.
+    parts = claims["sub"].split(":")
+    if len(parts) != 4 or parts[:2] != ["system", "serviceaccount"] or not all(parts[2:]):
+        raise TokenError("это не токен ServiceAccount")
+    namespace, account = parts[2:]
+    if "kubernetes.io" in claims:
+        bound = claims["kubernetes.io"]
+        service_account = bound.get("serviceaccount") if isinstance(bound, dict) else None
+        if (
+            not isinstance(service_account, dict)
+            or bound.get("namespace") != namespace
+            or service_account.get("name") != account
+        ):
+            raise TokenError("блок kubernetes.io не соответствует sub")
     return namespace, account

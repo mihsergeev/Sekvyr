@@ -115,6 +115,8 @@ const EXACT: Record<string, string> = {
   'в ключах кластера нет ни одного пригодного': 'the cluster keys contain no usable key',
   'ключ с таким kid кластеру не принадлежит': 'no key with this kid belongs to the cluster',
   'это не токен ServiceAccount': 'this is not a ServiceAccount token',
+  'заголовок токена не содержит допустимый kid': 'the token header does not contain a valid kid',
+  'блок kubernetes.io не соответствует sub': 'the kubernetes.io claim does not match sub',
   ключи: 'keys',
 
   // перенос
