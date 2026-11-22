@@ -3,6 +3,7 @@
 The TLS peer tests the authority wire boundary. Go/live tests cover the actual
 canonical journal. All publisher/read/scalar material here is synthetic public.
 """
+import asyncio
 import base64
 import copy
 from datetime import datetime, timedelta, timezone
@@ -313,6 +314,45 @@ async def test_bad_envelope_and_same_cursor_fork_never_change_projection(client,
     async with client._transport.app.state.session_factory() as session:
         projection = await session.get(E2E2AuthorityProjection, view)
         assert projection.record_hash == expected_hash
+
+
+async def test_delayed_authority_proof_cannot_restore_previous_epoch(
+    client, owner_headers, env_id, authority_peer, monkeypatch
+):
+    peer = authority_peer
+    registered = await register_view(client, owner_headers, env_id)
+    view = registered["context"]["view_id"]
+    route = f"/api/e2e2/views/{view}"
+    assert (await client.post(route + "/envelopes", headers=owner_headers, json=peer["vector"]["envelope"])).status_code == 201
+    payload = {"envelope": peer["future"], "readers": []}
+    assert (await client.post(route + "/rotation-stage", headers=owner_headers, json=payload)).status_code == 201
+
+    received_old_proof, release_old_proof = asyncio.Event(), asyncio.Event()
+    fresh_authority = e2e2_rotation.fresh_authority
+
+    async def delayed_authority(*args):
+        proof = await fresh_authority(*args)
+        if proof["cursor"]["journal_sequence"] == "1":
+            received_old_proof.set()
+            await release_old_proof.wait()
+        return proof
+
+    monkeypatch.setattr(e2e2_rotation, "fresh_authority", delayed_authority)
+    old_request = asyncio.create_task(client.post(route + "/rotation-project", headers=owner_headers, json={}))
+    try:
+        await asyncio.wait_for(received_old_proof.wait(), timeout=5)
+        peer["advance"]()
+        current = await client.post(route + "/rotation-project", headers=owner_headers, json={})
+        assert current.status_code == 200
+    finally:
+        release_old_proof.set()
+        stale = await old_request
+
+    assert stale.status_code == 409 and stale.json()["reason"] == "AuthorityDowngrade"
+    assert (await client.get(route, headers=owner_headers)).json()["indexed_hash"] == peer["future_hash"]
+    async with client._transport.app.state.session_factory() as session:
+        projection = await session.get(E2E2AuthorityProjection, view)
+        assert projection.journal_sequence == "3"
 
 
 async def test_capabilities_finds_registered_view_after_first_64(

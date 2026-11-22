@@ -6,7 +6,7 @@ import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app import access, audit, e2e2, e2e2_rotation, machines
 from app.api.machine import CurrentMachine
@@ -52,7 +52,15 @@ async def get_view(session, view_id: str, lock=False):
         reject("SourceNotFound", 404)
     query = select(E2E2View).where(E2E2View.id == view_id)
     if lock:
-        query = query.with_for_update(key_share=True).execution_options(populate_existing=True)
+        if session.get_bind().dialect.name == "sqlite":
+            # SQLite ignores FOR UPDATE. Reserve the writer before reading mutable state.
+            await session.execute(
+                update(E2E2View).where(E2E2View.id == view_id).values(id=E2E2View.id)
+                .execution_options(synchronize_session=False)
+            )
+        else:
+            query = query.with_for_update(key_share=True)
+        query = query.execution_options(populate_existing=True)
     view = await session.scalar(query)
     if view is None:
         reject("SourceNotFound", 404)
@@ -196,6 +204,7 @@ async def stage(view_id: str, request: Request, user: MaintainerUser, session: S
     view = await get_view(session, view_id)
     await manage(session, user, view)
     data = await body(request, e2e2.MAX_ENVELOPE)
+    view = await get_view(session, view_id, lock=True)
     header, encoded, digest = e2e2.validate_envelope(e2e2.canonical(data), scope(view), json.loads(view.publisher_keys), view.read_key_epoch, view.publisher_policy_epoch)
     existing = await session.get(E2E2Envelope, digest)
     if existing is not None:
@@ -219,15 +228,23 @@ async def admin_snapshot(view_id: str, envelope_hash: str, user: MaintainerUser,
 @router.post("/views/{view_id}/index")
 async def index(view_id: str, request: Request, user: MaintainerUser, session: SessionDep, _box: UnsealedBox):
     data = e2e2.exact(await body(request, 1024), {"envelope_hash"})
-    view = await get_view(session, view_id, lock=True)
+    view = await get_view(session, view_id)
     await manage(session, user, view)
     row, _ = await snapshot(session, view, data["envelope_hash"])
-    head = await e2e2.fresh_head(scope(view), view.indexed_sequence, view.indexed_hash)
-    if head["envelope_hash"] != row.envelope_hash or head["sequence"] != row.sequence:
+    floor = view.indexed_sequence, view.indexed_hash
+    keys = view.publisher_keys
+    head = await e2e2.fresh_head(scope(view), *floor)
+    # The witness call can overlap another index or authority update. Compare
+    # the proof's floor to the current state under the write lock before applying it.
+    view = await get_view(session, view_id, lock=True)
+    confirmed = head["sequence"], head["envelope_hash"]
+    if confirmed != (row.sequence, row.envelope_hash):
         reject("HeadChanged", 409)
     if head["read_key_epoch"] != view.read_key_epoch or head["publisher_policy_epoch"] != view.publisher_policy_epoch:
         reject("UnsupportedEpoch", 409)
-    view.indexed_sequence, view.indexed_hash = head["sequence"], head["envelope_hash"]
+    if view.publisher_keys != keys or (view.indexed_sequence, view.indexed_hash) not in (floor, confirmed):
+        reject("HeadChanged", 409)
+    view.indexed_sequence, view.indexed_hash = confirmed
     await audit.record(session, actor=user.username, action="secret_written", target=view.id, detail="e2e2 witness-committed snapshot indexed", ip=peer_ip(request))
     await session.commit()
     return {"envelope_hash": row.envelope_hash, "sequence": row.sequence, "state": "indexed"}
@@ -279,9 +296,9 @@ async def revoke_reader(view_id: str, machine_id: int, request: Request, user: O
 
 @router.post("/views/{view_id}/rotation-stage", status_code=201)
 async def stage_rotation(view_id: str, request: Request, user: OwnerUser, session: SessionDep, _box: UnsealedBox):
+    data = e2e2.exact(await body(request, e2e2.MAX_ENVELOPE), {"envelope", "readers"})
     view = await get_view(session, view_id, lock=True)
     await manage(session, user, view)
-    data = e2e2.exact(await body(request, e2e2.MAX_ENVELOPE), {"envelope", "readers"})
     e2e2.require(type(data["readers"]) is list and len(data["readers"]) <= 32, "InvalidShape")
     header, encoded, digest = e2e2.staged_envelope(e2e2.canonical(data["envelope"]), scope(view))
     e2e2.require(e2e2.counter(header["read_key_epoch"]) >= e2e2.counter(view.read_key_epoch) and e2e2.counter(header["publisher_policy_epoch"]) >= e2e2.counter(view.publisher_policy_epoch), "AuthorityDowngrade", 409)
@@ -321,15 +338,18 @@ async def stage_rotation(view_id: str, request: Request, user: OwnerUser, sessio
 @router.post("/views/{view_id}/rotation-project")
 async def project_rotation(view_id: str, request: Request, user: OwnerUser, session: SessionDep, _box: UnsealedBox):
     e2e2.exact(await body(request, 1024), set())
-    view = await get_view(session, view_id, lock=True)
+    view = await get_view(session, view_id)
     await manage(session, user, view)
     projection = await session.get(E2E2AuthorityProjection, view.id)
     state = await e2e2_rotation.fresh_authority(scope(view), projection)
+    view = await get_view(session, view_id, lock=True)
+    projection = await session.get(E2E2AuthorityProjection, view.id, populate_existing=True)
     authority, current, snapshot_meta = state["authority"], state["cursor"], state["snapshot"]
     e2e2.require(e2e2.counter(authority["read_key_epoch"]) >= e2e2.counter(view.read_key_epoch) and e2e2.counter(authority["publisher_policy_epoch"]) >= e2e2.counter(view.publisher_policy_epoch), "AuthorityDowngrade", 409)
     sequence, previous_sequence = e2e2.counter(snapshot_meta["sequence"]), e2e2.counter(view.indexed_sequence, True)
     e2e2.require(sequence >= previous_sequence and (sequence != previous_sequence or snapshot_meta["envelope_hash"] == view.indexed_hash), "AuthorityDowngrade", 409)
     if projection is not None:
+        e2e2.require(projection.genesis_hash == state["genesis_hash"], "AuthorityDowngrade", 409)
         new_journal, old_journal = e2e2.counter(current["journal_sequence"], True), e2e2.counter(projection.journal_sequence, True)
         e2e2.require(new_journal >= old_journal and (new_journal != old_journal or current["record_hash"] == projection.record_hash), "AuthorityDowngrade", 409)
         revision, old_revision = e2e2.counter(authority["revision"]), e2e2.counter(projection.authority_revision)

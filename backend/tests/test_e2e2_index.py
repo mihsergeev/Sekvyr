@@ -3,6 +3,7 @@
 The local signer is a protocol test peer, not a durable witness implementation.
 The separate Go/Kubernetes suite exercises the real canonical witness ledger.
 """
+import asyncio
 import copy
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -174,3 +175,43 @@ async def test_missing_or_untrusted_witness_never_indexes(client, owner_headers,
     assert (await client.get(route, headers=owner_headers)).json()["indexed_sequence"] == "0"
     monkeypatch.setenv("SEKVYR_E2E2_WITNESS_PUBLIC_KEY", e2e2.b64(bytes(32)))
     assert (await client.post(route + "/index", headers=owner_headers, json={"envelope_hash": vector["envelope_hash"]})).status_code != 200
+
+
+@pytest.mark.parametrize("advance", [False, True])
+async def test_delayed_witness_response_cannot_move_index_backwards(
+    client, owner_headers, env_id, signed_tls_peer, monkeypatch, advance
+):
+    vector, _ = vectors()
+    old_digest = vector["envelope_hash"]
+    registered = await register_view(client, owner_headers, env_id)
+    route = f"/api/e2e2/views/{registered['context']['view_id']}"
+    assert (await client.post(route + "/envelopes", headers=owner_headers, json=vector["envelope"])).status_code == 201
+    staged = await client.post(route + "/envelopes", headers=owner_headers, json=next_snapshot(vector))
+    assert staged.status_code == 201
+    new_digest = staged.json()["envelope_hash"]
+
+    received_old_head, release_old_head = asyncio.Event(), asyncio.Event()
+    fresh_head = e2e2.fresh_head
+
+    async def delayed_head(*args):
+        proof = await fresh_head(*args)
+        if not received_old_head.is_set():
+            received_old_head.set()
+            await release_old_head.wait()
+        return proof
+
+    monkeypatch.setattr(e2e2, "fresh_head", delayed_head)
+    old_request = asyncio.create_task(client.post(route + "/index", headers=owner_headers, json={"envelope_hash": old_digest}))
+    try:
+        await asyncio.wait_for(received_old_head.wait(), timeout=5)
+        if advance:
+            signed_tls_peer.update(sequence="2", hash=new_digest)
+        digest = new_digest if advance else old_digest
+        current = await client.post(route + "/index", headers=owner_headers, json={"envelope_hash": digest})
+        assert current.status_code == 200
+    finally:
+        release_old_head.set()
+        stale = await old_request
+
+    assert stale.status_code == (409 if advance else 200)
+    assert (await client.get(route, headers=owner_headers)).json()["indexed_hash"] == digest
