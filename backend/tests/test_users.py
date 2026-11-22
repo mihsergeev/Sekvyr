@@ -1,7 +1,11 @@
 """Иерархия ролей: кто кем может распоряжаться."""
 
-import httpx
+import asyncio
 
+import httpx
+import pytest
+
+from app.api import users
 from tests.conftest import login
 
 
@@ -48,6 +52,41 @@ async def test_cannot_touch_equal_or_higher(client: httpx.AsyncClient, owner_hea
     assert (
         await client.patch(f"/api/users/{users['owner']}", headers=boss, json={"disabled": True})
     ).status_code == 403
+
+
+@pytest.mark.parametrize("change, expected", [("promote_target", 403), ("disable_actor", 401)])
+async def test_password_reset_revalidates_roles_after_hashing(client, owner_headers, monkeypatch, change, expected):
+    actor = await _create(client, owner_headers, "boss", "maintainer")
+    assert actor.status_code == 201
+    created = await _create(client, owner_headers, "dev", "developer")
+    assert created.status_code == 201
+    user_id = created.json()["id"]
+    boss = await login(client, "boss", "member-pass-2026")
+    hashing, release = asyncio.Event(), asyncio.Event()
+    hash_password = users.hash_password_async
+
+    async def pause_hashing(password):
+        hashing.set()
+        await release.wait()
+        return await hash_password(password)
+
+    monkeypatch.setattr(users, "hash_password_async", pause_hashing)
+    reset = asyncio.create_task(client.post(
+        f"/api/users/{user_id}/password", headers=boss, json={"new_password": "new-member-password"},
+    ))
+    try:
+        await asyncio.wait_for(hashing.wait(), timeout=5)
+        if change == "promote_target":
+            changed = await client.patch(f"/api/users/{user_id}", headers=owner_headers, json={"role": "maintainer"})
+        else:
+            changed = await client.patch(f"/api/users/{actor.json()['id']}", headers=owner_headers, json={"disabled": True})
+        assert changed.status_code == 200
+    finally:
+        release.set()
+        result = await reset
+
+    assert result.status_code == expected
+    assert await login(client, "dev", "member-pass-2026")
 
 
 async def test_viewer_cannot_change_anything(client: httpx.AsyncClient, owner_headers):

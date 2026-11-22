@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app import access, alerts, audit, machines, roles, secrets_store
 from app.audit import to_utc
@@ -144,8 +144,14 @@ async def _require_cover(session: SessionDep, actor: User, target: User) -> None
         raise HTTPException(status.HTTP_403_FORBIDDEN, COVER_DENIED)
 
 
-async def _fetch(session: SessionDep, user_id: int) -> User:
-    target = await session.get(User, user_id)
+async def _fetch(session: SessionDep, user_id: int, *, lock: bool = False) -> User:
+    if lock and session.get_bind().dialect.name == "sqlite":
+        # SQLite не знает FOR UPDATE: занимаем запись до проверки роли.
+        await session.execute(
+            update(User).where(User.id == user_id).values(token_version=User.token_version)
+            .execution_options(synchronize_session=False)
+        )
+    target = await session.get(User, user_id, with_for_update=lock, populate_existing=lock)
     if target is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Учётная запись не найдена")
     return target
@@ -265,7 +271,7 @@ async def create_user(
 async def update_user(
     user_id: int, body: UserPatch, request: Request, user: MaintainerUser, session: SessionDep
 ) -> UserChangedOut:
-    target = await _fetch(session, user_id)
+    target = await _fetch(session, user_id, lock=True)
     _require_outranks(user, target)
     # Что встанет без этой учетки, считается до правки: после нее учетка уже
     # не держит ничего, и сравнивать не с чем.
@@ -320,6 +326,18 @@ async def update_user(
             )
             target.allow_ips = fresh
 
+    # Ожидающие правки снимаются: их ждали от того, кто выше прежней роли
+    # автора, и отключенный или пересаженный автор не тот, кого ждали. Иначе
+    # правку пониженного подтверждал бы равный ему по новой роли, а правка
+    # отключенного висела бы, пока ее не примут по ошибке.
+    # Окружения блокируем до журнала, как при обычной записи ключа.
+    withdrawn = (
+        await secrets_store.withdraw_pending_of(
+            session, target.username, reviewer=user.username, note=withdraw
+        )
+        if withdraw
+        else []
+    )
     if changes:
         await audit.record(
             session,
@@ -329,17 +347,6 @@ async def update_user(
             detail="; ".join(changes),
             ip=peer_ip(request),
         )
-    # Ожидающие правки снимаются: их ждали от того, кто выше прежней роли
-    # автора, и отключенный или пересаженный автор не тот, кого ждали. Иначе
-    # правку пониженного подтверждал бы равный ему по новой роли, а правка
-    # отключенного висела бы, пока ее не примут по ошибке.
-    withdrawn = (
-        await secrets_store.withdraw_pending_of(
-            session, target.username, reviewer=user.username, note=withdraw
-        )
-        if withdraw
-        else []
-    )
     for secret, version in withdrawn:
         await audit.record(
             session,
@@ -372,8 +379,18 @@ async def reset_password(
     к чужому имени, и она не должна быть тихой."""
     target = await _fetch(session, user_id)
     _require_outranks(user, target)
+    token_version = user.token_version
+    password_hash = await hash_password_async(body.new_password)
+    # Пока считался хеш, могли отозвать сессию автора или изменить роль цели.
+    user = await _fetch(session, user.id, lock=True)
+    if user.disabled or user.token_version != token_version:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Учётная запись изменилась — войдите снова")
+    if not machines.ip_allowed(user.allow_ips, peer_ip(request)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Этой учётной записи не разрешён вход с вашего адреса")
+    target = await _fetch(session, user_id, lock=True)
+    _require_outranks(user, target)
     await _require_cover(session, user, target)
-    target.password_hash = await hash_password_async(body.new_password)
+    target.password_hash = password_hash
     await bump_token_version(session, target)
     await audit.record(
         session,
@@ -402,7 +419,7 @@ async def reset_totp(
     фактора учетка держится на одном пароле, и тихим это быть не должно.
     Второй фактор владельца снимает только аварийный сброс из .env.
     """
-    target = await _fetch(session, user_id)
+    target = await _fetch(session, user_id, lock=True)
     _require_outranks(user, target)
     if not target.totp_enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, "Второй фактор не включен")

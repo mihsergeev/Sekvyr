@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import ratelimit
 from app.models import MachineApp, Secret, SecretVersion, User
-from tests.conftest import PG
+from app import audit, secrets_store
+from tests.conftest import PG, login
 from tests.test_pass8b_backend import PASS, _user
 from tests.test_pass9_backend import _bearer, _machine, _wrap_body
 
@@ -240,6 +241,56 @@ async def test_pg_race_token_version_bumps(client: httpx.AsyncClient, owner_head
     async with _app(client).state.session_factory() as session:
         after = await session.scalar(select(User.token_version).where(User.id == dev_id))
     assert after - before == codes.count(204), (before, after, codes)
+
+
+@pytest.mark.skipif(not PG, reason="нужен PostgreSQL для блокировок окружения и журнала")
+async def test_disable_author_and_secret_write_use_the_same_lock_order(
+    client, owner_headers, env_id, monkeypatch,
+):
+    project = (await client.get("/api/projects", headers=owner_headers)).json()[0]["id"]
+    updated = await client.patch(
+        f"/api/projects/{project}", headers=owner_headers, json={"approval_min_level": 30},
+    )
+    assert updated.status_code == 200, updated.text
+    author_id = await _user(client, owner_headers, "author", "developer")
+    policy = await client.post("/api/policies", headers=owner_headers, json={
+        "subject_type": "user", "subject_id": author_id, "environment_id": env_id, "actions": ["write"],
+    })
+    assert policy.status_code == 201, policy.text
+    author = await login(client, "author", PASS)
+    proposed = await _put(client, author, env_id, "PROPOSED", "pending")
+    assert proposed.status_code == 200 and proposed.json()["pending"], proposed.text
+
+    withdrawal_started = asyncio.Event()
+    writer_has_environment = asyncio.Event()
+    withdraw = secrets_store.withdraw_pending_of
+    record = audit.record
+
+    async def wait_for_writer(*args, **kwargs):
+        withdrawal_started.set()
+        await asyncio.wait_for(writer_has_environment.wait(), 5)
+        return await withdraw(*args, **kwargs)
+
+    async def mark_writer(*args, **kwargs):
+        if kwargs.get("target") == f"{env_id}:/:OTHER":
+            writer_has_environment.set()
+        return await record(*args, **kwargs)
+
+    monkeypatch.setattr(secrets_store, "withdraw_pending_of", wait_for_writer)
+    monkeypatch.setattr(audit, "record", mark_writer)
+
+    async def write_during_withdrawal():
+        await asyncio.wait_for(withdrawal_started.wait(), 5)
+        return await _put(client, owner_headers, env_id, "OTHER", "written")
+
+    disabled, written = await asyncio.wait_for(asyncio.gather(
+        _safe(client.patch(f"/api/users/{author_id}", headers=owner_headers, json={"disabled": True})),
+        _safe(write_during_withdrawal()),
+    ), 10)
+    _check("disable author vs secret write", [disabled, written], allowed=(200,))
+    assert disabled.json()["proposals_withdrawn"] == 1
+    pending = await client.get(f"/api/environments/{env_id}/pending", headers=owner_headers)
+    assert pending.status_code == 200 and pending.json() == []
 
 
 async def test_pg_race_first_report_of_two_pods(client: httpx.AsyncClient, owner_headers, env_id):
