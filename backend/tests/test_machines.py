@@ -716,6 +716,29 @@ async def test_maintainer_hands_out_what_they_read(
     assert res.status_code == 200, res.text
 
 
+async def test_renewed_machine_policy_stops_when_renewing_maintainer_loses_access(
+    client: httpx.AsyncClient, owner_headers, env_id
+):
+    machine = await _machine(client, owner_headers)
+    maint = await _maintainer(client, owner_headers, env_id=env_id)
+    policies = (await client.get("/api/policies", headers=owner_headers)).json()
+    maint_grant = next(row for row in policies if row["subject_type"] == "user")
+    expired = await client.post("/api/policies", headers=owner_headers, json={
+        "subject_type": "machine", "subject_id": machine["id"], "environment_id": env_id,
+        "actions": ["list", "read"], "effect": "allow", "expires_at": "2000-01-01",
+    })
+    assert expired.status_code == 201, expired.text
+    attach = await client.post(f"/api/machines/{machine['id']}/attach", headers=maint, json={"environment_id": env_id})
+    assert attach.status_code == 200 and attach.json()["granted"], attach.text
+    bearer = {"Authorization": "Bearer " + await _token(client, machine)}
+    route = "/api/v1/machine/secrets"
+    params = {"project": "billing", "env": "prod"}
+    assert (await client.get(route, headers=bearer, params=params)).status_code == 200
+    revoked = await client.delete(f"/api/policies/{maint_grant['id']}", headers=owner_headers)
+    assert revoked.status_code == 204
+    assert (await client.get(route, headers=bearer, params=params)).status_code == 403
+
+
 async def test_maintainer_cannot_loosen_a_machine_they_cannot_read(
     client: httpx.AsyncClient, owner_headers, env_id, unsealed
 ):
@@ -749,6 +772,34 @@ async def test_maintainer_cannot_loosen_a_machine_they_cannot_read(
         f"/api/machines/{machine_id}", headers=owner_headers, json={"allow_ips": "10.0.0.0/33"}
     )
     assert bad.status_code == 400
+
+
+async def test_maintainer_cannot_cut_off_machine_for_unreadable_environment(
+    client: httpx.AsyncClient, owner_headers, env_id
+):
+    machine = await _machine(client, owner_headers, name="prod-box")
+    await _grant(client, owner_headers, machine["id"], env_id)
+    maint = await _maintainer(client, owner_headers)
+    route = f"/api/machines/{machine['id']}"
+    for change in ({"expires_at": "2000-01-01"}, {"disabled": True}):
+        response = await client.patch(route, headers=maint, json=change)
+        assert response.status_code == 403, response.text
+    assert await _token(client, machine)
+    response = await client.patch(route, headers=owner_headers, json={"disabled": True})
+    assert response.status_code == 200 and response.json()["disabled"]
+
+
+async def test_maintainer_cannot_take_credentials_of_expired_machine_with_foreign_scope(
+    client: httpx.AsyncClient, owner_headers, env_id
+):
+    machine = await _machine(client, owner_headers, name="prod-box", expires_at="2000-01-01")
+    await _grant(client, owner_headers, machine["id"], env_id)
+    maint = await _maintainer(client, owner_headers)
+    route = f"/api/machines/{machine['id']}"
+    assert (await client.post(f"{route}/secret", headers=maint)).status_code == 403
+    revived = await client.patch(route, headers=owner_headers, json={"expires_at": ""})
+    assert revived.status_code == 200, revived.text
+    assert await _token(client, machine)
 
 
 async def test_one_broken_machine_does_not_lock_its_neighbours(

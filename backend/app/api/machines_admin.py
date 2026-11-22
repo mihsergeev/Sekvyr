@@ -87,7 +87,10 @@ async def _require_reach(
     """Новые учетные данные машины - только тому, кто читает все, что она.
 
     С учетом срока самой машины: машина, которая умрет раньше права
-    ответственного, им покрыта (expires - новый срок из правки машины)."""
+    ответственного, им покрыта (expires - новый срок из правки машины).
+    На текущий момент проверяем сами действующие политики независимо от
+    срока машины: дата в прошлом не дает остановить чужую машину или забрать
+    ее учетные данные до того, как владелец продлит срок."""
     if user.role == access.OWNER or not machine_ids:
         return
     mine = await access.policies_for(session, user)
@@ -109,7 +112,8 @@ async def _require_reach(
             user,
             theirs,
             lambda action, scope, at, theirs=theirs, machine=machine, deadline=deadline: (
-                _lives(machine, at, deadline) and machines.decide(theirs, action, scope, at)
+                (at == now or _lives(machine, at, deadline))
+                and machines.decide(theirs, action, scope, at)
             ),
             machines.MACHINE_ACTIONS,
             now,
@@ -444,14 +448,15 @@ async def update_machine(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Машина не найдена")
     ips = _ips(body.allow_ips) if body.allow_ips is not None else machine.allow_ips
     expires = _parse_moment(body.expires_at) if body.expires_at is not None else machine.expires_at
-    enabling = body.disabled is False and machine.disabled
-    # Включить машину, сменить ей адреса или срок - значит решать, откуда и до
-    # какого числа ее секрет открывает окружения. Как и перевыпуск секрета,
-    # это можно только тому, кто сам читает все, что она открывает.
+    changing_state = body.disabled is not None and body.disabled != machine.disabled
+    # Включить или выключить машину, сменить ей адреса или срок - значит
+    # решать, откуда и до какого числа ее секрет открывает окружения. Как и
+    # перевыпуск секрета, это можно только тому, кто сам читает все, что она
+    # открывает.
     # Охват - с новым сроком: поставить машине срок в пределах своего права
     # можно, а тому, кто ее окружение не читает, нельзя и сократить (срок
     # "завтра" оставил бы сервер без значений, как и удаление).
-    if enabling or ips != machine.allow_ips or _iso(expires) != _iso(machine.expires_at):
+    if changing_state or ips != machine.allow_ips or _iso(expires) != _iso(machine.expires_at):
         await _require_reach(session, user, [machine.id], expires={machine.id: expires})
     changes: list[str] = []
     if body.name is not None and body.name.strip()[:120] != machine.name:
@@ -646,11 +651,10 @@ async def attach_environment(
     project = await session.get(Project, environment.project_id)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Проект не найден")
-    await _require_read(session, user, environment)
     # Машина получает право от имени того, кто ее подключает, и не дольше, чем
     # оно есть у него самого: временный доступ иначе переживал себя через
     # машину.
-    _ok, until = await access.whole_until(
+    allowed, until = await access.whole_until(
         session,
         user,
         access.READ,
@@ -658,6 +662,8 @@ async def attach_environment(
         environment.id,
         await secrets_store.env_paths(session, environment.id),
     )
+    if not allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, REACH_DENIED)
 
     existing = await session.scalar(
         select(Policy).where(
@@ -676,6 +682,7 @@ async def attach_environment(
         current = existing.expires_at if existing.expires_at.tzinfo else existing.expires_at.replace(tzinfo=timezone.utc)
         if current <= datetime.now(timezone.utc):
             existing.expires_at = until
+            existing.created_by = user.username
             granted = True
             await audit.record(
                 session,
