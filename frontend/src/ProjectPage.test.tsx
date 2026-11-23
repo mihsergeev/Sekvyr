@@ -6,10 +6,11 @@
  * поиска и правил прод, думая, что это dev.
  */
 
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from './api'
+import { DialogProvider } from './Dialogs'
 import { ProjectPage } from './ProjectPage'
 
 const later = <T,>(value: T, ms: number) =>
@@ -152,5 +153,45 @@ describe('ProjectPage', () => {
     act(() => go({ slug: 'shop', env: 'stage', query: 'SHOP' }))
     await settle()
     expect(filterBox().value).toBe('SHOP')
+  })
+
+  it('поздний список окружений предыдущего проекта не скрывает открытый проект', async () => {
+    let finishPrevious!: (value: api.Environment[]) => void
+    const pending = new Promise<api.Environment[]>((resolve) => { finishPrevious = resolve })
+    const list = vi.mocked(api.listEnvironments).mockImplementation((id) =>
+      id === 1 ? pending : Promise.resolve(ENVS[id]),
+    )
+    render(<Harness start={{ slug: 'shop', env: 'stage' }} />)
+    await settle()
+    expect(list).toHaveBeenCalledWith(1)
+
+    act(() => go({ slug: 'billing', env: 'dev' }))
+    expect(await screen.findByText('BILLING_DEV_KEY')).toBeTruthy()
+    await act(async () => { finishPrevious(ENVS[1]) })
+
+    expect(screen.getByText('BILLING_DEV_KEY')).toBeTruthy()
+    expect(screen.getByTestId('at').textContent).toBe('billing/dev?q=')
+  })
+
+  it('завершившееся после перехода создание не меняет окружение нового проекта', async () => {
+    vi.mocked(api.listProjects).mockResolvedValue([{ ...project(1, 'shop'), manage: true }, project(2, 'billing')])
+    let finishCreate!: (value: api.Environment) => void
+    const create = vi.spyOn(api, 'createEnvironment').mockReturnValueOnce(
+      new Promise((resolve) => { finishCreate = resolve }),
+    )
+    render(<DialogProvider><Harness start={{ slug: 'shop', env: 'stage' }} /></DialogProvider>)
+    expect(await screen.findByText('SHOP_STAGE_KEY')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Новое окружение' }))
+    const dialog = screen.getByRole('dialog', { name: 'Новое окружение' })
+    fireEvent.change(within(dialog).getByPlaceholderText('prod'), { target: { value: 'new-env' } })
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Создать' })) })
+    expect(create).toHaveBeenCalledWith(1, 'new-env', null, null)
+
+    act(() => go({ slug: 'billing', env: 'dev' }))
+    expect(await screen.findByText('BILLING_DEV_KEY')).toBeTruthy()
+    await act(async () => { finishCreate(env(13, 1, 'new-env')) })
+
+    expect(screen.getByText('BILLING_DEV_KEY')).toBeTruthy()
+    expect(screen.getByTestId('at').textContent).toBe('billing/dev?q=')
   })
 })

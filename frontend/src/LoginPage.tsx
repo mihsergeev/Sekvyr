@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { ApiError, login, setToken, type Branding } from './api'
+import { ApiError, isCurrentSession, login, sessionStamp, setToken, type Branding } from './api'
 import { EyeIcon, EyeOffIcon } from './icons'
 import { BrandLogo } from './BrandLogo'
 import { useI18n } from './i18n'
@@ -24,13 +24,16 @@ export function LoginPage({
 
   async function submit(e: FormEvent) {
     e.preventDefault()
+    const session = sessionStamp()
     setBusy(true)
     setError(null)
     try {
       const { access_token } = await login(username, password, otp.trim())
+      if (!isCurrentSession(session)) return
       setToken(access_token)
       onLogin()
     } catch (err) {
+      if (!isCurrentSession(session)) return
       // Текст различаем только для "слишком много попыток": он говорит человеку,
       // что ждать, а не подбирать дальше. Все остальное - один ответ на все
       // случаи, чтобы по нему нельзя было выяснить, есть ли такая учетка.

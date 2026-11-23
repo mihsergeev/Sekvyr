@@ -7,7 +7,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from './api'
 import { AuthProvider, toAuth } from './auth'
-import { forgetLater } from './clipboard'
+import { copyToClipboard, forgetLater } from './clipboard'
 import { DialogProvider } from './Dialogs'
 import * as e2e from './e2e'
 import { I18nProvider } from './i18n'
@@ -236,6 +236,27 @@ describe('окно всех значений', () => {
     { name: 'B', path: '/', version: 2, value: 'b' },
   ]
 
+  it.each(['Скачать файл', 'Скопировать'])('закрытое окно не выгружает отложенный ответ: %s', async (label) => {
+    vi.spyOn(api, 'readAllValues').mockResolvedValue(values)
+    let respond!: (result: { text: string }) => void
+    const request = vi.spyOn(api, 'exportEnv').mockReturnValue(new Promise((resolve) => { respond = resolve }))
+    const createObjectURL = vi.fn().mockReturnValue('blob:fixture')
+    vi.stubGlobal('URL', Object.assign(class extends URL {}, { createObjectURL, revokeObjectURL: vi.fn() }))
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { clipboard: { writeText } }))
+    const view = wrap(<BulkEditModal envId={3} subject="shop · prod" filename="p.env" canWrite={false} onClose={() => view.unmount()} onChanged={() => {}} />)
+    expect(await screen.findByDisplayValue('a')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: label }))
+    expect(request).toHaveBeenCalledWith(3)
+    fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
+
+    await act(async () => { respond({ text: 'A=secret-fixture' }) })
+    expect(createObjectURL).not.toHaveBeenCalled()
+    expect(click).not.toHaveBeenCalled()
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
   it('чужая правка в одном ключе не мешает остальным, перезапись осознанная', async () => {
     vi.spyOn(api, 'readAllValues').mockResolvedValue(values)
     const put = vi.spyOn(api, 'putSecret').mockImplementation(async (_env, body) => {
@@ -312,6 +333,68 @@ describe('выдача ключа проекта машине', () => {
   })
 })
 
+describe('настройки проекта и отложенные ответы', () => {
+  function open(e2eEnabled: boolean) {
+    vi.spyOn(api, 'listProjects').mockResolvedValue([])
+    vi.spyOn(api, 'listEnvironments').mockResolvedValue([])
+    const project = {
+      id: 1, slug: 'shop', title: '', e2e: e2eEnabled, approval_min_level: 0, required_keys: '',
+      stale_after_days: 365, group_name: '', group_slug: '', manage: true,
+    } as api.Project
+    const auth = toAuth({ username: 'alice', role: 'owner', level: 40, role_title: '', totp_enabled: false })
+    const view = wrap(
+      <AuthProvider value={auth}>
+        <ProjectSettingsModal project={project} onClose={() => view.unmount()} onSaved={() => {}} onDeleted={() => {}} />
+      </AuthProvider>,
+    )
+    return view
+  }
+
+  it('закрытое окно не скачивает отложенную выгрузку проекта', async () => {
+    let respond!: (result: { text: string; skipped: string[] }) => void
+    const request = vi.spyOn(api, 'exportProject').mockReturnValue(new Promise((resolve) => { respond = resolve }))
+    const createObjectURL = vi.fn().mockReturnValue('blob:fixture')
+    vi.stubGlobal('URL', Object.assign(class extends URL {}, { createObjectURL, revokeObjectURL: vi.fn() }))
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    await act(async () => { open(false) })
+    fireEvent.click(screen.getByRole('button', { name: 'Скачать проект' }))
+    expect(request).toHaveBeenCalledWith(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Отмена' }))
+
+    await act(async () => { respond({ text: 'A=secret-fixture', skipped: [] }) })
+    expect(createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it.each(['открыт', 'заперт', 'закрыто окно'])(
+    'отложенная выдача ключа машины: %s',
+    async (status) => {
+      const machine = { machine_id: 7, name: 'fixture', has_key: true, has_wrap: false }
+      vi.spyOn(api, 'listE2eMachines').mockResolvedValue([machine])
+      vi.spyOn(api, 'machinePublicKey').mockResolvedValue({ public_key: 'node-public-key' })
+      const issue = vi.spyOn(api, 'wrapE2eForMachine').mockResolvedValue({ ...machine, has_wrap: true })
+      type Sealed = Awaited<ReturnType<typeof e2e.wrapForMachine>>
+      let finish!: (sealed: Sealed) => void
+      const wrapKey = vi.spyOn(e2e, 'wrapForMachine').mockReturnValue(new Promise((resolve) => { finish = resolve }))
+      const key = new Uint8Array([1, 2, 3])
+      e2e.rememberKey(1, key)
+      open(true)
+      const grant = await screen.findByRole('button', { name: 'Выдать ключ' })
+      await act(async () => { fireEvent.click(grant) })
+      expect(wrapKey).toHaveBeenCalledWith(key, 'node-public-key')
+      if (status === 'заперт') e2e.forgetKey(1)
+      if (status === 'закрыто окно') fireEvent.click(screen.getByRole('button', { name: 'Отмена' }))
+
+      const sealed = { ephemeral_public: 'fixture-public', nonce: 'fixture-nonce', wrapped_key: 'fixture-wrap' }
+      await act(async () => { finish(sealed) })
+      if (status === 'открыт') {
+        expect(issue).toHaveBeenCalledWith(1, { machine_id: 7, expected_public_key: 'node-public-key', ...sealed })
+      } else {
+        expect(issue).not.toHaveBeenCalled()
+      }
+    },
+  )
+})
+
 describe('буфер обмена чистится', () => {
   let writeText: ReturnType<typeof vi.fn>
 
@@ -342,5 +425,33 @@ describe('буфер обмена чистится', () => {
     document.dispatchEvent(new Event('copy'))
     await vi.advanceTimersByTimeAsync(1100)
     expect(writeText).not.toHaveBeenCalled()
+  })
+
+  it('ожидание разрешения старого таймера не стирает более новую копию', async () => {
+    let finish!: (permission: { state: string }) => void
+    const query = vi.fn().mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    Object.defineProperty(navigator, 'permissions', { configurable: true, value: { query } })
+    forgetLater('previous', 1000)
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(query).toHaveBeenCalledOnce()
+    forgetLater('current', 1000)
+    finish({ state: 'denied' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(writeText).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(writeText.mock.calls).toEqual([['']])
+  })
+
+  it('после закрытия окна отказ clipboard API не запускает запасное копирование', async () => {
+    let deny!: (error: Error) => void
+    writeText.mockReturnValueOnce(new Promise((_, reject) => { deny = reject }))
+    const select = vi.spyOn(HTMLTextAreaElement.prototype, 'select')
+    let current = true
+    const copying = copyToClipboard('secret-fixture', () => current)
+    current = false
+    deny(new Error('clipboard denied'))
+
+    expect(await copying).toBe(false)
+    expect(select).not.toHaveBeenCalled()
   })
 })

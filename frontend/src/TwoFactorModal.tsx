@@ -1,6 +1,6 @@
 import QRCode from 'qrcode'
 import { useEffect, useState } from 'react'
-import { setToken, totpDisable, totpEnable, totpStart } from './api'
+import { isCurrentSession, sessionStamp, setToken, totpDisable, totpEnable, totpStart } from './api'
 import { useI18n } from './i18n'
 import { useEscape } from './useEscape'
 
@@ -45,28 +45,32 @@ export function TwoFactorModal({
   // фактор не привязать к чужому телефону и не снять. Сервер закрывает прежние
   // сессии и отдает новый токен, с ним эта вкладка и продолжает.
   async function enable() {
+    const session = sessionStamp()
     setBusy(true)
     setError('')
     try {
       const res = await totpEnable(code.trim(), password)
+      if (!isCurrentSession(session)) return
       setToken(res.access_token)
       onChanged()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (isCurrentSession(session)) setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }
   }
 
   async function disable() {
+    const session = sessionStamp()
     setBusy(true)
     setError('')
     try {
       const res = await totpDisable(password, code.trim())
+      if (!isCurrentSession(session)) return
       setToken(res.access_token)
       onChanged()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (isCurrentSession(session)) setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }

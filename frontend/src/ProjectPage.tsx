@@ -14,6 +14,7 @@ import { ErrorNote } from './Notes'
 import { plural, useI18n } from './i18n'
 import { pinned, togglePin } from './pins'
 import type { View } from './router'
+import { useOperationScope } from './useOperationScope'
 
 /* Экран проекта - это сразу ключи выбранного окружения.
  *
@@ -228,6 +229,7 @@ export function ProjectPage({
   const { t } = useI18n()
   const auth = useAuth()
   const { ask, toast } = useDialogs()
+  const startOperation = useOperationScope(`${group}/${slug}`)
   // Закреплено ли текущее окружение: звезда в шапке и строка на главной.
   const [keep, setKeep] = useState(false)
   const [project, setProject] = useState<Project | null>(null)
@@ -250,30 +252,36 @@ export function ProjectPage({
   const moved = useRef<Project | null>(null)
 
   const reload = useCallback(async () => {
+    const current = startOperation()
     try {
       const projects = await listProjects()
+      if (!current()) return
       let found = projects.find((p) => p.group_slug === group && p.slug === slug) ?? null
+      let relocated = false
       if (!found) {
         // Проект мог переехать в другую группу - тогда старая ссылка ведет в
         // пустоту, хотя проект жив. Находим по имени и правим адрес.
         const sameName = projects.filter((p) => p.slug === slug)
         if (sameName.length === 1) {
           found = sameName[0]
-          moved.current = found
+          relocated = true
         }
       }
       const list = found ? await listEnvironments(found.id) : []
+      if (!current()) return
+      if (relocated) moved.current = found
       setProject(found)
       setEnvs(list)
       setEnvsOf(`${group}/${slug}`)
       setError('')
     } catch (e) {
+      if (!current()) return
       setError(e instanceof Error ? e.message : String(e))
       setEnvsOf(`${group}/${slug}`)
     } finally {
-      setLoaded(true)
+      if (current()) setLoaded(true)
     }
-  }, [group, slug])
+  }, [group, slug, startOperation])
 
   useEffect(() => {
     void reload()
@@ -309,6 +317,7 @@ export function ProjectPage({
 
   async function addEnv() {
     if (!project) return
+    const current = startOperation()
     const answer = await ask({
       title: t('Новое окружение'),
       submit: t('Создать'),
@@ -350,7 +359,7 @@ export function ProjectPage({
           : []),
       ],
     })
-    if (!answer) return
+    if (!answer || !current()) return
     const parent = envs.find((e) => String(e.id) === answer.parent)
     const source = envs.find((e) => String(e.id) === answer.copy)
     try {
@@ -360,7 +369,9 @@ export function ProjectPage({
         parent?.id ?? null,
         source?.id ?? null,
       )
+      if (!current()) return
       await reload()
+      if (!current()) return
       onEnvChosen(created.name, false)
       if (created.copied) {
         toast(`${t('скопировано значений')}: ${created.copied}`)

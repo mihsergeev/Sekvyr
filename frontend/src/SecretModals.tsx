@@ -25,6 +25,7 @@ import { useDialogs } from './Dialogs'
 import { useI18n } from './i18n'
 import { useEscape } from './useEscape'
 import { useLeave } from './useLeave'
+import { useOperationScope } from './useOperationScope'
 import { formatDateTime } from './time'
 import { versionComment } from './serverText'
 
@@ -717,6 +718,7 @@ export function BulkEditModal({
   onChanged: () => void
 }) {
   const { t } = useI18n()
+  const startOperation = useOperationScope(envId)
   const [rows, setRows] = useState<SecretValueRow[]>([])
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -929,8 +931,10 @@ export function BulkEditModal({
   }
 
   async function download() {
+    const current = startOperation()
     try {
       const res = await exportEnv(envId)
+      if (!current()) return
       const url = URL.createObjectURL(new Blob([res.text], { type: 'text/plain' }))
       const link = document.createElement('a')
       link.href = url
@@ -938,21 +942,23 @@ export function BulkEditModal({
       link.click()
       URL.revokeObjectURL(url)
     } catch (e) {
-      setError(err(e))
+      if (current()) setError(err(e))
     }
   }
 
   async function copyAll() {
+    const current = startOperation()
     try {
       const res = await exportEnv(envId)
       // Без navigator.clipboard (панель по http) раньше показывалось
       // "Скопировано", хотя в буфере ничего не было.
-      if (await copyToClipboard(res.text)) {
-        forgetLater(res.text)
-        setResult(t('Скопировано в буфер'))
-      } else setError(t('Скопировать не вышло'))
+      const copied = await copyToClipboard(res.text, current)
+      if (copied) forgetLater(res.text)
+      if (!current()) return
+      if (copied) setResult(t('Скопировано в буфер'))
+      else setError(t('Скопировать не вышло'))
     } catch (e) {
-      setError(err(e))
+      if (current()) setError(err(e))
     }
   }
 

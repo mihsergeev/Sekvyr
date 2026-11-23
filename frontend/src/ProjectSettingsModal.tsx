@@ -8,9 +8,7 @@ import {
   listProjects,
   machinePublicKey,
   myPermissions,
-  requireCurrentSession,
   rotateEnvKey,
-  sessionStamp,
   updateEnvironment,
   exportProject,
   updateProject,
@@ -27,6 +25,7 @@ import { plural, useI18n } from './i18n'
 import { createProjectKey, keyFor, rememberKey, unlockProjectKey, wrapForMachine } from './e2e'
 import { useEscape } from './useEscape'
 import { useLeave } from './useLeave'
+import { useOperationScope } from './useOperationScope'
 
 /* Настройки проекта - одно место для всего, что задают один раз.
  *
@@ -52,6 +51,7 @@ export function ProjectSettingsModal({
   const { t } = useI18n()
   const auth = useAuth()
   const { ask, confirm } = useDialogs()
+  const startOperation = useOperationScope(project.id)
   const [title, setTitle] = useState(project.title)
   const [group, setGroup] = useState(project.group_name)
   const [approval, setApproval] = useState(project.approval_min_level)
@@ -109,6 +109,7 @@ export function ProjectSettingsModal({
   }
 
   async function save() {
+    const current = startOperation()
     setBusy(true)
     setError('')
     try {
@@ -119,7 +120,7 @@ export function ProjectSettingsModal({
         required_keys: required,
         stale_after_days: stale,
       })
-      onSaved()
+      if (current()) onSaved()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -129,10 +130,12 @@ export function ProjectSettingsModal({
 
   /** Все окружения проекта одним файлом: для переезда и разбора. */
   async function downloadAll() {
+    const current = startOperation()
     setBusy(true)
     setError('')
     try {
       const out = await exportProject(project.id)
+      if (!current()) return
       const blob = new Blob([out.text], { type: 'text/plain;charset=utf-8' })
       const link = document.createElement('a')
       link.href = URL.createObjectURL(blob)
@@ -144,9 +147,9 @@ export function ProjectSettingsModal({
         setNote(`${t('не попали в файл')}: ${out.skipped.join(', ')}`)
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (current()) setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setBusy(false)
+      if (current()) setBusy(false)
     }
   }
 
@@ -190,6 +193,7 @@ export function ProjectSettingsModal({
   }
 
   async function remove() {
+    const current = startOperation()
     // Подтверждение именем, а не кнопкой "точно?": это единственная операция
     // панели, после которой значения исчезают безвозвратно.
     const answer = await ask({
@@ -201,16 +205,17 @@ export function ProjectSettingsModal({
         { name: 'confirm', label: t('Введите имя проекта'), placeholder: project.slug },
       ],
     })
-    if (!answer) return
+    if (!answer || !current()) return
     try {
       await deleteProject(project.id, answer.confirm.trim())
-      onDeleted()
+      if (current()) onDeleted()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
   }
 
   async function turnOnE2e() {
+    const current = startOperation()
     const answer = await ask({
       title: t('Шифрование в браузере'),
       text: t(
@@ -235,10 +240,10 @@ export function ProjectSettingsModal({
       ],
       // Отказ сервера (в проекте уже есть ключи) - в этом же окне.
       send: async (a) => {
-        const session = sessionStamp()
+        if (!current()) return
         const wrap = await getE2eWrap(project.id)
         const made = await createProjectKey(a.password, wrap.iterations || 600000)
-        requireCurrentSession(session)
+        if (!current()) return
         await enableE2e(project.id, {
           salt: made.wrap.salt,
           nonce: made.wrap.nonce,
@@ -246,29 +251,29 @@ export function ProjectSettingsModal({
           verifier_nonce: made.wrap.verifier_nonce,
           verifier: made.wrap.verifier,
         })
-        requireCurrentSession(session)
-        rememberKey(project.id, made.key)
+        if (current()) rememberKey(project.id, made.key)
       },
     })
-    if (answer) onSaved()
+    if (answer && current()) onSaved()
   }
 
   async function giveKey(machine: E2eMachine) {
-    const session = sessionStamp()
+    const current = startOperation()
     try {
       let key = keyFor(project.id)
       if (!key) {
         // Ключ проекта есть только у того, кто ввел пароль: сервер запечатать
         // его для машины не может - в этом и смысл режима.
         const wrap = await getE2eWrap(project.id)
+        if (!current()) return
         const answer = await ask({
           title: t('Пароль проекта'),
           submit: t('Открыть'),
           fields: [{ name: 'password', label: t('Пароль проекта'), type: 'password' }],
         })
-        if (!answer) return
+        if (!answer || !current()) return
         key = await unlockProjectKey(wrap, answer.password)
-        requireCurrentSession(session)
+        if (!current()) return
         if (!key) {
           setError(t('Пароль не подошёл'))
           return
@@ -276,21 +281,25 @@ export function ProjectSettingsModal({
         rememberKey(project.id, key)
       }
       const { public_key } = await machinePublicKey(machine.machine_id)
+      if (!current() || keyFor(project.id) !== key) return
       if (!public_key) {
         setError(t('У машины ещё нет ключа: агент присылает его при первом обращении'))
         return
       }
       const sealed = await wrapForMachine(key, public_key)
-      requireCurrentSession(session)
+      if (!current() || keyFor(project.id) !== key) return
       await wrapE2eForMachine(project.id, {
         machine_id: machine.machine_id,
         expected_public_key: public_key,
         ...sealed,
       })
-      setE2eMachines(await listE2eMachines(project.id))
+      if (!current()) return
+      const machines = await listE2eMachines(project.id)
+      if (!current()) return
+      setE2eMachines(machines)
       setError('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (current()) setError(err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -394,15 +403,15 @@ export function ProjectSettingsModal({
         {/* У e2e-проекта сервер собрал бы файл из блобов, поэтому он честно
             пропускает такие окружения, и кнопка скачивала бы пустой файл. */}
         {auth.isManager && !project.e2e && (
-          <label>
-            {t('Все окружения одним файлом')}
+          <div className="stack-tight">
+            <span className="muted small">{t('Все окружения одним файлом')}</span>
             <button className="ghost" onClick={() => void downloadAll()} disabled={busy}>
               {t('Скачать проект')}
             </button>
             <span className="muted small field-hint">
               {t('каждое окружение своим блоком; попадёт только то, что вам разрешено читать')}
             </span>
-          </label>
+          </div>
         )}
 
         {auth.isManager && (

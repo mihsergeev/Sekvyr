@@ -312,6 +312,19 @@ export function EnvironmentPage({
   const [projectKey, setProjectKey] = useState<Bytes | null>(
     projectId ? keyFor(projectId) : null,
   )
+  const keyRevision = useRef(0)
+  useLayoutEffect(() => () => { keyRevision.current += 1 }, [envId, projectId, e2e])
+
+  function valueGuard() {
+    const session = sessionStamp()
+    const revision = keyRevision.current
+    return () => {
+      requireCurrentSession(session)
+      if (revision !== keyRevision.current || (e2e && keyFor(projectId) !== projectKey)) {
+        throw new DOMException('Project key changed', 'AbortError')
+      }
+    }
+  }
 
   const key = (s: { path: string; name: string }) => `${s.path}:${s.name}`
 
@@ -609,11 +622,14 @@ export function EnvironmentPage({
   async function reveal(secret: SecretRow) {
     const id = key(secret)
     if (opened[id]) return
+    const current = valueGuard()
     try {
       const res = await readSecret(envId, secret.name, secret.path)
+      current()
       // В e2e-проекте сервер отдал шифротекст: открыть его может только эта
       // вкладка, и только пока в ней есть ключ проекта.
       const value = await incoming(res.value)
+      current()
       setOpened((prev) => ({
         ...prev,
         [id]: {
@@ -637,6 +653,7 @@ export function EnvironmentPage({
         })
       }, HIDE_AFTER_MS)
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return
       setError(e instanceof Error ? e.message : String(e))
     }
   }
@@ -647,22 +664,23 @@ export function EnvironmentPage({
   // Буфер обмена: сначала обычный путь, потом запасной. Современный API
   // работает не везде - в старом браузере, в http-стенде без TLS и при
   // отозванном разрешении он просто отказывает, а значение нужно все равно.
-  async function copyText(text: string) {
-    const session = sessionStamp()
-    requireCurrentSession(session)
+  async function copyText(text: string, current: () => void) {
+    current()
     try {
       await navigator.clipboard.writeText(text)
       return
     } catch {
-      requireCurrentSession(session)
+      current()
       const field = document.createElement('textarea')
       field.value = text
       field.style.cssText = 'position:fixed;opacity:0'
       document.body.appendChild(field)
-      field.select()
-      const ok = document.execCommand('copy')
-      field.remove()
-      if (!ok) throw new Error(CLIPBOARD_CLOSED)
+      try {
+        field.select()
+        if (!document.execCommand('copy')) throw new Error(CLIPBOARD_CLOSED)
+      } finally {
+        field.remove()
+      }
     }
   }
 
@@ -671,18 +689,22 @@ export function EnvironmentPage({
   // глазами. Показывать его ради этого - лишний риск и лишний клик.
   async function copyValue(secret: SecretRow) {
     const id = key(secret)
+    const current = valueGuard()
     try {
       const res = await readSecret(envId, secret.name, secret.path)
+      current()
       const value = await incoming(res.value)
-      await copyText(value)
+      await copyText(value, current)
       // Пароль не лежит в буфере до вечера: через время буфер чистится, если
       // в нем все еще он.
       forgetLater(value)
+      current()
       setCopied(id)
       window.setTimeout(() => setCopied((cur) => (cur === id ? null : cur)), 1500)
       toast(`${secret.name} ${t('скопирован')}`)
       setError('')
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return
       // Буфер бывает закрыт: без TLS, в чужой обертке, при отозванном
       // разрешении. Тогда не ругаемся, а открываем значение - скопировать его
       // руками человек все равно сможет.
@@ -710,6 +732,7 @@ export function EnvironmentPage({
     const id = key(secret)
     const opened0 = opened[id]
     if (!opened0) return
+    const current = valueGuard()
     // Однострочное значение, к которому Enter дописал перевод строки только в
     // конец, - это нажатый по привычке Enter, а не новая строка: хвостовой
     // перевод строки в адресе базы или токене ломает приложение. Значение,
@@ -722,12 +745,15 @@ export function EnvironmentPage({
     }
     setOpened((prev) => ({ ...prev, [id]: { ...prev[id], busy: true } }))
     try {
+      const value = await outgoing(cur.draft)
+      current()
       const row = await putSecret(envId, {
         name: secret.name,
         path: secret.path,
-        value: await outgoing(cur.draft),
+        value,
         expected_version: cur.version,
       })
+      current()
       // Строка остается открытой с новым значением: так видно, что сохранилось
       // именно то, что набрали, и не нужно открывать ключ заново ради проверки.
       setOpened((prev) => ({
@@ -746,6 +772,7 @@ export function EnvironmentPage({
       }))
       await reload()
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return
       setOpened((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], busy: false } } : prev))
       // Ключ успели изменить: в строке не сравнить и не выбрать, поэтому
       // правка уходит в окно, где видно разницу и можно перезаписать.
@@ -764,17 +791,22 @@ export function EnvironmentPage({
 
   /** Значение и версия ключа для окна правки. */
   async function readCurrent(name: string, path: string) {
+    const current = valueGuard()
     const res = await readSecret(envId, name, path)
-    return { value: await incoming(res.value), version: res.version }
+    current()
+    const value = await incoming(res.value)
+    current()
+    return { value, version: res.version }
   }
 
   /** Значение на сервер: в e2e-проекте его запечатывает браузер. */
   async function outgoing(value: string): Promise<string> {
     if (!e2e) return value
     if (!projectKey) throw new Error(t('Сначала введите пароль проекта'))
-    const session = sessionStamp()
+    const current = valueGuard()
+    current()
     const sealed = await sealValue(projectKey, value)
-    requireCurrentSession(session)
+    current()
     return sealed
   }
 
@@ -784,16 +816,20 @@ export function EnvironmentPage({
     // Без ключа показывать нечего. Блоб на месте значения выглядит значением:
     // его скопировали бы в конфиг под надписью "скопирован".
     if (!projectKey) throw new Error(t('Сначала введите пароль проекта'))
-    const session = sessionStamp()
+    const current = valueGuard()
+    current()
     const plain = await openValue(projectKey, value)
-    requireCurrentSession(session)
+    current()
     return plain
   }
 
   async function unlock() {
     const session = sessionStamp()
+    const revision = ++keyRevision.current
     try {
       const wrap = await getE2eWrap(projectId)
+      requireCurrentSession(session)
+      if (revision !== keyRevision.current) return
       const answer = await ask({
         title: t('Пароль проекта'),
         text: t(
@@ -805,6 +841,7 @@ export function EnvironmentPage({
       if (!answer) return
       const key = await unlockProjectKey(wrap, answer.password)
       requireCurrentSession(session)
+      if (revision !== keyRevision.current) return
       if (!key) {
         setError(t('Пароль не подошёл'))
         return
@@ -819,9 +856,11 @@ export function EnvironmentPage({
   }
 
   function lock() {
+    keyRevision.current += 1
     forgetKey(projectId)
     setProjectKey(null)
     setOpened({})
+    setModal(null)
   }
 
   const chosen = () => visible.filter((row) => picked[key(row)])
@@ -1869,7 +1908,7 @@ export function EnvironmentPage({
                                         // этому ключу. Значение по ней не
                                         // открывается: права спросят так же.
                                         const url = absoluteUrl({ ...shareView, query: s.name })
-                                        await copyText(url)
+                                        await copyText(url, valueGuard())
                                         toast(t('Ссылка скопирована'))
                                       }}
                                     >
@@ -2026,7 +2065,10 @@ export function EnvironmentPage({
             void reload()
           }}
           save={async (body) => {
-            await putSecret(envId, { ...body, value: await outgoing(body.value) })
+            const current = valueGuard()
+            const value = await outgoing(body.value)
+            current()
+            await putSecret(envId, { ...body, value })
           }}
         />
       )}
@@ -2045,11 +2087,14 @@ export function EnvironmentPage({
             void reload()
           }}
           save={async (body) => {
+            const current = valueGuard()
+            const value = await outgoing(body.value)
+            current()
             await putSecret(envId, {
               ...body,
               name: modal.secret.name,
               path: modal.secret.path,
-              value: await outgoing(body.value),
+              value,
             })
           }}
         />

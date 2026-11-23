@@ -8,7 +8,8 @@
  * Возвращаем честный ответ, скопировалось или нет: тому, кто копирует секрет,
  * нельзя показывать "готово", если в буфере пусто.
  */
-export async function copyToClipboard(text: string): Promise<boolean> {
+export async function copyToClipboard(text: string, current = () => true): Promise<boolean> {
+  if (!current()) return false
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text)
@@ -18,6 +19,7 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     // Падаем в запасной путь: причина отказа нам не поможет.
   }
 
+  if (!current()) return false
   try {
     const field = document.createElement('textarea')
     field.value = text
@@ -26,10 +28,12 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     field.style.opacity = '0'
     field.style.pointerEvents = 'none'
     document.body.appendChild(field)
-    field.select()
-    const ok = document.execCommand('copy')
-    document.body.removeChild(field)
-    return ok
+    try {
+      field.select()
+      return document.execCommand('copy')
+    } finally {
+      field.remove()
+    }
   } catch {
     return false
   }
@@ -65,8 +69,7 @@ export function forgetLater(text: string, after = CLIPBOARD_FORGET_MS): void {
   document.addEventListener('copy', away)
   document.addEventListener('cut', away)
   const timer = window.setTimeout(() => {
-    stop()
-    void clearIfOurs(text, left)
+    void clearIfOurs(text, () => pending === stop, () => left).finally(stop)
   }, after)
   const stop = () => {
     window.clearTimeout(timer)
@@ -80,15 +83,17 @@ export function forgetLater(text: string, after = CLIPBOARD_FORGET_MS): void {
   pending = stop
 }
 
-async function clearIfOurs(text: string, left: boolean): Promise<void> {
+async function clearIfOurs(text: string, current: () => boolean, left: () => boolean): Promise<void> {
   try {
     if (await mayRead()) {
-      if ((await navigator.clipboard.readText()) === text) {
+      if (!current()) return
+      const value = await navigator.clipboard.readText()
+      if (current() && value === text) {
         await navigator.clipboard.writeText('')
       }
       return
     }
-    if (!left && document.hasFocus()) await navigator.clipboard.writeText('')
+    if (current() && !left() && document.hasFocus()) await navigator.clipboard.writeText('')
   } catch {
     // Браузер отказал (вкладка не в фокусе, разрешение отозвали): оставляем.
   }

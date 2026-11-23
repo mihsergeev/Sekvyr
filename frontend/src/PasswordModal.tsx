@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { changeOwnPassword, MIN_PASSWORD_LEN } from './api'
+import { changeOwnPassword, isCurrentSession, MIN_PASSWORD_LEN, sessionStamp } from './api'
 import { useI18n } from './i18n'
 import { useEscape } from './useEscape'
 
@@ -21,13 +21,14 @@ export function PasswordModal({
   const [busy, setBusy] = useState(false)
 
   async function submit() {
+    const session = sessionStamp()
     setBusy(true)
     setError('')
     try {
       await changeOwnPassword(current, next)
-      onChanged()
+      if (isCurrentSession(session)) onChanged()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (isCurrentSession(session)) setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }

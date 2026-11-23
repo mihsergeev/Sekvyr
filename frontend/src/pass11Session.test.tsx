@@ -1,7 +1,7 @@
 /* Одиннадцатый проход: вкладки делят сессию, панель без связи не выглядит
  * истекшей сессией. */
 
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from './api'
@@ -10,6 +10,9 @@ import { DialogProvider } from './Dialogs'
 import * as e2e from './e2e'
 import { EnvironmentPage } from './EnvironmentPage'
 import { I18nProvider } from './i18n'
+import { LoginPage } from './LoginPage'
+import { PasswordModal } from './PasswordModal'
+import { TwoFactorModal } from './TwoFactorModal'
 
 async function settle(n = 10) {
   for (let i = 0; i < n; i++) {
@@ -39,6 +42,66 @@ function changeTokenFromAnotherTab(token: string | null) {
 beforeEach(() => {
   ;(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} }
   window.matchMedia ??= ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+})
+
+describe('замок проекта с шифрованием в браузере', () => {
+  it.each(['показать значение', 'Скопировать значение'])(
+    'не выдает значение после запирания: %s',
+    async (action) => {
+      api.setToken('test-token')
+      e2e.rememberKey(3, new Uint8Array([1]))
+      vi.stubGlobal('fetch', async (url: string) => Response.json(
+        url.endsWith('/permissions') ? { list: true, read: true } : [],
+      ))
+      const row = {
+        name: 'TEST_VALUE', path: '/', version: 1, updated_by: '', updated_at: '',
+        multiline: false, note: '', expires_at: '',
+      }
+      vi.spyOn(api, 'listSecrets').mockResolvedValue([row])
+      vi.spyOn(api, 'readSecret').mockResolvedValue({ ...row, value: 'encrypted-fixture' })
+      let finishDecrypt!: (value: string) => void
+      const decrypt = vi.spyOn(e2e, 'openValue').mockReturnValueOnce(
+        new Promise((resolve) => { finishDecrypt = resolve }),
+      )
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+      wrap(<EnvironmentPage envId={2} projectId={3} e2e />)
+
+      fireEvent.click(await screen.findByTitle(action))
+      await waitFor(() => expect(decrypt).toHaveBeenCalledOnce())
+      fireEvent.click(screen.getByRole('button', { name: 'Запереть' }))
+      expect(e2e.keyFor(3)).toBeNull()
+      await act(async () => { finishDecrypt('decrypted-fixture') })
+
+      expect(screen.queryByText('decrypted-fixture')).toBeNull()
+      expect(screen.queryByDisplayValue('decrypted-fixture')).toBeNull()
+      expect(writeText).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: 'Ввести пароль проекта' })).toBeTruthy()
+    },
+  )
+})
+
+it('после ухода из обычного окружения поздний ответ не копирует значение', async () => {
+  api.setToken('test-token')
+  vi.stubGlobal('fetch', async (url: string) => Response.json(
+    url.endsWith('/permissions') ? { list: true, read: true } : [],
+  ))
+  const row: api.SecretRow = {
+    name: 'TEST_VALUE', path: '/', version: 1, updated_by: '', updated_at: '',
+    multiline: false, note: '', expires_at: '',
+  }
+  vi.spyOn(api, 'listSecrets').mockResolvedValue([row])
+  let respond!: (value: api.SecretValue) => void
+  const read = vi.spyOn(api, 'readSecret').mockReturnValue(new Promise((resolve) => { respond = resolve }))
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { clipboard: { writeText } }))
+  const view = wrap(<EnvironmentPage envId={2} projectId={3} />)
+  fireEvent.click(await screen.findByTitle('Скопировать значение'))
+  expect(read).toHaveBeenCalledWith(2, row.name, row.path)
+  view.unmount()
+
+  await act(async () => { respond({ ...row, value: 'secret-fixture' }) })
+  expect(writeText).not.toHaveBeenCalled()
 })
 
 afterEach(() => {
@@ -86,6 +149,52 @@ describe('нет связи с панелью', () => {
 })
 
 describe('вкладки делят сессию', () => {
+  it('запоздалый вход не заменяет сессию соседней вкладки', async () => {
+    const onLogin = vi.fn()
+    vi.spyOn(api, 'login').mockImplementation(async () => {
+      changeTokenFromAnotherTab('other-session')
+      return { access_token: 'late-login' }
+    })
+    wrap(<LoginPage onLogin={onLogin} branding={null} />)
+    fireEvent.change(screen.getByLabelText('Логин'), { target: { value: 'alice' } })
+    fireEvent.change(screen.getByLabelText('Пароль'), { target: { value: 'fixture-password' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Войти' })) })
+    expect(api.getToken()).toBe('other-session')
+    expect(onLogin).not.toHaveBeenCalled()
+  })
+
+  it('ответ о смене пароля не закрывает новую сессию', async () => {
+    api.setToken('old-session')
+    const onChanged = vi.fn()
+    vi.spyOn(api, 'changeOwnPassword').mockImplementation(async () => {
+      changeTokenFromAnotherTab('other-session')
+    })
+    wrap(<PasswordModal onClose={() => {}} onChanged={onChanged} />)
+    fireEvent.change(screen.getByLabelText('Текущий пароль'), { target: { value: 'fixture-password' } })
+    fireEvent.change(screen.getByLabelText('Новый пароль'), { target: { value: 'new-fixture-password' } })
+    fireEvent.change(screen.getByLabelText('Пароль ещё раз'), { target: { value: 'new-fixture-password' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Сохранить' })) })
+    expect(onChanged).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('ответ о смене 2FA не восстанавливает старую сессию (%s)', async (enabled) => {
+    api.setToken('old-session')
+    const onChanged = vi.fn()
+    vi.spyOn(api, 'totpStart').mockResolvedValue({ secret: 'fixture', otpauth_url: 'otpauth://totp/fixture' })
+    vi.spyOn(api, enabled ? 'totpDisable' : 'totpEnable').mockImplementation(async () => {
+      changeTokenFromAnotherTab(null)
+      return { access_token: 'late-refresh' }
+    })
+    wrap(<TwoFactorModal enabled={enabled} onClose={() => {}} onChanged={onChanged} />)
+    fireEvent.change(screen.getByLabelText('Пароль'), { target: { value: 'fixture-password' } })
+    fireEvent.change(screen.getByLabelText('Код из приложения'), { target: { value: '123456' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: enabled ? 'Выключить' : 'Включить' }))
+    })
+    expect(api.getToken()).toBeNull()
+    expect(onChanged).not.toHaveBeenCalled()
+  })
+
   function mountApp() {
     localStorage.setItem('sekvyr_token', 'tok')
     vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')))
