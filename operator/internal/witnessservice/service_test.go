@@ -223,6 +223,42 @@ func TestConcurrentCASAcrossIndependentServiceInstances(t *testing.T) {
 	}
 }
 
+func TestRestartRecoversInterruptedRecordPublication(t *testing.T) {
+	for _, published := range []bool{false, true} {
+		t.Run(map[bool]string{false: "before publication", true: "after publication"}[published], func(t *testing.T) {
+			ctx := context.Background()
+			f := setup(t)
+			log := f.genesis.Body.LogID
+			path := filepath.Join(f.root, log)
+			staged := filepath.Join(path, pendingRecordName)
+			one := f.publish(t, "1", e2e2.ZeroHash, "fake-one", nil)
+			if published {
+				if _, err := f.s.Commit(ctx, log, one); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Link(filepath.Join(path, recordName(1)), staged); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(staged, []byte(`{"format":`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			restarted := f.open(t)
+			if _, err := os.Stat(staged); !os.IsNotExist(err) {
+				t.Fatal("interrupted staging file was left behind", err)
+			}
+			if result, err := restarted.Commit(ctx, log, one); err != nil || result.Sequence != "1" || result.EnvelopeHash != one.EnvelopeHash {
+				t.Fatal("retry did not resolve the original canonical slot", err)
+			}
+			if _, err := os.Stat(filepath.Join(path, recordName(2))); !os.IsNotExist(err) {
+				t.Fatal("retry wrote a second canonical slot", err)
+			}
+			if _, err := restarted.Head(ctx, log, request(t, "1", one.EnvelopeHash)); err != nil {
+				t.Fatal("published canonical slot unavailable after restart", err)
+			}
+		})
+	}
+}
+
 func TestDamageAndIndependentCheckpointFailClosed(t *testing.T) {
 	for _, damage := range []string{"torn-tail", "gap", "symlink", "genesis-rewrite", "missing-journal", "minimum-ahead", "minimum-fork"} {
 		t.Run(damage, func(t *testing.T) {

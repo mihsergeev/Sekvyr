@@ -20,12 +20,14 @@ import (
 
 const maxRecords = 4096
 const maxReplayBytes = 512 << 20
+const pendingRecordName = ".next-record"
 
 type logState struct {
-	genesis GenesisBody
-	head    witness.Head
-	history map[string]string
-	keys    map[string]ed25519.PublicKey
+	genesis     GenesisBody
+	head        witness.Head
+	history     map[string]string
+	keys        map[string]ed25519.PublicKey
+	replayBytes int64
 }
 
 func recordName(sequence uint64) string { return fmt.Sprintf("%020d.json", sequence) }
@@ -48,18 +50,15 @@ func Initialize(root string, raw []byte, admin ed25519.PublicKey) (string, error
 	if os.Mkdir(path, 0700) != nil {
 		return "", fail("InitializationDenied")
 	}
-	dir, err := os.Open(path)
-	if err != nil {
-		return "", fail("LedgerUnavailable")
-	}
-	defer dir.Close()
 	lock, err := os.OpenFile(filepath.Join(path, "lock"), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
 		return "", fail("LedgerUnavailable")
 	}
-	err = lock.Sync()
-	lock.Close()
-	if err != nil {
+	defer lock.Close()
+	if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX) != nil {
+		return "", fail("LedgerUnavailable")
+	}
+	if lock.Sync() != nil {
 		return "", fail("LedgerDurabilityFailed")
 	}
 	canonical, err := canonical(g, 64<<10)
@@ -81,10 +80,12 @@ func Initialize(root string, raw []byte, admin ed25519.PublicKey) (string, error
 }
 
 func appendRecord(path string, sequence uint64, raw []byte) error {
-	f, err := os.OpenFile(filepath.Join(path, recordName(sequence)), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
+	pending := filepath.Join(path, pendingRecordName)
+	f, err := os.OpenFile(pending, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
 		return fail("LedgerAppendFailed")
 	}
+	defer os.Remove(pending)
 	n, writeErr := f.Write(raw)
 	if writeErr != nil || n != len(raw) {
 		f.Close()
@@ -95,6 +96,13 @@ func appendRecord(path string, sequence uint64, raw []byte) error {
 		return fail("LedgerDurabilityFailed")
 	}
 	if f.Close() != nil {
+		return fail("LedgerDurabilityFailed")
+	}
+	// Link publishes complete bytes atomically and refuses an existing slot.
+	if os.Link(pending, filepath.Join(path, recordName(sequence))) != nil {
+		return fail("LedgerAppendFailed")
+	}
+	if os.Remove(pending) != nil {
 		return fail("LedgerDurabilityFailed")
 	}
 	dir, err := os.Open(path)
@@ -165,6 +173,14 @@ func replay(ctx context.Context, path string, reg Registration) (*logState, erro
 		if !entry.Type().IsRegular() {
 			return nil, fail("LedgerCorrupt")
 		}
+		if entry.Name() == pendingRecordName {
+			// The caller holds the journal lock. An abandoned staging file was
+			// never authoritative, even if its canonical link already exists.
+			if os.Remove(filepath.Join(path, pendingRecordName)) != nil {
+				return nil, fail("LedgerDurabilityFailed")
+			}
+			continue
+		}
 		names = append(names, entry.Name())
 	}
 	if len(names) == 0 || len(names) > maxRecords {
@@ -176,7 +192,6 @@ func replay(ctx context.Context, path string, reg Registration) (*logState, erro
 		return nil, fail("ConfigInvalid")
 	}
 	state := &logState{history: map[string]string{}, keys: map[string]ed25519.PublicKey{}}
-	var total int64
 	for index, name := range names {
 		if ctx.Err() != nil {
 			return nil, fail("Cancelled")
@@ -193,8 +208,8 @@ func replay(ctx context.Context, path string, reg Registration) (*logState, erro
 			f.Close()
 			return nil, fail("LedgerCorrupt")
 		}
-		total += info.Size()
-		if total > maxReplayBytes {
+		state.replayBytes += info.Size()
+		if state.replayBytes > maxReplayBytes {
 			f.Close()
 			return nil, fail("LedgerCapacityOrCorruption")
 		}

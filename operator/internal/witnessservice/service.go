@@ -129,10 +129,24 @@ func (s *Service) Commit(ctx context.Context, log string, request CommitRequest)
 	var response CommitResponse
 	err := withLog(ctx, s.root, reg, func(path string, state *logState) error {
 		head := state.head
-		if request.Expected.Sequence != head.Sequence || request.Expected.EnvelopeHash != head.EnvelopeHash || request.Expected.WitnessEpoch != head.WitnessEpoch || request.Expected.PublisherPolicyEpoch != head.PublisherPolicyEpoch {
+		seq, _ := e2e2.Counter(request.Expected.Sequence, true)
+		policyEpoch := state.genesis.PublisherPolicyEpoch
+		if seq == 0 {
+			policyEpoch = "0"
+		}
+		if request.Expected.EnvelopeHash != state.history[request.Expected.Sequence] || request.Expected.WitnessEpoch != head.WitnessEpoch || request.Expected.PublisherPolicyEpoch != policyEpoch {
 			return fail("CASConflict")
 		}
-		seq, _ := e2e2.Counter(head.Sequence, true)
+		nextSequence := strconv.FormatUint(seq+1, 10)
+		if request.Expected.Sequence != head.Sequence {
+			if state.history[nextSequence] != request.EnvelopeHash {
+				return fail("CASConflict")
+			}
+			// The exact successor is already durable. Resolve a lost reply
+			// from the verified history without fetching or writing it again.
+			response = CommitResponse{Sequence: nextSequence, EnvelopeHash: request.EnvelopeHash}
+			return nil
+		}
 		if seq >= maxRecords-1 {
 			return fail("LedgerCapacityOrCorruption")
 		}
@@ -156,13 +170,16 @@ func (s *Service) Commit(ctx context.Context, log string, request CommitRequest)
 		if err != nil {
 			return err
 		}
+		if int64(len(record)) > maxReplayBytes-state.replayBytes {
+			return fail("LedgerCapacityOrCorruption")
+		}
 		if ctx.Err() != nil {
 			return fail("Cancelled")
 		}
 		if err = appendRecord(path, seq+1, record); err != nil {
 			return err
 		}
-		response = CommitResponse{Sequence: strconv.FormatUint(seq+1, 10), EnvelopeHash: next.EnvelopeHash}
+		response = CommitResponse{Sequence: nextSequence, EnvelopeHash: next.EnvelopeHash}
 		return nil
 	})
 	if err != nil {
