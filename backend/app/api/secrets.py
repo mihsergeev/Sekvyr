@@ -33,6 +33,8 @@ from app.models import (
     MachineIdentity,
     Policy,
     Project,
+    Secret,
+    SecretVersion,
     User,
 )
 from sqlalchemy import func, select
@@ -686,6 +688,7 @@ async def secret_meta(
                 status.HTTP_400_BAD_REQUEST, "Не разобрал дату: нужен вид 2027-03-01"
             ) from None
 
+    await secrets_store.lock_secret(session, secret)
     secret.note = body.note.strip()[:200]
     secret.expires_at = when
     await audit.record(
@@ -1477,6 +1480,20 @@ class EventRow(BaseModel):
     detail: str = ""
 
 
+# У записей журнала разных разделов один столбец target. Номер окружения
+# может совпасть, например, с логином или именем группы.
+_KEY_EVENTS = (
+    "secret_read", "secret_written", "secret_pending", "secret_deleted", "secret_version_read",
+    "secret_rolled_back", "secret_meta", "secret_renamed", "secret_matched", "secret_approved",
+    "secret_rejected", "secret_inherited", "lint_muted", "lint_unmuted",
+)
+_ENV_EVENTS = (
+    "env_key_rotated", "env_exported", "env_values_read", "env_imported", "environment_updated",
+    "machine_denied", "secrets_migrated",
+)
+_SCOPED_ENV_EVENTS = ("env_compared", "snapshot_created", "snapshot_restored", "snapshot_deleted")
+
+
 @router.get("/events", response_model=list[EventRow])
 async def env_events(
     env_id: int,
@@ -1494,13 +1511,35 @@ async def env_events(
     """
     env = await _guard_any(session, user, env_id, access.LIST)
     can_list = await _checker(session, user, env, access.LIST)
+    whole_list = await access.covers_whole(session, user, access.LIST, env.project_id, env.id, [])
     limit = max(1, min(limit, 100))
-    rows = await session.scalars(
+    prefix = f"{env_id}:"
+    rows = list(await session.scalars(
         select(AuditLog)
-        .where(AuditLog.target.like(f"{env_id}:%") | (AuditLog.target == str(env_id)))
+        .where(
+            (AuditLog.action.in_(_ENV_EVENTS) & (AuditLog.target == str(env_id)))
+            | (AuditLog.action.in_(_KEY_EVENTS + _SCOPED_ENV_EVENTS) & AuditLog.target.like(f"{prefix}%"))
+        )
         .order_by(AuditLog.id.desc())
         .limit(limit)
-    )
+    ))
+    # Старое имя могло содержать двоеточие. У одного target могут быть два
+    # разных пути, в том числе прежнее место ключа и место бывшего родителя.
+    ambiguous = {
+        row.target.removeprefix(prefix) for row in rows
+        if row.action in _KEY_EVENTS and row.target.count(":") > 2 and len(row.target) < audit.TARGET_MAX
+    }
+    historical_paths: dict[str, set[str]] = {}
+    if ambiguous and not whole_list:
+        address = SecretVersion.path_at + ":" + SecretVersion.name_at
+        for target, path in await session.execute(
+            select(address, SecretVersion.path_at)
+            .join(Secret, Secret.id == SecretVersion.secret_id)
+            .join(Environment, Environment.id == Secret.environment_id)
+            .where(Environment.project_id == env.project_id, address.in_(ambiguous))
+            .distinct()
+        ):
+            historical_paths.setdefault(target, set()).add(path)
     # Подпись ключа берется по точному совпадению строки журнала с ключами
     # окружения: разбор по двоеточию путал папку /x:y с ключом y в папке /x.
     # Ключа, которого уже нет, в окружении не найти - тогда разбор, как раньше.
@@ -1512,22 +1551,47 @@ async def env_events(
         )
     out: list[EventRow] = []
     for row in rows:
-        place, key = known.get(row.target or "", ("", ""))
-        parts = (row.target or "").split(":", 2)
-        if not key and len(parts) == 3:
-            place = parts[1]
-            key = parts[2] if parts[1] == "/" else f"{parts[1]}/{parts[2]}"
-        # Событие про ключ из папки, которую человек не видит, в ленту не идет:
-        # имя ключа - тоже сведения.
-        if key and not can_list(place or "/"):
-            continue
+        key = ""
+        if row.action in _KEY_EVENTS:
+            # При обрезке конец настоящего пути мог исчезнуть из target.
+            if not whole_list and len(row.target) == audit.TARGET_MAX:
+                continue
+            target = row.target.removeprefix(prefix)
+            candidates = historical_paths.get(target)
+            if row.action in ("lint_muted", "lint_unmuted") or not candidates:
+                # У пометки линтера может не быть строки ключа.
+                candidates = {target[:i] for i, ch in enumerate(target) if ch == ":"}
+            if any(not can_list(path or "/") for path in candidates):
+                continue
+            place, key = known.get(row.target, ("", ""))
+            if not key:
+                if len(candidates) == 1:
+                    place = next(iter(candidates))
+                    name = target[len(place) + 1:]
+                else:
+                    place, _, name = target.partition(":")
+                if not name:
+                    continue
+                key = name if place == "/" else f"{place}/{name}"
+            # Имя ключа из закрытой папки тоже сведения о ней.
+            if not can_list(place or "/"):
+                continue
+        detail = row.detail or ""
+        if row.action not in _KEY_EVENTS and not whole_list:
+            detail = ""
+        if user.role != roles.OWNER:
+            if row.action in ("env_compared", "secret_matched"):
+                # Итог чужого поиска включает места за пределами этого окружения.
+                detail = ""
+            if row.action == "environment_updated":
+                detail = "; ".join(change for change in detail.split("; ") if not change.startswith("родитель: "))
         out.append(
             EventRow(
                 at=_iso(row.ts),
                 actor=row.actor,
                 action=row.action,
                 key=key,
-                detail=_hide_closed_place(row.detail or "", can_list),
+                detail=_hide_closed_place(detail, can_list),
             )
         )
     return out
@@ -1879,7 +1943,8 @@ async def _snapshot_or_404(session, env_id: int, snapshot_id: int) -> EnvSnapsho
 async def list_snapshots(
     env_id: int, user: CurrentUser, session: SessionDep
 ) -> list[SnapshotOut]:
-    await _guard(session, user, env_id, access.LIST)
+    env = await _guard(session, user, env_id, access.LIST)
+    can_list = await _checker(session, user, env, access.LIST)
     rows = await session.scalars(
         select(EnvSnapshot)
         .where(EnvSnapshot.environment_id == env_id)
@@ -1887,7 +1952,7 @@ async def list_snapshots(
     )
     out: list[SnapshotOut] = []
     for snapshot in rows:
-        plan_items = await secrets_store.snapshot_items_count(session, snapshot)
+        plan_items = await secrets_store.snapshot_items_count(session, snapshot, can_list)
         out.append(
             SnapshotOut(
                 id=snapshot.id,
@@ -1908,7 +1973,8 @@ async def create_snapshot(
     user: CurrentUser,
     session: SessionDep,
 ) -> SnapshotOut:
-    await _guard(session, user, env_id, access.WRITE)
+    env = await _guard(session, user, env_id, access.WRITE)
+    can_list = await _checker(session, user, env, access.LIST)
     try:
         snapshot = await secrets_store.snapshot_create(
             session, env_id=env_id, name=body.name, author=user.username
@@ -1923,7 +1989,7 @@ async def create_snapshot(
         ip=peer_ip(request),
     )
     await session.commit()
-    count = await secrets_store.snapshot_items_count(session, snapshot)
+    count = await secrets_store.snapshot_items_count(session, snapshot, can_list)
     return SnapshotOut(
         id=snapshot.id,
         name=snapshot.name,
@@ -2240,6 +2306,7 @@ async def stop_override(
     """
     env = await _guard(session, user, env_id, access.WRITE, body.path)
     await refuse_below_threshold(session, user, env)
+    await secrets_store.lock_env(session, env_id)
     if env.parent_id is None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "У окружения нет родителя — наследовать не от кого"
@@ -2247,6 +2314,13 @@ async def stop_override(
     secret = await secrets_store.get_secret(session, env_id, body.path, body.name)
     if secret is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Здесь нет своего значения")
+    if secret.current_version and not secret.deleted:
+        parent_value = await secrets_store.resolve(session, env.parent_id, secret.path, secret.name)
+        if parent_value is None:
+            await access.require(
+                session, user, access.DELETE,
+                access.Scope(project_id=env.project_id, environment_id=env.id, path=secret.path),
+            )
     version = await secrets_store.stop_override(session, box, secret, author=user.username)
     await audit.record(
         session,

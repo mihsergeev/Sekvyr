@@ -1441,12 +1441,20 @@ async def snapshot_restore(
     return restored, removed
 
 
-async def snapshot_items_count(session: AsyncSession, snapshot: EnvSnapshot) -> int:
-    """Сколько ключей помнит снимок."""
-    rows = await session.scalars(
-        select(EnvSnapshotItem).where(EnvSnapshotItem.snapshot_id == snapshot.id)
+async def snapshot_items_count(
+    session: AsyncSession, snapshot: EnvSnapshot, can_list: Callable[[str], bool]
+) -> int:
+    """Сколько ключей снимка было в видимых папках на момент сохранения."""
+    paths = await session.scalars(
+        select(SecretVersion.path_at)
+        .join(
+            EnvSnapshotItem,
+            (EnvSnapshotItem.secret_id == SecretVersion.secret_id)
+            & (EnvSnapshotItem.version == SecretVersion.version),
+        )
+        .where(EnvSnapshotItem.snapshot_id == snapshot.id)
     )
-    return len(list(rows))
+    return sum(can_list(path or "/") for path in paths)
 
 
 # --- подтверждение изменений ----------------------------------------------

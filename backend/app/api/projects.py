@@ -613,7 +613,7 @@ async def list_environments(
                 name=e.name,
                 title=e.title,
                 key_generation=0,
-                parent_id=e.parent_id,
+                parent_id=e.parent_id if e.parent_id in names else None,
                 parent_name=names.get(e.parent_id or -1, ""),
                 secret_count=effective,
                 own_count=own_count,
@@ -998,14 +998,19 @@ async def update_environment(
             ip=peer_ip(request),
         )
     await session.commit()
-    parent = await session.get(Environment, env.parent_id) if env.parent_id else None
+    parent = None
+    if env.parent_id and await _visible_envs(session, user, env.project_id, [env.parent_id]):
+        parent = await session.get(Environment, env.parent_id)
+    can_list = await access.place_check(session, user, access.LIST, env.project_id, env.id)
+    effective = await secrets_store.effective_list(session, env.id)
     return EnvOut(
         id=env.id,
         project_id=env.project_id,
         name=env.name,
         title=env.title,
         key_generation=0,
-        parent_id=env.parent_id,
+        parent_id=parent.id if parent else None,
         parent_name=parent.name if parent else "",
-        secret_count=len(await secrets_store.effective_list(session, env.id)),
+        secret_count=sum(can_list(secret.path) for secret, _level in effective),
+        own_count=sum(level == env.id and can_list(secret.path) for secret, level in effective),
     )

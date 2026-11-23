@@ -7,6 +7,8 @@ GET /secret и обходился всем, что работает с окру�
 и с собственной политикой), сбросом пароля и переименованием "везде".
 """
 
+import asyncio
+
 import httpx
 
 from tests.conftest import login
@@ -143,6 +145,175 @@ async def test_parent_change_needs_every_folder(client: httpx.AsyncClient, owner
     assert "EXTRA" not in {row["name"] for row in listed.json()}
 
 
+async def test_environment_patch_respects_folder_and_parent_visibility(client, owner_headers, unsealed):
+    pid, envs = await _setup(client, owner_headers)
+    prod = envs["prod"]
+    assert (await client.patch(
+        f"/api/environments/{prod}", headers=owner_headers, json={"parent_id": envs["dev"]}
+    )).status_code == 200
+    uid = await _user(client, owner_headers, "keeper", "maintainer")
+    await _pol(client, owner_headers, uid, prod, "/", ["list", "write"])
+    await _pol(client, owner_headers, uid, prod, "/private", ["list"], allow=False)
+    keeper = await login(client, "keeper", PASS)
+
+    edited = await client.patch(
+        f"/api/environments/{prod}", headers=keeper, json={"title": "Production"}
+    )
+    assert edited.status_code == 200, edited.text
+    listed = await client.get(f"/api/projects/{pid}/environments", headers=keeper)
+    assert listed.status_code == 200, listed.text
+    for row in (edited.json(), listed.json()[0]):
+        assert row["title"] == "Production"
+        assert row["parent_id"] is None
+        assert row["parent_name"] == ""
+        assert row["secret_count"] == row["own_count"] == 1
+    owner = await client.get(f"/api/projects/{pid}/environments", headers=owner_headers)
+    owner_prod = next(row for row in owner.json() if row["id"] == prod)
+    assert owner_prod["parent_id"] == envs["dev"]
+    assert owner_prod["secret_count"] == 3
+
+
+async def test_snapshot_counts_use_the_saved_folder_visibility(client, owner_headers, unsealed):
+    _pid, envs = await _setup(client, owner_headers)
+    base = f"/api/environments/{envs['prod']}"
+    uid, dev = await _denied_reader(client, owner_headers, envs)
+    await _pol(client, owner_headers, uid, envs["prod"], "/", ["write"])
+    created = await client.post(f"{base}/snapshots", headers=dev, json={"name": "before"})
+    assert created.status_code == 201, created.text
+    assert created.json()["keys"] == 1
+    renamed = await client.post(f"{base}/secret/rename", headers=owner_headers, json={
+        "path": "/private", "name": "SECRET", "new_path": "/", "new_name": "PUBLIC",
+    })
+    assert renamed.status_code == 200, renamed.text
+    for headers, keys in ((dev, 1), (owner_headers, 3)):
+        listed = await client.get(f"{base}/snapshots", headers=headers)
+        assert listed.status_code == 200, listed.text
+        assert listed.json()[0]["keys"] == keys
+
+
+async def test_events_exclude_unrelated_audit_and_hidden_folder_totals(client, owner_headers, unsealed):
+    _pid, envs = await _setup(client, owner_headers)
+    prod = envs["prod"]
+    base = f"/api/environments/{prod}"
+    await _user(client, owner_headers, str(prod), "developer")
+    assert (await client.get(f"{base}/export", headers=owner_headers)).status_code == 200
+    uid = await _user(client, owner_headers, "viewer", "viewer")
+    await _pol(client, owner_headers, uid, prod, "/", ["list", "read"])
+    await _pol(client, owner_headers, uid, prod, "/private", ["list", "read"], allow=False)
+    dev = await login(client, "viewer", PASS)
+
+    for headers in (dev, owner_headers):
+        events = await client.get(f"{base}/events", headers=headers)
+        assert events.status_code == 200, events.text
+        rows = events.json()
+        assert not any(row["action"] == "user_created" for row in rows)
+        assert any(row["action"] == "secret_written" and row["key"] == "APP" for row in rows)
+        exports = [row["detail"] for row in rows if row["action"] == "env_exported"]
+        assert exports == ([""] if headers == dev else ["ключей: 3"])
+
+
+async def test_events_keep_environment_records_without_a_key(client, owner_headers, env_id):
+    from app import audit
+
+    app = client._transport.app
+    async with app.state.session_factory() as session:
+        for action in ("machine_denied", "secrets_migrated"):
+            await audit.record(session, actor="owner", action=action, target=str(env_id))
+        await session.commit()
+    events = await client.get(f"/api/environments/{env_id}/events", headers=owner_headers)
+    assert events.status_code == 200, events.text
+    assert {"machine_denied", "secrets_migrated"} <= {row["action"] for row in events.json()}
+
+
+async def test_events_hide_ambiguous_legacy_paths_and_keep_long_owner_events(client, owner_headers, env_id):
+    from app import secrets_store
+
+    app = client._transport.app
+    async with app.state.session_factory() as session:
+        # Раньше в именах ключей допускалось двоеточие.
+        await secrets_store.set_value(
+            session, app.state.sealbox, env_id=env_id, path="/app", name="private:TOKEN",
+            value="legacy", author="owner", legacy_name=True,
+        )
+        await session.commit()
+    await _put(client, owner_headers, env_id, "TOKEN", "hidden", path="/app:private")
+    base = f"/api/environments/{env_id}"
+    moved = await client.post(f"{base}/secret/rename", headers=owner_headers, json={
+        "path": "/app:private", "name": "TOKEN", "new_path": "/closed", "new_name": "TOKEN",
+    })
+    assert moved.status_code == 200, moved.text
+    long_path = "/" + "a" * 199
+    await _put(client, owner_headers, env_id, "LONG", "hidden", path=long_path)
+    await _put(client, owner_headers, env_id, "OPEN", "visible", path="/app")
+    await _put(client, owner_headers, env_id, "OPEN", "visible", path="/allowed:branch")
+    uid = await _user(client, owner_headers, "viewer", "viewer")
+    await _pol(client, owner_headers, uid, env_id, "/app", ["list"])
+    await _pol(client, owner_headers, uid, env_id, "/allowed:branch", ["list"])
+    viewer = await login(client, "viewer", PASS)
+
+    scoped = await client.get(f"{base}/events", headers=viewer)
+    assert scoped.status_code == 200, scoped.text
+    assert [row["key"] for row in scoped.json()] == ["/allowed:branch/OPEN", "/app/OPEN"]
+    full = await client.get(f"{base}/events", headers=owner_headers)
+    assert full.status_code == 200, full.text
+    assert f"{long_path}/LONG" in {row["key"] for row in full.json()}
+
+
+async def test_stop_override_needs_delete_when_parent_has_no_value(client, owner_headers, unsealed):
+    _pid, envs = await _setup(client, owner_headers)
+    parent, prod = envs["dev"], envs["prod"]
+    base = f"/api/environments/{prod}"
+    assert (await client.patch(f"{base}", headers=owner_headers, json={"parent_id": parent})).status_code == 200
+    await _put(client, owner_headers, parent, "INHERITED", "parent-value")
+    await _put(client, owner_headers, prod, "INHERITED", "own-value")
+    uid = await _user(client, owner_headers, "writer", "developer")
+    await _pol(client, owner_headers, uid, prod, "/", ["list", "read", "write"])
+    writer = await login(client, "writer", PASS)
+
+    gone = await client.post(f"{base}/secret/inherit", headers=writer, json={"name": "APP"})
+    assert gone.status_code == 403, gone.text
+    assert (await client.get(f"{base}/secret", headers=writer, params={"name": "APP"})).json()["value"] == "app-value"
+    fallback = await client.post(f"{base}/secret/inherit", headers=writer, json={"name": "INHERITED"})
+    assert fallback.status_code == 200, fallback.text
+    assert (await client.get(f"{base}/secret", headers=writer, params={"name": "INHERITED"})).json()["value"] == "parent-value"
+
+
+async def test_stop_override_checks_parent_after_lock(client, owner_headers, unsealed, monkeypatch):
+    from app.api import secrets
+
+    pid, envs = await _setup(client, owner_headers)
+    parent, prod = envs["dev"], envs["prod"]
+    base = f"/api/environments/{prod}"
+    made = await client.post(f"/api/projects/{pid}/environments", headers=owner_headers, json={"name": "empty"})
+    assert made.status_code == 201, made.text
+    assert (await client.patch(f"{base}", headers=owner_headers, json={"parent_id": parent})).status_code == 200
+    await _put(client, owner_headers, parent, "APP", "parent-value")
+    uid = await _user(client, owner_headers, "writer", "developer")
+    await _pol(client, owner_headers, uid, prod, "/", ["write"])
+    writer = await login(client, "writer", PASS)
+    checked, resume = asyncio.Event(), asyncio.Event()
+    guard = secrets._guard
+
+    async def after_guard(*args):
+        env = await guard(*args)
+        checked.set()
+        await resume.wait()
+        return env
+
+    monkeypatch.setattr(secrets, "_guard", after_guard)
+    request = asyncio.create_task(client.post(f"{base}/secret/inherit", headers=writer, json={"name": "APP"}))
+    try:
+        await asyncio.wait_for(checked.wait(), 5)
+        changed = await client.patch(f"{base}", headers=owner_headers, json={"parent_id": made.json()["id"]})
+        assert changed.status_code == 200, changed.text
+    finally:
+        resume.set()
+    result = await request
+    assert result.status_code == 403, result.text
+    kept = await client.get(f"{base}/secret", headers=owner_headers, params={"name": "APP"})
+    assert kept.json()["value"] == "app-value"
+
+
 async def test_snapshot_restore_needs_every_folder(client: httpx.AsyncClient, owner_headers, unsealed):
     _pid, envs = await _setup(client, owner_headers)
     uid = await _user(client, owner_headers, "keeper", "maintainer")
@@ -273,6 +444,44 @@ async def test_rename_from_a_write_only_folder_needs_read(client: httpx.AsyncCli
         json={"name": "SECRET", "path": "/private", "new_name": "SECRET", "new_path": "/app"},
     )
     assert res.status_code == 403, res.text
+
+
+async def test_metadata_write_cannot_follow_a_key_into_a_closed_folder(
+    client: httpx.AsyncClient, owner_headers, env_id, monkeypatch
+):
+    from app.api import secrets
+
+    uid = await _user(client, owner_headers, "writer", "developer")
+    await _pol(client, owner_headers, uid, env_id, "/app", ["write"])
+    writer = await login(client, "writer", PASS)
+    await _put(client, owner_headers, env_id, "APP", "test-value", path="/app")
+    route = f"/api/environments/{env_id}"
+    requested, resume = asyncio.Event(), asyncio.Event()
+    find_secret = secrets._secret_or_404
+
+    async def wait_after_lookup(*args):
+        secret = await find_secret(*args)
+        if not requested.is_set():
+            requested.set()
+            await resume.wait()
+        return secret
+
+    monkeypatch.setattr(secrets, "_secret_or_404", wait_after_lookup)
+    pending = asyncio.create_task(client.post(
+        f"{route}/secret/meta", headers=writer,
+        json={"name": "APP", "path": "/app", "note": "unexpected-change"},
+    ))
+    try:
+        await asyncio.wait_for(requested.wait(), timeout=5)
+        moved = await client.post(f"{route}/secret/rename", headers=owner_headers, json={
+            "name": "APP", "path": "/app", "new_name": "APP", "new_path": "/private",
+        })
+        assert moved.status_code == 200, moved.text
+    finally:
+        resume.set()
+    assert (await pending).status_code == 409
+    rows = await client.get(f"{route}/secrets", headers=owner_headers)
+    assert [(row["path"], row["note"]) for row in rows.json()] == [("/private", "")]
 
 
 async def test_project_list_shows_only_visible_environments(
