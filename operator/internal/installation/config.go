@@ -389,7 +389,7 @@ func (c Config) CABytes(ctx context.Context, reader client.Reader, ref *CARef) (
 	for _, pin := range c.CAConfigMaps {
 		if pin.Name == ref.Name && pin.Key == ref.Key {
 			actual, err := CertificateSetSHA256([]byte(value.Data[ref.Key]))
-			if string(value.UID) != pin.UID || value.Immutable == nil || !*value.Immutable || err != nil || actual != pin.DERSetSHA256 {
+			if string(value.UID) != pin.UID || !value.DeletionTimestamp.IsZero() || value.Immutable == nil || !*value.Immutable || err != nil || actual != pin.DERSetSHA256 {
 				return nil, Reject("BootstrapMismatch")
 			}
 			return []byte(value.Data[ref.Key]), nil

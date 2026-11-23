@@ -360,6 +360,8 @@ class HelmTests(unittest.TestCase):
         ])
         binding = next(resource for resource in resources if resource["kind"] == "ClusterRoleBinding")
         self.assertEqual(binding["subjects"], [{"kind": "ServiceAccount", "name": "sekvyr-fencer", "namespace": "apps"}])
+        ca_rules = [rule for rule in roles["check-fencer"]["rules"] if rule["resources"] == ["configmaps"]]
+        self.assertEqual(ca_rules, [{"apiGroups": [""], "resources": ["configmaps"], "resourceNames": ["gateway-ca"], "verbs": ["get"]}])
         for rule in roles["check-fencer"]["rules"]:
             self.assertFalse(set(rule["verbs"]) & {"list", "watch", "update", "delete"})
             if "patch" in rule["verbs"]:
@@ -382,6 +384,8 @@ class HelmTests(unittest.TestCase):
         self.assertEqual(len(server["material_pins"]), 3)
         self.assertEqual(server["namespace"], "apps")
         self.assertEqual(server["fencer_service_account"], "sekvyr-fencer")
+        self.assertEqual(server["gateway_ca_pin"], {"name": "gateway-ca", "key": "ca.crt",
+            "uid": "55555555-5555-4555-8555-555555555555", "derSetSHA256": "2" * 64})
         client_config = json.loads(configmap["data"]["client.json"])
         self.assertEqual(client_config["origin"], "https://gateway.example.com")
         self.assertNotIn("s3", json.dumps(client_config).lower())

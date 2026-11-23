@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/mihsergeev/Sekvyr/operator/internal/fencing"
+	"github.com/mihsergeev/Sekvyr/operator/internal/installation"
 	"github.com/mihsergeev/Sekvyr/operator/internal/journal"
 	appsv1 "k8s.io/api/apps/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
@@ -65,11 +66,6 @@ func run(args []string) error {
 	if err != nil {
 		return errors.New("fencer: JournalConfigInvalid")
 	}
-	ledger, storageClient, err := journal.NewClient(journalConfig)
-	if err != nil {
-		return errors.New("fencer: JournalClientUnavailable")
-	}
-	defer storageClient.Close()
 	raw, err = read(*keyFile, 16<<10)
 	if err != nil {
 		return err
@@ -108,11 +104,21 @@ func run(args []string) error {
 	if err != nil {
 		return errors.New("fencer: KubernetesUnavailable")
 	}
-	service := &fencing.Service{Config: config, Journal: ledger, Reader: direct, Writer: direct, SigningKey: key,
-		Auth: fencing.TokenAuthenticator{Client: kubeClient, Reader: direct}}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	initial, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	ca, err := gatewayCABytes(initial, direct, config)
+	if err != nil {
+		return err
+	}
+	ledger, storageClient, err := journal.NewClient(journalConfig, ca)
+	if err != nil {
+		return errors.New("fencer: JournalClientUnavailable")
+	}
+	defer storageClient.Close()
+	service := &fencing.Service{Config: config, Journal: ledger, Reader: direct, Writer: direct, SigningKey: key,
+		Auth: fencing.TokenAuthenticator{Client: kubeClient, Reader: direct}}
 	err = service.Validate(initial)
 	cancel()
 	if err != nil {
@@ -147,6 +153,16 @@ func run(args []string) error {
 		return errors.New("fencer: HTTPSStopped")
 	}
 	return nil
+}
+
+func gatewayCABytes(ctx context.Context, reader client.Reader, config fencing.Config) ([]byte, error) {
+	pin := config.GatewayCAPin
+	bootstrap := installation.Config{Namespace: config.Namespace, CAConfigMaps: []installation.CAPin{pin}}
+	ca, err := bootstrap.CABytes(ctx, reader, &installation.CARef{Name: pin.Name, Key: pin.Key})
+	if err != nil {
+		return nil, errors.New("fencer: GatewayCAPinMismatch")
+	}
+	return ca, nil
 }
 
 // Expose only the service's fixed public reason, never Kubernetes errors,

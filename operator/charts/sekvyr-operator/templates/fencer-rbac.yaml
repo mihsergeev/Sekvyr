@@ -17,6 +17,10 @@ rules:
     resourceNames: [{{ .Values.leaderElection.id | quote }}]
     verbs: [get]
   - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [{{ .Values.ha.config.gatewayCAConfigMapRef.name | quote }}]
+    verbs: [get]
+  - apiGroups: [""]
     resources: [secrets]
     resourceNames:
       - {{ .Values.ha.fencer.signingKeySecret.name | quote }}

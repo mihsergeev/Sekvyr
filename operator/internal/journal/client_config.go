@@ -2,8 +2,6 @@ package journal
 
 import (
 	"crypto/tls"
-	"io"
-	"os"
 
 	"github.com/mihsergeev/Sekvyr/operator/internal/e2e2"
 )
@@ -26,16 +24,7 @@ func DecodeClientConfig(raw []byte) (ClientConfig, error) {
 	}
 	return c, nil
 }
-func NewClient(cfg ClientConfig) (*Ledger, *APIStorageClient, error) {
-	file, err := os.Open(cfg.CAFile)
-	if err != nil {
-		return nil, nil, Failure("StorageCAInvalid")
-	}
-	ca, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
-	_ = file.Close()
-	if err != nil || len(ca) > 64<<10 {
-		return nil, nil, Failure("StorageCAInvalid")
-	}
+func NewClient(cfg ClientConfig, ca []byte) (*Ledger, *APIStorageClient, error) {
 	cert, err := tls.LoadX509KeyPair(cfg.ClientCertFile, cfg.ClientKeyFile)
 	if err != nil {
 		return nil, nil, Failure("StorageIdentityInvalid")

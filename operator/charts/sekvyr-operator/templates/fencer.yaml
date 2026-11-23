@@ -7,7 +7,10 @@
 {{- $ordered := list }}
 {{- range keys $objects | sortAlpha }}{{- $ordered = append $ordered (get $objects .) }}{{- end }}
 {{- $materials := list .Values.ha.fencer.signingKeySecret (dict "name" .Values.ha.fencer.tlsSecret.name "uid" .Values.ha.fencer.tlsSecret.uid "key" "tls.crt") .Values.ha.fencer.gatewayClientSecret }}
-{{- $server := dict "trial" true "installation_id" .Values.installation.installationID "log_id" .Values.ha.config.journal.log_id "minimum_cursor" .Values.ha.config.journal.minimum_cursor "namespace" .Release.Namespace "namespace_uid" .Values.ha.namespaceUID "operator_service_account_uid" .Values.ha.operatorServiceAccountUID "lease_uid" .Values.ha.leaseUID "fencer_service_account" .Values.ha.fencer.serviceAccount.name "fencer_service_account_uid" .Values.ha.fencer.serviceAccount.uid "bootstrap_subjects" .Values.ha.fencer.bootstrapSubjects "managed_objects" $ordered "material_pins" $materials }}
+{{- $gatewayRef := .Values.ha.config.gatewayCAConfigMapRef }}
+{{- $gatewayPin := dict }}
+{{- range .Values.installation.caConfigMaps }}{{- if and (eq .name $gatewayRef.name) (eq .key $gatewayRef.key) }}{{- $gatewayPin = . }}{{- end }}{{- end }}
+{{- $server := dict "trial" true "installation_id" .Values.installation.installationID "log_id" .Values.ha.config.journal.log_id "minimum_cursor" .Values.ha.config.journal.minimum_cursor "namespace" .Release.Namespace "namespace_uid" .Values.ha.namespaceUID "operator_service_account_uid" .Values.ha.operatorServiceAccountUID "lease_uid" .Values.ha.leaseUID "fencer_service_account" .Values.ha.fencer.serviceAccount.name "fencer_service_account_uid" .Values.ha.fencer.serviceAccount.uid "bootstrap_subjects" .Values.ha.fencer.bootstrapSubjects "managed_objects" $ordered "material_pins" $materials "gateway_ca_pin" $gatewayPin }}
 {{- $journal := dict "format" "sekvyr-journal-client-config-v1" "origin" .Values.ha.config.gatewayOrigin "ca_file" "/etc/sekvyr/gateway-ca/ca.crt" "client_cert_file" "/etc/sekvyr/gateway-client/tls.crt" "client_key_file" "/etc/sekvyr/gateway-client/tls.key" "registrations" (list .Values.ha.config.journal) }}
 {{- $configName := printf "%s-config-%s" ($name | trunc 36 | trimSuffix "-") (printf "%s%s" ($server | toJson) ($journal | toJson) | sha256sum | trunc 12) }}
 {{- if .Values.ha.fencer.serviceAccount.create }}

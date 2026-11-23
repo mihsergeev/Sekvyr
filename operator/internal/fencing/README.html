@@ -5,7 +5,7 @@
 <h1>Trial fencing: граница API</h1>
 <p>Пакет разрешает явно включенный HA trial для одной установки и одной journal log/view. Lease выбирает кандидата; запись разрешают подписанный актуальный grant, все объектные барьеры и независимая подписанная activation. Ни Lease, ни локальная память fencer не заменяют онлайн canonical journal.</p>
 <h2>HTTPS и аутентификация</h2>
-<p>Команда <code>/sekvyr-fencer</code> запускается только с <code>--allow-trial-fencing=true</code>. По умолчанию слушает TLS на 9443. Флаг <code>--config</code> читает административный JSON, <code>--journal-config</code> читает <code>sekvyr-journal-client-config-v1</code> SDK с фиксированным gateway origin, CA и путями mTLS certificate/key. Прямые S3 credentials и ключи данных клиенту не передаются. <code>--signing-key</code> принимает Ed25519 PKCS8 PEM; <code>--tls-cert</code> и <code>--tls-key</code> задают TLS identity.</p>
+<p>Команда <code>/sekvyr-fencer</code> запускается только с <code>--allow-trial-fencing=true</code>. По умолчанию слушает TLS на 9443. Флаг <code>--config</code> читает административный JSON с <code>gateway_ca_pin</code>. Перед подключением fencer читает указанный ConfigMap из Kubernetes API и проверяет UID, immutable и SHA-256 набора DER-сертификатов. Флаг <code>--journal-config</code> читает <code>sekvyr-journal-client-config-v1</code> с адресом gateway и путями mTLS certificate/key. <code>--signing-key</code> принимает Ed25519 PKCS8 PEM. <code>--tls-cert</code> и <code>--tls-key</code> задают TLS identity.</p>
 <pre>POST /v1/installations/{installation_id}/acquire
 Authorization: Bearer &lt;bound projected JWT, audience sekvyr-fence&gt;
 {"bootstrap_generation":1,"expected_lease_holder_identity":"&lt;pod-name&gt;_&lt;fixed-process-uuid&gt;"}

@@ -8,6 +8,7 @@ import (
 	"errors"
 
 	"github.com/mihsergeev/Sekvyr/operator/internal/e2e2"
+	"github.com/mihsergeev/Sekvyr/operator/internal/installation"
 	"github.com/mihsergeev/Sekvyr/operator/internal/journal"
 )
 
@@ -97,4 +98,5 @@ type Config struct {
 	BootstrapSubjects         []Subject           `json:"bootstrap_subjects"`
 	ManagedObjects            []journal.ObjectRef `json:"managed_objects"`
 	MaterialPins              []MaterialPin       `json:"material_pins"`
+	GatewayCAPin              installation.CAPin  `json:"gateway_ca_pin"`
 }
