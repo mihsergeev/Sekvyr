@@ -242,17 +242,24 @@ ver_lt() {
 # migrations) has nothing to back up, and backup.sh refuses its dump as too
 # small, so it is skipped.
 BACKUP_PRE=0
-if [ -f "$DIR/.env" ] && [ -x "$DIR/ops/backup.sh" ] && command -v docker >/dev/null 2>&1; then
-    (cd "$DIR" && docker compose up -d db >/dev/null 2>&1 </dev/null) || true
+if [ -f "$DIR/.env" ]; then
+    (cd "$DIR" && docker compose up -d --no-recreate db >/dev/null </dev/null) ||
+        die "could not start the database for a backup before the update"
     i=0
     until (cd "$DIR" && docker compose exec -T db sh -c 'pg_isready -q -U "$POSTGRES_USER"' </dev/null >/dev/null 2>&1); do
         i=$((i + 1))
         [ $i -ge 45 ] && die "the database does not answer, so there is no backup before the update and nothing was changed: see docker compose logs db in $DIR"
         sleep 2
     done
-    MIGRATED=$(cd "$DIR" && echo "SELECT count(*) FROM pg_tables WHERE tablename = 'alembic_version';" \
-        | docker compose exec -T db sh -c 'psql -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB"' 2>/dev/null | tr -d '[:space:]')
-    if [ "$MIGRATED" = "1" ]; then
+    # A failed SQL query is not an empty database. Also count tables from
+    # partial migrations, which may exist before alembic_version is written.
+    DATABASE_STATE=$(cd "$DIR" && docker compose exec -T db sh -c \
+        'psql -X -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh \
+        "SELECT CASE WHEN EXISTS (SELECT FROM pg_catalog.pg_tables WHERE schemaname !~ '^pg_' AND schemaname <> 'information_schema') THEN 'initialized' ELSE 'empty' END" </dev/null) ||
+        die "could not check the database before the update"
+    case "$DATABASE_STATE" in
+    initialized)
+        [ -x "$DIR/ops/backup.sh" ] || die "backup script is missing or not executable: $DIR/ops/backup.sh"
         say "Backup before the update"
         [ -s "$DIR/secret/backup.pass" ] || BACKUP_PRE=1
         tries=0
@@ -269,9 +276,12 @@ if [ -f "$DIR/.env" ] && [ -x "$DIR/ops/backup.sh" ] && command -v docker >/dev/
             fi
             die "the backup failed, nothing was changed: run $DIR/ops/backup.sh to see why"
         done
-    else
+        ;;
+    empty)
         say "The database is empty (the panel has not started yet): nothing to back up"
-    fi
+        ;;
+    *) die "unexpected database check result before the update" ;;
+    esac
 fi
 
 # -- 5. Repository -----------------------------------------------------------
@@ -286,11 +296,16 @@ else
     # Clone next to the target and move it into place: a clone interrupted
     # halfway leaves a non-empty directory without .git, and a retry can then
     # neither clone nor pull.
-    rm -rf "$DIR.tmp"
-    git clone -q "$REPO" "$DIR.tmp" || { rm -rf "$DIR.tmp"; die "could not clone $REPO"; }
-    rm -rf "$DIR"
-    mkdir -p "$(dirname "$DIR")"
-    mv "$DIR.tmp" "$DIR"
+    PARENT=$(dirname "$DIR")
+    mkdir -p -- "$PARENT" || die "could not create $PARENT"
+    (
+        STAGE=$(mktemp -d "$PARENT/.sekvyr-clone.XXXXXXXXXX") || die "could not create a staging directory in $PARENT"
+        trap 'rm -rf -- "$STAGE"' EXIT
+        trap 'exit 1' HUP INT TERM
+        git clone -q "$REPO" "$STAGE/checkout" || die "could not clone $REPO"
+        # -T permits replacing an empty directory and refuses a nonempty one.
+        mv -T -- "$STAGE/checkout" "$DIR" || die "could not install into $DIR"
+    )
 fi
 cd "$DIR"
 

@@ -239,17 +239,24 @@ ver_lt() {
 # запуск оборвался до миграций) бэкап не нужен, а ее дамп backup.sh отвергает
 # как слишком маленький, поэтому она пропускается.
 BACKUP_PRE=0
-if [ -f "$DIR/.env" ] && [ -x "$DIR/ops/backup.sh" ] && command -v docker >/dev/null 2>&1; then
-    (cd "$DIR" && docker compose up -d db >/dev/null 2>&1 </dev/null) || true
+if [ -f "$DIR/.env" ]; then
+    (cd "$DIR" && docker compose up -d --no-recreate db >/dev/null </dev/null) ||
+        die "не удалось запустить базу для бэкапа перед обновлением"
     i=0
     until (cd "$DIR" && docker compose exec -T db sh -c 'pg_isready -q -U "$POSTGRES_USER"' </dev/null >/dev/null 2>&1); do
         i=$((i + 1))
         [ $i -ge 45 ] && die "база не отвечает, бэкап перед обновлением не сделан, ничего не изменено: смотрите docker compose logs db в $DIR"
         sleep 2
     done
-    MIGRATED=$(cd "$DIR" && echo "SELECT count(*) FROM pg_tables WHERE tablename = 'alembic_version';" \
-        | docker compose exec -T db sh -c 'psql -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB"' 2>/dev/null | tr -d '[:space:]')
-    if [ "$MIGRATED" = "1" ]; then
+    # Ошибка запроса не означает, что база пуста. Учитываем и таблицы, которые
+    # незавершенная миграция могла создать до записи alembic_version.
+    DATABASE_STATE=$(cd "$DIR" && docker compose exec -T db sh -c \
+        'psql -X -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh \
+        "SELECT CASE WHEN EXISTS (SELECT FROM pg_catalog.pg_tables WHERE schemaname !~ '^pg_' AND schemaname <> 'information_schema') THEN 'initialized' ELSE 'empty' END" </dev/null) ||
+        die "не удалось проверить базу перед обновлением"
+    case "$DATABASE_STATE" in
+    initialized)
+        [ -x "$DIR/ops/backup.sh" ] || die "скрипт бэкапа отсутствует или не исполняется: $DIR/ops/backup.sh"
         say "Бэкап перед обновлением"
         [ -s "$DIR/secret/backup.pass" ] || BACKUP_PRE=1
         tries=0
@@ -266,9 +273,12 @@ if [ -f "$DIR/.env" ] && [ -x "$DIR/ops/backup.sh" ] && command -v docker >/dev/
             fi
             die "бэкап не сделан, ничего не изменено: запустите $DIR/ops/backup.sh, чтобы увидеть причину"
         done
-    else
+        ;;
+    empty)
         say "База пустая (панель еще не запускалась): бэкапить нечего"
-    fi
+        ;;
+    *) die "неожиданный результат проверки базы перед обновлением" ;;
+    esac
 fi
 
 # -- 5. Репозиторий ----------------------------------------------------------
@@ -283,11 +293,16 @@ else
     # Клонируем рядом и переносим готовое: клон, оборванный на середине, иначе
     # оставляет непустой каталог без .git, после чего повтор невозможен - ни
     # клонировать (занято), ни обновить (не репозиторий).
-    rm -rf "$DIR.tmp"
-    git clone -q "$REPO" "$DIR.tmp" || { rm -rf "$DIR.tmp"; die "не удалось клонировать $REPO"; }
-    rm -rf "$DIR"
-    mkdir -p "$(dirname "$DIR")"
-    mv "$DIR.tmp" "$DIR"
+    PARENT=$(dirname "$DIR")
+    mkdir -p -- "$PARENT" || die "не удалось создать $PARENT"
+    (
+        STAGE=$(mktemp -d "$PARENT/.sekvyr-clone.XXXXXXXXXX") || die "не удалось создать временный каталог в $PARENT"
+        trap 'rm -rf -- "$STAGE"' EXIT
+        trap 'exit 1' HUP INT TERM
+        git clone -q "$REPO" "$STAGE/checkout" || die "не удалось клонировать $REPO"
+        # -T позволяет заменить пустой каталог и отказывает для непустого.
+        mv -T -- "$STAGE/checkout" "$DIR" || die "не удалось установить панель в $DIR"
+    )
 fi
 cd "$DIR"
 
