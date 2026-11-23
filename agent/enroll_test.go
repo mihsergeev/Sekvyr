@@ -2,10 +2,30 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
+
+func TestEnrollMalformedSuccessPreservesCredentials(t *testing.T) {
+	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"client_id":"new-id"}`)
+	}))
+	defer panel.Close()
+	path := testConfig(t)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmdEnroll([]string{"--url", panel.URL, "--token", "fixture", "--config", path, "--force"}); err == nil {
+		t.Fatal("enrollment accepted missing credentials")
+	}
+	if after, err := os.ReadFile(path); err != nil || string(after) != string(before) {
+		t.Fatalf("malformed response changed the previous credentials: %v", err)
+	}
+}
 
 // enroll --force на то же окружение оставляет приложению его файл, команду и
 // права: умолчания выдачи молча переводили его в /run/sekvyr и запускали

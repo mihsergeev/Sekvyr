@@ -19,7 +19,9 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,29 +56,24 @@ func cacheDir(cfg *Config) string {
 	return filepath.Dir(cfg.path)
 }
 
-// cachePath - своя копия на каждое окружение: на сервере может быть несколько
-// приложений, и общий файл они бы затирали друг другу.
-//
-// Части имени разделены плюсом: в именах бывают только буквы, цифры и дефис.
-// Прежняя склейка дефисом давала одно имя для shop-eu/prod и shop/eu-prod, и
-// при лежащей панели одно приложение получало значения другого. Группа входит
-// в имя: frontend/prod бывает и у globex, и у initech.
-func cachePath(cfg *Config) string {
-	name := cfg.Project + "+" + cfg.Env
-	if cfg.Group != "" {
-		name = cfg.Group + "+" + name
+// cacheScope is shared by the filename and the AEAD. Two agents may share a
+// state directory and node key while using different panels or credentials.
+func cacheScope(cfg *Config) [32]byte {
+	identity := []string{strings.TrimRight(cfg.URL, "/"), cfg.Group, cfg.Project, cfg.Env}
+	if cfg.TokenFile != "" {
+		// Use the configured credential location so token renewal does not
+		// invalidate the cache every time the projected token changes.
+		identity = append(identity, "token-file", cfg.path, cfg.TokenFile)
+	} else {
+		identity = append(identity, "machine", cfg.ClientID)
 	}
-	return filepath.Join(cacheDir(cfg), "cache2-"+name+".bin")
+	encoded, _ := json.Marshal(identity)
+	return sha256.Sum256(encoded)
 }
 
-// oldCachePath - имя копии до версии с плюсами. Такие копии читаются, пока
-// новая не записана, но только после сверки проекта и окружения внутри.
-func oldCachePath(cfg *Config) string {
-	name := cfg.Project + "-" + cfg.Env
-	if cfg.Group != "" {
-		name = cfg.Group + "+" + name
-	}
-	return filepath.Join(cacheDir(cfg), "cache-"+name+".bin")
+func cachePath(cfg *Config) string {
+	scope := cacheScope(cfg)
+	return filepath.Join(cacheDir(cfg), "cache3-"+hex.EncodeToString(scope[:])+".bin")
 }
 
 func cacheKey(cfg *Config) ([]byte, error) {
@@ -111,49 +108,23 @@ func saveCache(cfg *Config, res *secretsResponse) error {
 	if _, err := rand.Read(nonce); err != nil {
 		return err
 	}
-	packed := append(nonce, gcm.Seal(nil, nonce, blob, nil)...)
+	scope := cacheScope(cfg)
+	packed := append(nonce, gcm.Seal(nil, nonce, blob, scope[:])...)
 	body := base64.StdEncoding.EncodeToString(packed)
 
-	path := cachePath(cfg)
-	// Тем же путем, что файл со значениями: с fsync. Копия переписывается
-	// каждую минуту, и без него обесточенный целиком ЦОД оставлял ее пустой
-	// ровно тогда, когда без нее не обойтись. Имя .tmp - от прежних версий.
-	_ = os.Remove(path + ".tmp")
-	if err := writeFile(path, body+"\n", 0o600); err != nil {
-		return err
-	}
-	// Копию со старым именем, если она этого же приложения, больше не держим:
-	// иначе старые значения лежали бы на диске всегда.
-	if _, _, err := readCache(oldCachePath(cfg), cfg); err == nil {
-		_ = os.Remove(oldCachePath(cfg))
-	}
-	return nil
+	return writeFile(cachePath(cfg), body+"\n", 0o600)
 }
 
 // removeCache убирает копию значений приложения.
 func removeCache(cfg *Config) {
 	_ = os.Remove(cachePath(cfg))
-	// Старое имя склеивалось дефисом и бывает общим у shop/eu-prod и
-	// shop-eu/prod: убираем, только если копия наша.
-	if _, _, err := readCache(oldCachePath(cfg), cfg); err == nil {
-		_ = os.Remove(oldCachePath(cfg))
-	}
 }
 
 // loadCache разворачивает копию. Возвращает ответ в том же виде, в каком его
 // отдала бы панель, - вызывающему не нужно знать, откуда значения.
 func loadCache(cfg *Config) (*secretsResponse, string, error) {
-	res, savedAt, err := readCache(cachePath(cfg), cfg)
-	if errors.Is(err, os.ErrNotExist) {
-		return readCache(oldCachePath(cfg), cfg)
-	}
-	return res, savedAt, err
-}
-
-// readCache разворачивает одну копию и сверяет, чья она: имя файла - не
-// доказательство, а отдать приложению значения другого хуже, чем ничего.
-func readCache(path string, cfg *Config) (*secretsResponse, string, error) {
-	raw, err := os.ReadFile(path)
+	// Older cache formats cannot prove which panel or machine issued them.
+	raw, err := os.ReadFile(cachePath(cfg))
 	if err != nil {
 		return nil, "", err
 	}
@@ -172,11 +143,10 @@ func readCache(path string, cfg *Config) (*secretsResponse, string, error) {
 	if len(packed) < gcm.NonceSize() {
 		return nil, "", errors.New(tr("копия значений короче, чем должна быть", "the copy of the values is shorter than it should be"))
 	}
-	blob, err := gcm.Open(nil, packed[:gcm.NonceSize()], packed[gcm.NonceSize():], nil)
+	scope := cacheScope(cfg)
+	blob, err := gcm.Open(nil, packed[:gcm.NonceSize()], packed[gcm.NonceSize():], scope[:])
 	if err != nil {
-		// Обычно это значит, что ключ ноды сменился: старую копию уже не
-		// прочитать, и держаться за нее незачем.
-		return nil, "", errors.New(tr("копия значений не раскрывается: ключ ноды сменился", "the copy of the values does not open: the node key has changed"))
+		return nil, "", errors.New(tr("копия значений не раскрывается: неверный ключ или источник", "the copy of the values does not open: wrong key or source"))
 	}
 	var data cached
 	if err := json.Unmarshal(blob, &data); err != nil {
@@ -207,7 +177,14 @@ func fetchOrCache(cfg *Config, useCache bool) (*secretsResponse, error) {
 		}
 		return res, nil
 	}
-	if !useCache || !unreachable(err) {
+	offline := unreachable(err)
+	var refused *panelError
+	if errors.As(err, &refused) && refused.code >= 400 && refused.code < 500 && !offline {
+		// A later outage must not resurrect a copy the panel just denied,
+		// even if this command was run with --no-cache.
+		removeCache(cfg)
+	}
+	if !useCache || !offline {
 		return nil, err
 	}
 	res, savedAt, cacheErr := loadCache(cfg)

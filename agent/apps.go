@@ -67,6 +67,32 @@ func (a App) same(b App) bool {
 	return a.Group == b.Group && a.Project == b.Project && a.Env == b.Env
 }
 
+// outputLocation identifies the directory entry replaced by an atomic write.
+// Resolve links in the parent path, but leave the last component untouched.
+func outputLocation(path string) string {
+	if !filepath.IsAbs(path) {
+		if cwd, err := os.Getwd(); err == nil {
+			path = cwd + string(os.PathSeparator) + path
+		}
+	}
+	dir, base := filepath.Split(path)
+	return filepath.Join(resolveOutputDir(dir), base)
+}
+
+func resolveOutputDir(dir string) string {
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err == nil {
+		return resolved
+	}
+	parent, name := filepath.Split(strings.TrimRight(dir, string(os.PathSeparator)))
+	if !errors.Is(err, os.ErrNotExist) || parent == "" {
+		return dir
+	}
+	// An output directory may not exist until the first write. Its existing
+	// ancestors can still alias another application's path.
+	return filepath.Join(resolveOutputDir(parent), name)
+}
+
 // splitShared оставляет по одному приложению на файл. Два приложения в одном
 // файле затирали бы его друг другу каждую минуту и каждый раз дергали бы
 // перезапуск. Первое по списку обслуживается, про остальные - строка в ответе.
@@ -75,14 +101,15 @@ func splitShared(list []App) ([]App, []string) {
 	var clashes []string
 	owner := map[string]string{}
 	for _, app := range list {
-		if first, ok := owner[app.Out]; ok {
+		location := outputLocation(app.Out)
+		if first, ok := owner[location]; ok {
 			clashes = append(clashes, fmt.Sprintf(tr(
 				"sekvyr: %s пропущено: файл %s уже пишет %s, задайте свой: sekvyr add %s -o ДРУГОЙ_ФАЙЛ",
 				"sekvyr: %s skipped: %s is already written by %s, give it its own: sekvyr add %s -o OTHER_FILE"),
 				app.name(), app.Out, first, app.name()))
 			continue
 		}
-		owner[app.Out] = app.name()
+		owner[location] = app.name()
 		kept = append(kept, app)
 	}
 	return kept, clashes
@@ -296,8 +323,9 @@ func cmdAdd(args []string) error {
 	// того же проекта (или одноименный проект другой группы) попало бы в тот же
 	// файл. Старый верхний уровень здесь не проверяем: его настоящий путь задан
 	// флагом службы, и о нем скажет сама служба.
+	location := outputLocation(app.Out)
 	for _, existing := range cfg.apps() {
-		if !existing.same(app) && existing.Out == app.Out {
+		if !existing.same(app) && outputLocation(existing.Out) == location {
 			return fmt.Errorf(tr(
 				"файл %s уже пишет %s: два приложения в одном файле затирали бы друг друга, задайте этому свой через -o (и, скорее всего, --on-change)",
 				"%s is already written by %s: two applications in one file would overwrite each other, give this one its own with -o (and most likely --on-change)"),
@@ -320,7 +348,9 @@ func cmdAdd(args []string) error {
 			if err := saveConfig(*config, cfg); err != nil {
 				return err
 			}
-			if cfg.BoundOut != "" && cfg.BoundOut == existing.defaults().Out && app.Out != cfg.BoundOut {
+			was := existing.withFile().Out
+			previous := outputLocation(was)
+			if cfg.BoundOut != "" && outputLocation(cfg.BoundOut) == previous && location != previous {
 				warning += fmt.Sprintf(tr(
 					"sekvyr: в юните службы остался флаг -o %s: запустите установщик заново без --out, иначе служба будет напоминать об этом при каждом старте\n",
 					"sekvyr: the service unit still has the flag -o %s: run the installer again without --out, or the service will remind you on every start\n"), cfg.BoundOut)
@@ -328,14 +358,14 @@ func cmdAdd(args []string) error {
 			// Файл переехал: прежний со значениями больше некому обновлять, и
 			// протухшая копия секретов осталась бы лежать рядом. Файл, который
 			// пишет и другое приложение, остается ему.
-			if was := existing.withFile().Out; was != app.Out {
+			if previous != location {
 				shared := false
 				for _, other := range cfg.apps() {
-					shared = shared || other.Out == was
+					shared = shared || outputLocation(other.Out) == previous
 				}
 				switch {
 				case shared:
-				case filepath.Dir(was) == runDir:
+				case filepath.Dir(previous) == resolveOutputDir(runDir):
 					_ = os.Remove(was)
 				default:
 					// Вне каталога агента файл мог быть чьим угодно (опечатка в
@@ -458,9 +488,10 @@ func cmdRemove(args []string) error {
 		return err
 	}
 	out := removed.defaults().Out
+	location := outputLocation(out)
 	shared := false
 	for _, app := range cfg.apps() {
-		shared = shared || app.Out == out
+		shared = shared || outputLocation(app.Out) == location
 	}
 	if !*keep && !shared {
 		// Файл со значениями больше некому обновлять, а приложение, читающее
@@ -474,7 +505,7 @@ func cmdRemove(args []string) error {
 	removeCache(gone)
 	_ = os.Remove(hookMarker(gone))
 	fmt.Printf(tr("sekvyr: %s убрано\n", "sekvyr: %s removed\n"), removed.name())
-	if cfg.BoundOut != "" && cfg.BoundOut == out {
+	if cfg.BoundOut != "" && outputLocation(cfg.BoundOut) == location {
 		fmt.Printf(tr(
 			"sekvyr: файл этого приложения задавал флаг службы -o %s: запустите установщик заново без --out\n",
 			"sekvyr: this application's file came from the service flag -o %s: run the installer again without --out\n"), out)
@@ -564,9 +595,11 @@ func bindOut(path string, cfg *Config, out, onChange, mode string) error {
 // bindApps - то же без записи на диск: меняет конфиг в памяти и говорит,
 // изменилось ли что-нибудь.
 func bindApps(cfg *Config, out, onChange, mode string) (bool, error) {
+	location := outputLocation(out)
+	bound := cfg.BoundOut != "" && outputLocation(cfg.BoundOut) == location
 	for _, app := range cfg.Apps {
-		if app.defaults().Out == out {
-			if cfg.BoundOut != out {
+		if outputLocation(app.withFile().Out) == location {
+			if !bound {
 				cfg.BoundOut = out
 				return true, nil
 			}
@@ -577,7 +610,7 @@ func bindApps(cfg *Config, out, onChange, mode string) (bool, error) {
 	// приложение убрали (sekvyr rm) или перенесли в другой файл (add -o).
 	// Привязывать его заново к оставшемуся приложению нельзя - его значения
 	// поехали бы в чужой файл с чужой командой после изменения.
-	if cfg.BoundOut == out {
+	if bound {
 		return false, fmt.Errorf(tr(
 			"флаг службы -o %s больше ни к чему не относится (приложение убрано или переехало в другой файл): уберите его из юнита - запустите установщик заново без --out",
 			"the service flag -o %s no longer belongs to anything (the application was removed or moved to another file): drop it from the unit by running the installer again without --out"),

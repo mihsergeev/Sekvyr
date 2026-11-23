@@ -66,7 +66,12 @@ and `--env`, and applications are added later from the server page.
 Installer options worth knowing: `--dir` for another agent directory, and
 `--no-cache` if you do not want the encrypted copy of values on disk (a later run
 of the installer keeps it; `--cache` turns the copy back on). With `--no-cache`
-the agent also deletes a copy left from when it was on.
+the agent deletes the copy for its configured source. The current cache format
+binds each copy to its panel, configured credential and environment. After
+upgrading from the old format, let the agent sync once while the panel is
+reachable. That creates the copy it will use during an outage. Old
+`cache-*.bin` and `cache2-*.bin` files can be removed once all agents sharing
+the state directory have upgraded.
 
 The installer and the agent speak the language of the panel interface the
 command came from: the command carries `--lang`, the unit gets

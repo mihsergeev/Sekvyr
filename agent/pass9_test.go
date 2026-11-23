@@ -118,11 +118,12 @@ func TestRunNamesTheKeyWithNUL(t *testing.T) {
 	}
 }
 
-// Без копии на диске - и без прежней копии.
+// Removing the copy must leave another panel's cache alone.
 func TestRemoveCacheDropsTheCopy(t *testing.T) {
 	t.Setenv("STATE_DIRECTORY", t.TempDir())
-	cfg := &Config{Project: "shop", Env: "prod"}
-	for _, p := range []string{cachePath(cfg), oldCachePath(cfg)} {
+	cfg := &Config{URL: "https://first.example", Project: "shop", Env: "prod"}
+	other := &Config{URL: "https://second.example", Project: "shop", Env: "prod"}
+	for _, p := range []string{cachePath(cfg), cachePath(other)} {
 		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -131,9 +132,7 @@ func TestRemoveCacheDropsTheCopy(t *testing.T) {
 	if exists(cachePath(cfg)) {
 		t.Fatal("the copy is still on disk")
 	}
-	// Копия под старым именем не раскрылась этим приложением: она может быть
-	// чужой (shop-eu/prod против shop/eu-prod) и остается.
-	if !exists(oldCachePath(cfg)) {
+	if !exists(cachePath(other)) {
 		t.Fatal("a copy that is not ours was removed")
 	}
 }

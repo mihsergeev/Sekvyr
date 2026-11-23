@@ -155,13 +155,50 @@ func TestCacheIsCheckedAgainstTheApp(t *testing.T) {
 	if res, _, err := loadCache(shop); err != nil || len(res.Values) != 1 {
 		t.Fatalf("своя копия не прочиталась: %v", err)
 	}
-	// Копия по прежнему имени, общему для shop-eu/prod и shop/eu-prod.
+	// A renamed cache cannot cross app boundaries either.
 	raw, _ := os.ReadFile(cachePath(shop))
-	if err := os.WriteFile(oldCachePath(other), raw, 0o600); err != nil {
+	if err := os.WriteFile(cachePath(other), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := loadCache(other); err == nil {
 		t.Fatal("чужая копия отдана приложению")
+	}
+}
+
+func TestCacheIsBoundToPanelAndMachine(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STATE_DIRECTORY", dir)
+	t.Setenv("SEKVYR_NODE_KEY", filepath.Join(dir, "node.key"))
+	cfg := &Config{URL: "https://first.example", ClientID: "node-a", Group: "team", Project: "demo", Env: "test"}
+	res := &secretsResponse{Project: "demo", Environment: "test", Values: []value{{Name: "PROBE", Value: "synthetic"}}}
+	if err := saveCache(cfg, res); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loadCache(cfg); err != nil {
+		t.Fatalf("own cache could not be opened: %v", err)
+	}
+	for name, modify := range map[string]func(*Config){
+		"panel":   func(c *Config) { c.URL = "https://second.example" },
+		"machine": func(c *Config) { c.ClientID = "node-b" },
+		"group":   func(c *Config) { c.Group = "other" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			other := *cfg
+			modify(&other)
+			if _, _, err := loadCache(&other); err == nil {
+				t.Error("cache was shared with another source")
+			}
+			raw, err := os.ReadFile(cachePath(cfg))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(cachePath(&other), raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := loadCache(&other); err == nil {
+				t.Error("renamed cache was accepted for another source")
+			}
+		})
 	}
 }
 

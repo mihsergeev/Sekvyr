@@ -239,10 +239,11 @@ how that rule is kept. Who can attack the panel and what stops them is in the
   shell script: sourced with `. file`, the shell would run substitutions (a
   backtick in a value, for example), so do not source it; `sekvyr run` starts
   a process with the values.
-- A copy of the last values for when the panel is unreachable is kept in
-  `/var/lib/sekvyr`, encrypted with the node key. Those who do not want it turn
-  it off with `--no-cache`, which also deletes a copy left from when it was on.
-  `sekvyr rm` removes the copy of that application together with its file.
+- The agent keeps the last values in `/var/lib/sekvyr`, encrypted with the
+  node key and bound to the configured source. An explicit access denial
+  discards that copy so a later outage cannot restore it. `--no-cache`
+  disables the copy and removes it, and `sekvyr rm` removes it together with
+  the application file. See [Docker setup](app-docker.md) for cache upgrades.
 - The agent service runs with `ProtectSystem=strict`: it can write only to its
   own directories. The command after a change runs within the same limits, and
   home directories are read-only to it.

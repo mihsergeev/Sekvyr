@@ -153,6 +153,85 @@ func TestSplitSharedKeepsTheFirst(t *testing.T) {
 	}
 }
 
+func TestOutputAliasesStayShared(t *testing.T) {
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "real")
+	aliasDir := filepath.Join(dir, "alias")
+	if err := os.Mkdir(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDir, aliasDir); err != nil {
+		t.Fatal(err)
+	}
+	prod := App{Project: "shop", Env: "prod", Out: filepath.Join(realDir, "nested", "shop.env"), OnChange: noHook}
+	stage := App{Project: "shop", Env: "stage", Out: aliasDir + "/./nested/shop.env", OnChange: noHook}
+	path := testConfig(t, prod)
+	if err := cmdAdd([]string{"--config", path, stage.name(), "-o", stage.Out, "--on-change", noHook}); err == nil {
+		t.Fatal("add accepted another application with an alias to the same output")
+	}
+	if kept, _ := splitShared([]App{prod, stage}); len(kept) != 1 || kept[0] != prod {
+		t.Fatalf("daemon did not keep only the first writer: %+v", kept)
+	}
+	cfg := &Config{Apps: []App{prod, {Project: "blog", Env: "prod"}}}
+	if changed, err := bindApps(cfg, stage.Out, noHook, "0400"); err != nil || !changed || cfg.BoundOut != stage.Out || cfg.Apps[0] != prod {
+		t.Fatalf("service flag did not bind to the existing output: %+v, %v", cfg, err)
+	}
+	if err := writeFile(prod.Out, "PROBE=fixture\n", 0o400); err != nil {
+		t.Fatal(err)
+	}
+	path = testConfig(t, prod, stage)
+	if err := cmdRemove([]string{"--config", path, stage.name()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(prod.Out); err != nil {
+		t.Fatalf("rm removed the output still used by another application: %v", err)
+	}
+	// Atomic writes replace final symlinks, so they do not share the target.
+	stage.Out = filepath.Join(dir, "stage.env")
+	if err := os.Symlink(prod.Out, stage.Out); err != nil {
+		t.Fatal(err)
+	}
+	if kept, _ := splitShared([]App{prod, stage}); len(kept) != 2 {
+		t.Fatalf("distinct destination entries were treated as one output: %+v", kept)
+	}
+	// The parent of a symlink target can differ from the parent of the link.
+	nestedAlias := filepath.Join(dir, "nested-alias")
+	if err := os.Symlink(filepath.Dir(prod.Out), nestedAlias); err != nil {
+		t.Fatal(err)
+	}
+	prod.Out = filepath.Join(realDir, "shop.env")
+	stage.Out = nestedAlias + "/../shop.env"
+	if kept, _ := splitShared([]App{prod, stage}); len(kept) != 1 {
+		t.Fatalf("parent traversal was resolved before following a directory link: %+v", kept)
+	}
+}
+
+func TestAddKeepsFilesReachedOutsideRunDir(t *testing.T) {
+	runDir = t.TempDir()
+	t.Cleanup(func() { runDir = "/run/sekvyr" })
+	outside := t.TempDir()
+	nested := filepath.Join(outside, "nested")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(runDir, "alias")
+	if err := os.Symlink(nested, alias); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(outside, "shop.env")
+	if err := writeFile(file, "PROBE=fixture\n", 0o400); err != nil {
+		t.Fatal(err)
+	}
+	app := App{Project: "shop", Env: "prod", Out: alias + "/../shop.env", OnChange: noHook}
+	path := testConfig(t, app)
+	if err := cmdAdd([]string{"--config", path, app.name(), "-o", filepath.Join(runDir, "shop.env")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("add removed a file outside the agent's output directory: %v", err)
+	}
+}
+
 func TestCachePathHasGroup(t *testing.T) {
 	t.Setenv("STATE_DIRECTORY", t.TempDir())
 	plain := cachePath(&Config{Project: "frontend", Env: "prod"})
@@ -164,10 +243,5 @@ func TestCachePathHasGroup(t *testing.T) {
 	// Склейка дефисом давала одно имя для shop-eu/prod и shop/eu-prod.
 	if cachePath(&Config{Project: "shop-eu", Env: "prod"}) == cachePath(&Config{Project: "shop", Env: "eu-prod"}) {
 		t.Fatal("shop-eu/prod и shop/eu-prod делят копию")
-	}
-	// Прежнее имя помнится: копии уже стоящих нод читаются, пока новая не
-	// записана.
-	if filepath.Base(oldCachePath(&Config{Project: "frontend", Env: "prod"})) != "cache-frontend-prod.bin" {
-		t.Fatal("прежнее имя копии забыто")
 	}
 }

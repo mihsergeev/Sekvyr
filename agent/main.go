@@ -100,6 +100,22 @@ type value struct {
 	Value string `json:"value"`
 }
 
+func (v *value) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Name  *string `json:"name"`
+		Path  *string `json:"path"`
+		Value *string `json:"value"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.Name == nil || raw.Path == nil || raw.Value == nil {
+		return errors.New(tr("панель прислала неполную запись секрета", "the panel sent an incomplete secret entry"))
+	}
+	*v = value{Name: *raw.Name, Path: *raw.Path, Value: *raw.Value}
+	return nil
+}
+
 type secretsResponse struct {
 	Project     string  `json:"project"`
 	Environment string  `json:"environment"`
@@ -219,10 +235,12 @@ func loadConfig(path string) (*Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		// Файла нет - пробуем окружение: под в кластере живет именно так.
-		cfg := configFromEnv()
-		if cfg.URL != "" && cfg.TokenFile != "" && cfg.Project != "" && cfg.Env != "" {
-			cfg.path = path
-			return cfg, nil
+		if errors.Is(err, os.ErrNotExist) {
+			cfg := configFromEnv()
+			if cfg.URL != "" && cfg.TokenFile != "" && cfg.Project != "" && cfg.Env != "" {
+				cfg.path = path
+				return cfg, nil
+			}
 		}
 		return nil, fmt.Errorf(tr("конфиг %s: %w (сначала выполните enroll)", "config %s: %w (run enroll first)"), path, err)
 	}
@@ -347,39 +365,62 @@ const maxBody = 32 << 20
 
 func do(req *http.Request, out any) error {
 	req.Header.Set("User-Agent", "sekvyr-agent/"+Version)
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := &http.Client{
+		Timeout: 20 * time.Second,
+		CheckRedirect: func(next *http.Request, via []*http.Request) error {
+			// Go can replay POST credentials on 307/308 even when it strips
+			// Authorization. Keep both the body and headers on the panel origin.
+			origin := via[0].URL
+			if len(via) >= 10 || next.URL.Scheme != origin.Scheme ||
+				!strings.EqualFold(next.URL.Host, origin.Host) || next.URL.User != nil {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
 	res, err := client.Do(req)
 	if err != nil {
 		return &netError{err}
 	}
 	defer res.Body.Close()
+	if res.StatusCode >= 300 && res.StatusCode < 400 {
+		return &panelError{
+			code: res.StatusCode,
+			text: tr("перенаправление панели отклонено", "panel redirect rejected"),
+		}
+	}
 	raw, err := io.ReadAll(io.LimitReader(res.Body, maxBody+1))
+	if res.StatusCode >= 400 {
+		// A refusal is authoritative as soon as the status arrives. A proxy
+		// can interrupt its body; that does not make denied values usable.
+		detail := http.StatusText(res.StatusCode)
+		if err == nil && len(raw) <= maxBody {
+			detail = ""
+			// Панель отвечает {"detail": "..."}: показываем сам текст, а агенту,
+			// который говорит по-английски, - его перевод, если он известен.
+			var body struct {
+				Detail any `json:"detail"`
+			}
+			if json.Unmarshal(raw, &body) == nil {
+				if text, ok := body.Detail.(string); ok {
+					detail = apiError(text)
+				}
+			}
+			if detail == "" {
+				detail = shortBody(raw, res.StatusCode)
+			}
+		}
+		return &panelError{
+			code: res.StatusCode,
+			text: fmt.Sprintf(tr("панель ответила %d: %s", "the panel answered %d: %s"), res.StatusCode, detail),
+		}
+	}
 	if err != nil {
 		return &netError{err}
 	}
 	if len(raw) > maxBody {
 		return fmt.Errorf(tr("ответ панели больше %d МБ: столько агент не читает",
 			"the panel answer is larger than %d MB: the agent does not read that much"), maxBody>>20)
-	}
-	if res.StatusCode >= 400 {
-		detail := ""
-		// Панель отвечает {"detail": "..."}: показываем сам текст, а агенту,
-		// который говорит по-английски, - его перевод, если он известен.
-		var body struct {
-			Detail any `json:"detail"`
-		}
-		if json.Unmarshal(raw, &body) == nil {
-			if text, ok := body.Detail.(string); ok {
-				detail = apiError(text)
-			}
-		}
-		if detail == "" {
-			detail = shortBody(raw, res.StatusCode)
-		}
-		return &panelError{
-			code: res.StatusCode,
-			text: fmt.Sprintf(tr("панель ответила %d: %s", "the panel answered %d: %s"), res.StatusCode, detail),
-		}
 	}
 	if out == nil {
 		return nil
@@ -427,6 +468,9 @@ func token(cfg *Config) (string, error) {
 	if err := post(cfg.URL+"/api/v1/machine/token", body, "", &res); err != nil {
 		return "", err
 	}
+	if res.AccessToken == "" || strings.IndexFunc(res.AccessToken, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return "", errors.New(tr("панель не прислала действительный токен машины", "the panel did not send a valid machine token"))
+	}
 	return res.AccessToken, nil
 }
 
@@ -435,14 +479,18 @@ func fetch(cfg *Config) (*secretsResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	url := fmt.Sprintf("%s/api/v1/machine/secrets?project=%s&env=%s",
-		cfg.URL, escape(cfg.Project), escape(cfg.Env))
+	query := url.Values{"project": {cfg.Project}, "env": {cfg.Env}}
 	if cfg.Group != "" {
-		url += "&group=" + escape(cfg.Group)
+		query.Set("group", cfg.Group)
 	}
 	var res secretsResponse
-	if err := get(url, access, &res); err != nil {
+	if err := get(cfg.URL+"/api/v1/machine/secrets?"+query.Encode(), access, &res); err != nil {
 		return nil, err
+	}
+	// The panel sends an explicit array, including [] for an empty
+	// environment. A proxy's fallback JSON must not erase an applied file.
+	if res.Project != cfg.Project || res.Environment != cfg.Env || res.Values == nil {
+		return nil, errors.New(tr("ответ панели не соответствует запрошенному окружению", "the panel response does not match the requested environment"))
 	}
 	// Значения e2e-проекта раскрываются здесь, на ноде: панель их такими
 	// никогда не видела и увидеть не могла.
@@ -454,10 +502,6 @@ func fetch(cfg *Config) (*secretsResponse, error) {
 		return nil, err
 	}
 	return &res, nil
-}
-
-func escape(s string) string {
-	return strings.NewReplacer(" ", "%20", "&", "%26", "?", "%3F", "#", "%23").Replace(s)
 }
 
 // cmdConfig - второй (третий, десятый) конфиг на том же сервере.
@@ -552,6 +596,9 @@ func cmdEnroll(args []string) error {
 	}, "", &res)
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(res.ClientID) == "" || strings.TrimSpace(res.ClientSecret) == "" {
+		return errors.New(tr("панель не прислала учетные данные машины", "the panel did not send machine credentials"))
 	}
 	if res.Project != "" {
 		if err := (App{Project: res.Project, Env: res.Env, Group: res.Group}).checkNames(); err != nil {
@@ -1112,8 +1159,7 @@ func cmdAgent(args []string) error {
 	if _, err := os.Stat(*config); err == nil && base.Project != "" {
 		if err := normalize(*config, base, legacyApp); err != nil {
 			fmt.Fprintln(os.Stderr, tr("sekvyr: конфиг не переписан:", "sekvyr: the config was not rewritten:"), err)
-		} else if fresh, err := loadConfig(*config); err == nil {
-			base = fresh
+		} else {
 			// Приложение уже в списке, и дальше его ведет конфиг: иначе после
 			// sekvyr rm этот процесс продолжал бы писать удаленный файл.
 			legacyApp = nil
@@ -1126,14 +1172,12 @@ func cmdAgent(args []string) error {
 			// на следующем круге, терял -o, и файл писался не туда, куда просили.
 			if _, again := bindApps(base, *out, *onChange, fmt.Sprintf("%o", mode)); again == nil {
 				for _, app := range base.Apps {
-					if app.Out == *out {
+					if outputLocation(app.Out) == outputLocation(*out) {
 						bound := app
 						memBound = &bound
 					}
 				}
 			}
-		} else if fresh, err := loadConfig(*config); err == nil {
-			base = fresh
 		}
 	}
 
@@ -1157,28 +1201,38 @@ func cmdAgent(args []string) error {
 	hookCmd := map[string]string{}
 
 	lastUpdateCheck := time.Now()
+	nextSync := time.NewTimer(0)
+	defer nextSync.Stop()
 	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-nextSync.C:
+		}
 		// Конфиг перечитываем каждый круг: `sekvyr add` дописывает приложение
 		// и ничего не перезапускает - значения просто приезжают следующей
 		// минутой. Перезапуск службы ради новой строки в списке был бы лишним
 		// шагом ровно там, где мы их убираем.
-		cfg := base
-		if fresh, err := loadConfig(*config); err == nil {
-			if memBound != nil {
-				for i, app := range fresh.Apps {
-					if app.same(*memBound) && app.defaults().Out == (App{Project: app.Project}).defaults().Out {
-						fresh.Apps[i].Out, fresh.Apps[i].OnChange, fresh.Apps[i].Mode = memBound.Out, memBound.OnChange, memBound.Mode
-					}
+		cfg, err := loadConfig(*config)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, tr("sekvyr: конфиг не перечитался:", "sekvyr: could not re-read the config:"), err)
+			// Leave the applied files in place. Falling back to the startup
+			// config can resend superseded credentials and revive removed apps.
+			nextSync.Reset(*interval)
+			continue
+		}
+		if memBound != nil {
+			for i, app := range cfg.Apps {
+				if app.same(*memBound) && app.defaults().Out == (App{Project: app.Project}).defaults().Out {
+					cfg.Apps[i].Out, cfg.Apps[i].OnChange, cfg.Apps[i].Mode = memBound.Out, memBound.OnChange, memBound.Mode
 				}
 			}
-			cfg = fresh
-		} else {
-			fmt.Fprintln(os.Stderr, tr("sekvyr: конфиг не перечитался:", "sekvyr: could not re-read the config:"), err)
 		}
 		var list []App
-		if legacyApp != nil {
-			list = append(list, *legacyApp)
-		} else if app, ok := cfg.legacy(""); ok {
+		if app, ok := cfg.legacy(""); ok {
+			if legacyApp != nil {
+				app.Out, app.OnChange, app.Mode = legacyApp.Out, legacyApp.OnChange, legacyApp.Mode
+			}
 			list = append(list, app)
 		}
 		for _, app := range cfg.apps() {
@@ -1206,8 +1260,8 @@ func cmdAgent(args []string) error {
 			appCfg := cfg.forApp(app)
 			if *noCache {
 				// "Без копии на диске" - и без той, что осталась с тех пор,
-				// когда копия была включена. Только у службы: разовый render
-				// --no-cache стирал бы копию, на которую служба рассчитывает.
+				// когда копия была включена. Разовый render --no-cache не
+				// стирает рабочую копию, пока панель не отказала в доступе.
 				removeCache(appCfg)
 			}
 			res, err := fetchOrCache(appCfg, !*noCache)
@@ -1229,7 +1283,6 @@ func cmdAgent(args []string) error {
 			// живой ноде: файла нет, а агент считает, что все на месте.
 			// Пустой файл и отсутствующий - не одно и то же: окружение без
 			// ключей должно дать файл, иначе compose не найдет env_file.
-			was, readErr := os.ReadFile(app.Out)
 			marker := hookMarker(appCfg)
 			if hookCmd[app.Out] != app.OnChange {
 				delete(hookDelay, app.Out)
@@ -1237,16 +1290,14 @@ func cmdAgent(args []string) error {
 				hookCmd[app.Out] = app.OnChange
 			}
 			hook := (failedHook[app.Out] || exists(marker)) && !time.Now().Before(hookNext[app.Out])
-			written := true
-			if readErr != nil || text != string(was) {
-				if err := writeFile(app.Out, text, app.fileMode()); err != nil {
-					fmt.Fprintf(os.Stderr, tr("sekvyr: %s: файл не записан: %v\n", "sekvyr: %s: the file was not written: %v\n"), app.name(), err)
-					written = false
-				} else {
-					fmt.Printf(tr("sekvyr: %s — значения обновлены (%s)\n", "sekvyr: %s: values updated (%s)\n"), app.name(), keysCount(len(res.Values)-len(skipped)))
-					warnSkipped(app.name(), skipped)
-					hook = true
-				}
+			changed, writeErr := syncAgentFile(app.Out, text, app.fileMode())
+			written := writeErr == nil
+			if !written {
+				fmt.Fprintf(os.Stderr, tr("sekvyr: %s: файл не записан: %v\n", "sekvyr: %s: the file was not written: %v\n"), app.name(), writeErr)
+			} else if changed {
+				fmt.Printf(tr("sekvyr: %s — значения обновлены (%s)\n", "sekvyr: %s: values updated (%s)\n"), app.name(), keysCount(len(res.Values)-len(skipped)))
+				warnSkipped(app.name(), skipped)
+				hook = true
 			}
 			if hook && app.OnChange != "" && written {
 				// Отметка - до запуска: агента могут убить посреди команды
@@ -1319,11 +1370,7 @@ func cmdAgent(args []string) error {
 				}
 			}
 		}
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(*interval):
-		}
+		nextSync.Reset(*interval)
 	}
 }
 
