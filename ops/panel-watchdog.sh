@@ -38,6 +38,9 @@ APP="${SEKVYR_APP:-}"
 if [ -z "$APP" ]; then
     APP="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || true)"
 fi
+HOST_IO="$(dirname "$0")/host-io.sh"
+[ -r "$HOST_IO" ] || HOST_IO="$APP/ops/host-io.sh"
+. "$HOST_IO"
 
 pick_lang
 
@@ -64,33 +67,20 @@ if { [ -d "$_hb_dir" ] && [ ! -x "$_hb_dir" ]; } \
     exit 2
 fi
 
-val() { grep -m1 "^$1=" "$HB" 2>/dev/null | cut -d= -f2-; }
-
-send() {
-    _msg="$1" _token="$(val tg_token)" _chat="$(val tg_chat)"
-    _api="$(val tg_api)"; [ -z "$_api" ] && _api="https://api.telegram.org"
-    _hook="$(val webhook)"
-    if [ -n "$_token" ] && [ -n "$_chat" ]; then
-        curl -s --max-time 15 "$_api/bot$_token/sendMessage" \
-            --data-urlencode "chat_id=$_chat" --data-urlencode "text=$_msg" \
-            --data-urlencode "disable_web_page_preview=true" >/dev/null 2>&1
-    fi
-    if [ -n "$_hook" ]; then
-        curl -s --max-time 15 -H 'Content-Type: application/json' \
-            --data "{\"text\": \"$(printf '%s' "$_msg" | sed 's/\\/\\\\/g; s/"/\\"/g')\"}" \
-            "$_hook" >/dev/null 2>&1
-    fi
-}
+HB_CONTENT=$(read_host_state "$HB") || HB_CONTENT=''
+val() { heartbeat_field "$HB_CONTENT" "$1"; }
 
 problem=""
 kind=""
-if [ ! -f "$HB" ]; then
+if [ -z "$HB_CONTENT" ]; then
     kind=nohb
     problem="$(msg "пульса нет — панель не запущена или не доходит до базы" "no heartbeat: the panel is not running or cannot reach the database")"
 else
     ts=$(val ts); sealed=$(val sealed); ok=$(val alerts_ok)
-    age=$(( NOW - ${ts:-0} ))
-    if [ "${ts:-0}" -eq 0 ] || [ "$age" -gt "$MAX_AGE" ]; then
+    case "$ts" in ''|*[!0-9]*|0?*) ts=0 ;; esac
+    [ "${#ts}" -le 12 ] || ts=0
+    age=$(( NOW - ts ))
+    if [ "$ts" -eq 0 ] || [ "$age" -gt "$MAX_AGE" ]; then
         kind=silent
         problem="$(msg "панель молчит ${age}с (порог ${MAX_AGE}с) — контейнер или база мертвы" "the panel has been silent for ${age}s (limit ${MAX_AGE}s): the container or the database is dead")"
     elif [ "$sealed" = "1" ]; then
@@ -110,11 +100,14 @@ tag="🚑 Sekvyr [$panel]"
 # сообщили. Без вида сторож, раз сообщив о проблеме, молчал до возврата в
 # норму: панель, о которой сказали "заперта", могла потом умереть совсем, и
 # об этом не узнавал никто.
-alerted=$(sed -n 1p "$STATE" 2>/dev/null); [ -z "$alerted" ] && alerted=ok
-strikes=$(sed -n 2p "$STATE" 2>/dev/null)
-case "$strikes" in ''|*[!0-9]*) strikes=0 ;; esac
-seen=$(sed -n 3p "$STATE" 2>/dev/null)
-told=$(sed -n 4p "$STATE" 2>/dev/null)
+STATE_CONTENT=$(read_host_state "$STATE") || STATE_CONTENT=''
+state_line() { printf '%s\n' "$STATE_CONTENT" | sed -n "$1"p; }
+alerted=$(state_line 1); [ -z "$alerted" ] && alerted=ok
+strikes=$(state_line 2)
+case "$strikes" in ''|*[!0-9]*|0?*) strikes=0 ;; esac
+[ "${#strikes}" -le 9 ] || strikes=0
+seen=$(state_line 3)
+told=$(state_line 4)
 
 if [ -n "$problem" ]; then
     # Состояние от прежней версии сторожа: о проблеме сообщили, а вид не
@@ -132,20 +125,20 @@ if [ -n "$problem" ]; then
         strikes=$((strikes + 1))
     fi
     seen="$kind"
-    if [ "$strikes" -ge "$STRIKES" ] && { [ "$alerted" != "problem" ] || [ "$kind" != "$told" ]; }; then
-        send "$tag: $problem"
+    if [ "$strikes" -ge "$STRIKES" ] && { [ "$alerted" != "problem" ] || [ "$kind" != "$told" ]; } &&
+        send_host_alert "$HB_CONTENT" "$tag: $problem"; then
         alerted=problem
         told="$kind"
     fi
 else
     strikes=0
     seen=""
-    told=""
-    if [ "$alerted" = "problem" ]; then
-        send "$(msg "✅ Sekvyr [$panel]: панель снова в норме" "✅ Sekvyr [$panel]: the panel is back to normal")"
+    if [ "$alerted" = "problem" ] &&
+        send_host_alert "$HB_CONTENT" "$(msg "✅ Sekvyr [$panel]: панель снова в норме" "✅ Sekvyr [$panel]: the panel is back to normal")"; then
         alerted=ok
+        told=""
     fi
 fi
 
-mkdir -p "$(dirname "$STATE")"
-printf '%s\n%s\n%s\n%s\n' "$alerted" "$strikes" "$seen" "$told" > "$STATE"
+mkdir -p "$(dirname "$STATE")" || exit 2
+printf '%s\n%s\n%s\n%s\n' "$alerted" "$strikes" "$seen" "$told" | write_host_state "$STATE" 077

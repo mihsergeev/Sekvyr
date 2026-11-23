@@ -68,8 +68,16 @@ fi
 case "$FILE" in /*) ;; *) FILE="$(pwd)/$FILE" ;; esac
 
 [ -f "$APP/compose.yml" ] || { msg "не найдена установка панели: $APP" "panel installation not found: $APP" >&2; exit 1; }
+HOST_IO="$(dirname "$0")/host-io.sh"
+[ -r "$HOST_IO" ] || HOST_IO="$APP/ops/host-io.sh"
+. "$HOST_IO"
 cd "$APP"
 pick_lang
+PASS_FILE="$APP/secret/backup.pass"
+if ! regular_or_absent "$PASS_FILE"; then
+    msg 'файл пароля бэкапов должен быть обычным файлом' 'the backup password file must be a regular file' >&2
+    exit 1
+fi
 
 # .env закрыт правами 0600, а страховочный дамп пишется в каталог панели. Без
 # доступа к ним скрипт брал имя базы по умолчанию, спрашивал подтверждение и
@@ -95,7 +103,7 @@ msg "Текущее содержимое будет затёрто. Введит
 read -r answer || true
 [ "$answer" = "$DB_NAME" ] || { msg "не подтверждено — выходим" "not confirmed, exiting"; exit 1; }
 
-WORK="$(mktemp -d)"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/sekvyr-restore.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
 # --- распечатываем, если файл запечатан ------------------------------------
@@ -124,7 +132,7 @@ print('$FROM_LABEL', head.get('created', '?'), file=sys.stderr)
         stty echo 2>/dev/null || true
         echo ""
     }
-    PASSWORD="$(cat "$APP/secret/backup.pass" 2>/dev/null || true)"
+    PASSWORD="$(read_host_state "$PASS_FILE")" || PASSWORD=''
     msg "→ распечатываю" "→ unsealing"
     if [ -n "$PASSWORD" ] && unseal_with "$PASSWORD" 2>"$WORK/unseal.log"; then
         cat "$WORK/unseal.log" >&2
@@ -143,15 +151,24 @@ else
     cp "$FILE" "$WORK/dump.sql"
 fi
 
+# pg_dump writes this footer after all database objects and data. A file
+# truncated on a statement boundary (including an empty file) can otherwise
+# run without a SQL error and replace the live database with an incomplete one.
+if ! tail -n 8 "$WORK/dump.sql" | grep -Fxq -- '-- PostgreSQL database dump complete'; then
+    msg "✗ файл пуст, оборван или не является SQL-дампом PostgreSQL" \
+        "✗ the file is empty, truncated, or not a PostgreSQL SQL dump" >&2
+    exit 1
+fi
+
 # --- страховка -------------------------------------------------------------
 # Страховочный дамп запечатывается паролем бэкапов, как ночные: в нем те же
 # хеши паролей и ключи машин, а открытый .sql лежал в backups/, пока его не
 # удалят руками. Распечатывает его этот же скрипт. Если пароля бэкапов нет
 # (ops/backup.sh еще не запускался), дамп остается открытым, с правами 0600,
 # и скрипт говорит об этом.
-SAFETY="$APP/backups/before-restore-$(date -u +%Y%m%d-%H%M%S).sql"
+SAFETY="$APP/backups/before-restore-$(date -u +%Y%m%d-%H%M%S)-${WORK##*.}.sql"
 SEAL=0
-[ -s "$APP/secret/backup.pass" ] && { SEAL=1; SAFETY="$SAFETY.sealed"; }
+[ -s "$PASS_FILE" ] && { SEAL=1; SAFETY="$SAFETY.sealed"; }
 mkdir -p "$APP/backups"
 msg "→ снимаю дамп текущей базы: $SAFETY" "→ taking a dump of the current database: $SAFETY"
 # --clean --if-exists, как у ops/backup.sh: без них страховочный дамп не
@@ -203,10 +220,15 @@ msg "→ заливаю дамп" "→ loading the dump"
 # заливка без нее оставила бы базу наполовину пустой. Схема пересоздается
 # целиком: --clean удаляет только то, что есть в дампе, и бэкап, снятый до
 # появления новой таблицы, иначе не ложился в базу новой версии.
-if ! { printf 'DROP SCHEMA public CASCADE;\nCREATE SCHEMA public;\n'; cat "$WORK/dump.sql"; } \
-    | $DC exec -T db psql -v ON_ERROR_STOP=1 --single-transaction -U "$DB_USER" -d "$DB_NAME" >/dev/null; then
-    msg "✗ заливка не прошла, база осталась как была. Страховочный дамп: $SAFETY" \
-        "✗ the load failed; the database is as it was. Safety dump: $SAFETY" >&2
+# COMMIT must travel through the same stream as the dump. If that stream
+# ends early, psql closes the connection with the transaction still open.
+if ! { printf 'BEGIN;\nDROP SCHEMA public CASCADE;\nCREATE SCHEMA public;\n' &&
+        cat "$WORK/dump.sql" &&
+        printf '\nCOMMIT;\n\\echo SEKVYR_RESTORE_COMMITTED\n'; } \
+    | $DC exec -T db psql -X -q -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -f - >"$WORK/restore.out" ||
+    ! grep -Fxq SEKVYR_RESTORE_COMMITTED "$WORK/restore.out"; then
+    msg "✗ не удалось подтвердить восстановление. Проверьте состояние базы. Страховочный дамп: $SAFETY" \
+        "✗ could not confirm the restore. Check the database state. Safety dump: $SAFETY" >&2
     $DC start backend >/dev/null 2>&1 || $DC up -d backend >/dev/null
     exit 1
 fi

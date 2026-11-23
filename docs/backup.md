@@ -41,8 +41,9 @@ chmod 644 /etc/cron.d/sekvyr-backup /etc/cron.d/sekvyr-watchdog
 ```
 
 The first run creates the encryption password in
-`<install>/secret/backup.pass` and prints it. **Store it where you keep the root
-key shares.** Without it no backup opens, not for you and not for anyone.
+`<install>/secret/backup.pass` and reports the file path. **Store the password
+where you keep the root key shares.** It is required to open the backups.
+Keep `backup.pass` as a regular file with mode `0600`.
 
 If a backup is already running (the nightly one and a manual run at once), the
 second run exits with code 75 and does nothing. `ops/update.sh` waits for the
@@ -108,8 +109,9 @@ cd /opt/sekvyr
 sudo ops/restore.sh backups/sekvyr-20260908-031700.sql.sealed
 ```
 
-The script asks for the database name as confirmation, takes a safety dump of
-the current state, stops the backend, loads the dump and brings the panel back.
+The script asks for the database name as confirmation and checks that the SQL
+dump has the `pg_dump` completion footer before taking a safety dump, stopping
+the backend, loading the dump and bringing the panel back.
 The load runs in one transaction: if it fails, the database stays as it was. The
 safety dump is sealed with the backup password, like the nightly ones, and the
 last five are kept. It goes back with the same command:

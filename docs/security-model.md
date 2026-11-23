@@ -330,6 +330,9 @@ how that rule is kept. Who can attack the panel and what stops them is in the
   own alert channel is broken, and it gets through even when the panel and the
   database no longer answer. When the problem changes (a sealed panel goes
   silent), it reports again.
+- The watchdog retries failed deliveries until a configured channel returns
+  HTTP 2xx. The watchdog and backup script pass bot tokens and webhook URLs
+  to curl through standard input.
 
 ## Deployment
 

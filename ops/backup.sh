@@ -19,7 +19,7 @@
 #   SEKVYR_APP             каталог панели, если скрипт лежит не в ней
 #
 # Пароль шифрования лежит в <установка>/secret/backup.pass. Если файла нет,
-# скрипт создает его сам и печатает: пароль нужно сохранить там же, где доли
+# скрипт создает его сам: пароль нужно сохранить там же, где доли
 # корневого ключа. Без него бэкап не открыть - ни вам, ни кому-либо еще.
 set -eu
 
@@ -44,6 +44,9 @@ if [ -z "$APP" ]; then
     APP="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || true)"
 fi
 [ -f "$APP/compose.yml" ] || { msg "не найдена установка панели: $APP" "panel installation not found: $APP" >&2; exit 1; }
+HOST_IO="$(dirname "$0")/host-io.sh"
+[ -r "$HOST_IO" ] || HOST_IO="$APP/ops/host-io.sh"
+. "$HOST_IO"
 
 pick_lang
 
@@ -87,20 +90,10 @@ cd "$APP"
 # а панель жива, сообщение уйдет по её же каналу. Если мертва и она - тем более
 # нужен независимый путь.
 HB="$APP/data/heartbeat"
-hb() { grep -m1 "^$1=" "$HB" 2>/dev/null | cut -d= -f2-; }
 
 notify() {
-    _msg="$1" _token="$(hb tg_token)" _chat="$(hb tg_chat)"
-    _api="$(hb tg_api)"; [ -z "$_api" ] && _api="https://api.telegram.org"
-    _hook="$(hb webhook)"
-    if [ -n "$_token" ] && [ -n "$_chat" ]; then
-        curl -s --max-time 15 "$_api/bot$_token/sendMessage" \
-            --data-urlencode "chat_id=$_chat" --data-urlencode "text=$_msg" \
-            --data-urlencode "disable_web_page_preview=true" >/dev/null 2>&1 || true
-    fi
-    [ -n "$_hook" ] && curl -s --max-time 15 -H 'Content-Type: application/json' \
-        --data "{\"text\": \"$(printf '%s' "$_msg" | sed 's/\\/\\\\/g; s/"/\\"/g')\"}" \
-        "$_hook" >/dev/null 2>&1 || true
+    _heartbeat=$(read_host_state "$HB") || return 0
+    send_host_alert "$_heartbeat" "$1" || true
 }
 
 mark() {
@@ -112,7 +105,7 @@ mark() {
     _detail="$(printf '%s' "$4" | tr '\n\r\t' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')"
     mkdir -p "$(dirname "$STATE")"
     printf '{"at": "%s", "ok": %s, "file": "%s", "size": %s, "detail": "%s"}\n' \
-        "$STAMP" "$1" "$2" "$3" "$_detail" > "$STATE"
+        "$STAMP" "$1" "$2" "$3" "$_detail" | write_host_state "$STATE" 022
 }
 
 fail() {
@@ -146,22 +139,32 @@ if command -v flock >/dev/null 2>&1; then
 fi
 
 # --- пароль ----------------------------------------------------------------
+if ! regular_or_absent "$PASS_FILE"; then
+    fail "$(msg 'файл пароля бэкапов должен быть обычным файлом' 'the backup password file must be a regular file')"
+fi
 if [ ! -s "$PASS_FILE" ]; then
-    mkdir -p "$(dirname "$PASS_FILE")"
-    ( umask 077; openssl rand -base64 33 | tr -d '\n' > "$PASS_FILE" )
-    chmod 600 "$PASS_FILE"
-    # Файл читает контейнер бэкенда, а он работает под uid 10001 и не root.
-    # Без смены владельца шифрование падало бы на "Permission denied" - и
-    # ровно в ту ночь, когда бэкап делается впервые и никто не смотрит.
-    chown 10001:10001 "$PASS_FILE" 2>/dev/null || true
+    if ! backup_password="$(openssl rand -base64 33)" || [ -z "$backup_password" ]; then
+        fail "$(msg 'не удалось создать пароль бэкапов' 'could not generate the backup password')"
+    fi
+    if ! (
+        umask 077
+        # Apply ownership while the file is still private to the host. The
+        # container can replace entries in the mounted secret directory.
+        tmp="$(mktemp -d "${TMPDIR:-/tmp}/sekvyr-backup-pass.XXXXXXXXXX")" || exit 1
+        trap 'rm -f "$tmp/password"; rmdir "$tmp"' EXIT
+        mkdir -p "$APP/secret" && printf '%s' "$backup_password" > "$tmp/password" || exit 1
+        chown 10001:10001 "$tmp/password" 2>/dev/null || true
+        mv -fT -- "$tmp/password" "$PASS_FILE"
+    ); then
+        fail "$(msg 'не удалось сохранить пароль бэкапов' 'could not save the backup password')"
+    fi
+    unset backup_password
     echo "════════════════════════════════════════════════════════"
     msg "  Создан пароль шифрования бэкапов: $PASS_FILE" "  Created the backup encryption password: $PASS_FILE"
     msg "  СОХРАНИТЕ его там же, где доли корневого ключа." "  SAVE it where you keep the root key shares."
-    msg "  Пароль: $(cat "$PASS_FILE")" "  Password: $(cat "$PASS_FILE")"
     msg "  Без него ни один бэкап не открыть." "  Without it no backup can be opened."
     echo "════════════════════════════════════════════════════════"
-    # Из cron этот вывод не увидит никто, а все следующие бэкапы зашифрованы
-    # этим паролем. Сам пароль в оповещение не идет - только где его взять.
+    # Из cron также отправляем путь к файлу, чтобы пароль сохранили отдельно.
     notify "$(msg "🔑 Sekvyr: создан новый пароль бэкапов, он в $PASS_FILE на сервере. Сохраните его там же, где доли ключа: без него бэкапы не открыть" \
         "🔑 Sekvyr: a new backup password was created, it is in $PASS_FILE on the server. Store it with the key shares: backups cannot be opened without it")"
 fi

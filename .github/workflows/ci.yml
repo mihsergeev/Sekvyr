@@ -374,6 +374,26 @@ jobs:
           password = sys.stdin.buffer.readline().decode().strip()
           sealedfile.unseal(sys.stdin.buffer, sys.stdout.buffer, password=password)
           " | grep "CREATE TABLE" >/dev/null
+      - name: Restore and reject damaged dumps
+        shell: bash
+        run: |
+          file=$(sudo jq -er '.file' data/backup.json)
+          db() { docker compose exec -T db psql -XAt -v ON_ERROR_STOP=1 -U sekvyr -d sekvyr "$@"; }
+          restore() { printf 'sekvyr\n' | sudo SEKVYR_APP="$PWD" sh ops/restore.sh "$1"; }
+          test_dump=$(mktemp)
+          trap 'rm -f "$test_dump"' EXIT
+          db -c 'CREATE TABLE restore_probe (id int); INSERT INTO restore_probe VALUES (42);'
+          # Complete SQL statements, but no footer: PostgreSQL alone would accept it.
+          printf 'CREATE TABLE incomplete_restore (id int);\n' > "$test_dump"
+          if restore "$test_dump"; then exit 1; fi
+          test "$(db -c 'SELECT id FROM restore_probe;')" = 42
+          # Failure after starting the schema replacement still rolls back the whole restore.
+          printf 'SELECT * FROM missing_restore_table;\n-- PostgreSQL database dump complete\n' > "$test_dump"
+          if restore "$test_dump"; then exit 1; fi
+          test "$(db -c 'SELECT id FROM restore_probe;')" = 42
+          restore "backups/$file"
+          test "$(db -c "SELECT to_regclass('public.restore_probe') IS NULL;")" = t
+          curl -sf http://127.0.0.1:8080/api/health >/dev/null
       - name: Logs
         if: failure()
         run: docker compose logs --no-color
