@@ -845,6 +845,31 @@ func cmdRender(args []string) error {
 }
 
 func writeFile(path, text string, mode os.FileMode) error {
+	return writeFileAtomic(path, text, mode, true)
+}
+
+func syncAgentFile(path, text string, mode os.FileMode) (bool, error) {
+	// The output may have been replaced since the previous sync. Never follow
+	// a link or wait on a pipe when comparing the previous secret file.
+	old, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err == nil {
+		defer old.Close()
+		info, err := old.Stat()
+		if err == nil && info.Mode().IsRegular() && info.Size() == int64(len(text)) {
+			data, err := io.ReadAll(io.LimitReader(old, int64(len(text))+1))
+			if err == nil && string(data) == text {
+				if info.Mode() == mode {
+					return false, nil
+				}
+				// Correct permissions even when the secret has not changed.
+				return false, writeFile(path, text, mode)
+			}
+		}
+	}
+	return true, writeFile(path, text, mode)
+}
+
+func writeFileAtomic(path, text string, mode os.FileMode, replace bool) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -859,9 +884,8 @@ func writeFile(path, text string, mode os.FileMode) error {
 		return err
 	}
 	tmp := f.Name()
-	done := false
 	defer func() {
-		if !done {
+		if tmp != "" {
 			_ = os.Remove(tmp)
 		}
 	}()
@@ -885,11 +909,18 @@ func writeFile(path, text string, mode os.FileMode) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if replace {
+		err = os.Rename(tmp, path)
+	} else {
+		err = os.Link(tmp, path)
+	}
+	if err != nil {
 		return err
 	}
+	if replace {
+		tmp = ""
+	}
 	syncDir(dir)
-	done = true
 	return nil
 }
 

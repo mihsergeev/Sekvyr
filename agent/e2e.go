@@ -91,29 +91,35 @@ func serviceStateReadable() bool {
 // nodeKey возвращает приватный ключ ноды, заводя его при первом обращении.
 func nodeKey(configPath string) (*ecdh.PrivateKey, error) {
 	path := keyPath(configPath)
-	raw, err := os.ReadFile(path)
-	if err == nil {
-		decoded, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(string(raw)))
-		if decodeErr != nil {
-			return nil, fmt.Errorf(tr("ключ ноды %s испорчен: %w", "the node key %s is damaged: %w"), path, decodeErr)
-		}
-		return ecdh.P256().NewPrivateKey(decoded)
-	}
+	key, err := readNodeKey(path)
 	if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
+		return key, err
 	}
 
-	key, err := ecdh.P256().GenerateKey(rand.Reader)
+	key, err = ecdh.P256().GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
 	}
 	body := base64.StdEncoding.EncodeToString(key.Bytes())
-	// Через временный файл: обрыв записи (кончилось место) оставлял пустой
-	// node.key, и дальше навсегда "invalid private key size".
-	if err := writeFile(path, body+"\n", 0o600); err != nil {
+	// Publish the complete key without replacing a key another agent created.
+	if err := writeFileAtomic(path, body+"\n", 0o600, false); errors.Is(err, os.ErrExist) {
+		return readNodeKey(path)
+	} else if err != nil {
 		return nil, err
 	}
 	return key, nil
+}
+
+func readNodeKey(path string) (*ecdh.PrivateKey, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return nil, fmt.Errorf(tr("ключ ноды %s испорчен: %w", "the node key %s is damaged: %w"), path, err)
+	}
+	return ecdh.P256().NewPrivateKey(decoded)
 }
 
 // nodePublicKey - то, что агент присылает панели. Секретом не является.
