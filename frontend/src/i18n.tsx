@@ -373,6 +373,9 @@ const EN: Record<string, string> = {
   'Удалить сервер': 'Delete server',
   'Отозвать доступ': 'Revoke access',
   'Отозвать доступ?': 'Revoke access?',
+  '{where}: панель удалит это разрешение. Другие правила и файл на сервере сохранятся.':
+    '{where}: this grant will be removed. Other rules and the file on the server will remain.',
+  'Запреты и файлы на сервере сохранятся.': 'Denials and files on the server will remain.',
   'Сервер перестанет получать это окружение при следующем обращении. Файл, который уже лежит на нём, останется.':
     'The server stops receiving this environment on its next request. The file already on it stays.',
   'права нет — файл больше не обновляется': 'no permission — the file is no longer updated',

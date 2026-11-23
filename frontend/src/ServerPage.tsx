@@ -11,7 +11,9 @@ import {
   listMachines,
   listPolicies,
   listProjects,
+  requireCurrentSession,
   rotateMachineSecret,
+  sessionStamp,
   updateMachine,
   type Machine,
   type MachineApp,
@@ -29,6 +31,7 @@ import { useI18n } from './i18n'
 import type { View } from './router'
 import { usePoll } from './usePoll'
 import { useEscape } from './useEscape'
+import { useOperationScope } from './useOperationScope'
 import { newerVersion } from './version'
 
 /* Один сервер целиком: что ему выдано и что он на самом деле забирает.
@@ -57,6 +60,10 @@ const USUAL = ['list', 'read']
 
 function plain(actions: string[]): boolean {
   return actions.length === USUAL.length && USUAL.every((a) => actions.includes(a))
+}
+
+function permitsRead(policy: PolicyRow): boolean {
+  return policy.effect === 'allow' && !policy.expired && policy.actions.includes('read')
 }
 
 /** Строка списка: одно окружение - право на него и приложение, которое его берет. */
@@ -95,7 +102,7 @@ function coveredWide(app: MachineApp, policies: PolicyRow[], projects: Project[]
   const parts = app.environment.split('/')
   const appProject = parts.slice(0, -1).join('/')
   return policies.some((policy) => {
-    if (policy.effect !== 'allow' || policy.expired || policy.environment_name) return false
+    if (!permitsRead(policy) || policy.environment_name) return false
     if (policy.project_id === null) return true
     if (projects.some((p) => p.id === policy.project_id)) {
       return appProject === projectName(policy, projects)
@@ -148,7 +155,7 @@ function build(
 
   if (known) {
     for (const policy of policies) {
-      const app = apps.find((a) => matches(a, policy, projects))
+      const app = permitsRead(policy) ? apps.find((a) => matches(a, policy, projects)) : undefined
       if (app) used.add(app.environment)
       const base = projectName(policy, projects)
       rows.push({
@@ -201,6 +208,7 @@ export function ServerPage({
   const { t, lang } = useI18n()
   const auth = useAuth()
   const { ask, confirm, notify } = useDialogs()
+  const startOperation = useOperationScope(id ?? name)
   const [machine, setMachine] = useState<Machine | null>(null)
   const [policies, setPolicies] = useState<PolicyRow[]>([])
   // Виден ли список прав: без него нельзя утверждать, что у приложения права нет.
@@ -357,6 +365,7 @@ export function ServerPage({
 
   async function remove() {
     if (!machine) return
+    const current = startOperation()
     const answer = await ask({
       title: t('Удалить сервер?'),
       text: t('Вместе с ней исчезнут её права. Записи в журнале останутся.'),
@@ -364,26 +373,33 @@ export function ServerPage({
       danger: true,
       fields: [{ name: 'confirm', label: t('Введите имя сервера'), placeholder: machine.name }],
     })
-    if (!answer) return
+    if (!answer || !current()) return
     try {
       await deleteMachine(machine.id, answer.confirm.trim())
-      onBack()
+      if (current()) onBack()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
   }
 
   async function revoke(policy: PolicyRow) {
+    const current = startOperation()
+    const deny = policy.effect === 'deny'
+    const where = `${projectName(policy, projects) || t('все проекты')}${
+      policy.environment_name ? `/${policy.environment_name}` : ''
+    }${policy.path_prefix !== '/' ? ` ${policy.path_prefix}` : ''}`
     const yes = await confirm({
-      title: t('Отозвать доступ?'),
-      text: t('Сервер перестанет получать это окружение при следующем обращении. Файл, который уже лежит на нём, останется.'),
-      submit: t('Отозвать'),
+      title: deny ? t('Снять запрет для {name}?', { name: machine?.name ?? name }) : t('Отозвать доступ?'),
+      text: deny
+        ? t('{where}: доступ откроется в той мере, в какой его дают остальные права. Запрет больше не будет их перекрывать.', { where })
+        : t('{where}: панель удалит это разрешение. Другие правила и файл на сервере сохранятся.', { where }),
+      submit: deny ? t('Снять запрет') : t('Отозвать'),
       danger: true,
     })
-    if (!yes) return
+    if (!yes || !current()) return
     try {
       await deletePolicy(policy.id)
-      await reload()
+      if (current()) await reload()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -391,22 +407,25 @@ export function ServerPage({
 
   /** Снять с сервера все выданные окружения разом. */
   async function revokeAll() {
-    const live = rows.map((row) => row.policy).filter(Boolean) as PolicyRow[]
-    if (live.length === 0) return
+    const current = startOperation()
+    const session = sessionStamp()
+    const grants = policies.filter((policy) => policy.effect === 'allow')
+    if (grants.length === 0) return
     const yes = await confirm({
       title: t('Отозвать все доступы?'),
-      text: `${t('Прав будет снято')}: ${live.length}. ${t('Сервер перестанет получать эти окружения при следующем обращении. Файлы, которые уже лежат на нём, останутся.')}`,
+      text: `${t('Прав будет снято')}: ${grants.length}. ${t('Запреты и файлы на сервере сохранятся.')}`,
       submit: t('Отозвать всё'),
       danger: true,
     })
-    if (!yes) return
+    if (!yes || !current()) return
     try {
       // По одному: пакетной ручки у панели нет, зато каждая правка попадает в
       // журнал отдельной записью - так же, как при отзыве руками.
-      for (const policy of live) {
+      for (const policy of grants) {
+        requireCurrentSession(session)
         await deletePolicy(policy.id)
       }
-      await reload()
+      if (current()) await reload()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -504,7 +523,7 @@ export function ServerPage({
                     >
                       {machine.disabled ? t('Включить') : t('Выключить')}
                     </button>
-                    {auth.isOwner && rows.some((row) => row.policy) && (
+                    {auth.isOwner && policies.some((policy) => policy.effect === 'allow') && (
                       <button
                         className="menu-item menu-item-danger"
                         onClick={() => {
@@ -602,12 +621,13 @@ export function ServerPage({
           {rows.map((row) => {
             const to = target(row, projects)
             const orphan = known && !row.policy && !row.granted
+            const deny = row.policy?.effect === 'deny'
             return (
               <div key={row.key} className={`card conn${orphan ? ' conn-orphan' : ''}`}>
                 <div className="conn-head">
                   <span
                     className={`key-dot${row.app ? ' conn-dot-live' : ''}`}
-                    title={row.app ? t('агент забирает') : t('выдано, но не забирается')}
+                    title={deny ? t('запрет') : row.policy?.expired ? t('истекло') : row.app ? t('агент забирает') : t('выдано, но не забирается')}
                   />
                   {/* Имя стенда - переход в него: на страницу сервера
                       приходят посмотреть, что он забирает, и тут же правят
@@ -619,6 +639,10 @@ export function ServerPage({
                     </button>
                   ) : (
                     <span className="project-name">{row.where}</span>
+                  )}
+                  {deny && <span className="tag tag-deny">{t('запрет')}</span>}
+                  {row.policy && row.policy.path_prefix !== '/' && (
+                    <span className="mono muted small">{row.policy.path_prefix}</span>
                   )}
                   {row.app?.path && <span className="mono muted small">{row.app.path}</span>}
                   <span className="spacer" />
@@ -647,7 +671,7 @@ export function ServerPage({
                                 void revoke(row.policy as PolicyRow)
                               }}
                             >
-                              {t('Отозвать доступ')}
+                              {deny ? t('Снять запрет') : t('Отозвать доступ')}
                             </button>
                           </div>
                         </>
@@ -658,7 +682,7 @@ export function ServerPage({
 
                 <div className="conn-body">
                   {row.policy ? (
-                    plain(row.policy.actions) ? null : (
+                    !deny && plain(row.policy.actions) ? null : (
                       <span className="policy-actions">
                         {row.policy.actions.map((a) => (
                           <span
@@ -682,7 +706,7 @@ export function ServerPage({
                     <span className="muted small">
                       {t('обновлено')} {formatAgo(row.app.last_seen_at, lang)}
                     </span>
-                  ) : (
+                  ) : !deny && (
                     <span className="muted small">{t('не используется')}</span>
                   )}
                 </div>

@@ -6,10 +6,11 @@
  * все приложения помечались "права нет".
  */
 
-import { act, render } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as api from './api'
 import { AuthProvider, toAuth } from './auth'
+import { DialogProvider } from './Dialogs'
 import { ServerPage } from './ServerPage'
 
 const now = new Date().toISOString()
@@ -82,7 +83,9 @@ const maintainer = toAuth({
 async function show(auth: ReturnType<typeof toAuth>, props: { name: string; id?: number }) {
   render(
     <AuthProvider value={auth}>
-      <ServerPage {...props} onBack={() => {}} onGo={() => {}} />
+      <DialogProvider>
+        <ServerPage {...props} onBack={() => {}} onGo={() => {}} />
+      </DialogProvider>
     </AuthProvider>,
   )
   for (let i = 0; i < 5; i++) {
@@ -152,5 +155,36 @@ describe('ServerPage', () => {
     expect(document.body.textContent).not.toContain('права нет')
     expect(document.body.textContent).not.toContain('Ничего не подключено')
     expect(rows.find((r) => r.startsWith('web/stage'))).toContain('не используется')
+  })
+
+  it('показывает запрет отдельно, а его снятие предупреждает об открытии доступа', async () => {
+    const deny = { ...policy(100, 5, 2, 'web', 'prod'), effect: 'deny', path_prefix: '/private' }
+    stub([machine(5, 'node', ['web/prod'])], [deny, policy(101, 5, 2, 'web', '')])
+    const remove = vi.spyOn(api, 'deletePolicy').mockResolvedValue(undefined)
+    await show(owner, { name: 'node', id: 5 })
+
+    const card = screen.getByText('запрет').closest('.conn') as HTMLElement
+    expect(within(card).getByText('/private')).toBeTruthy()
+    expect(within(card).queryByTitle('агент забирает')).toBeNull()
+    fireEvent.click(within(card).getByRole('button', { name: 'Меню' }))
+    fireEvent.click(within(card).getByRole('button', { name: 'Снять запрет' }))
+    const dialog = screen.getByRole('alertdialog')
+    expect(within(dialog).getByText(/web\/prod \/private: доступ откроется/)).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Снять запрет' }))
+    await waitFor(() => expect(remove).toHaveBeenCalledWith(100))
+  })
+
+  it('массовый отзыв сохраняет запреты, даже если они созданы раньше разрешений', async () => {
+    const deny = { ...policy(100, 5, 2, 'web', 'prod'), effect: 'deny' }
+    stub([machine(5, 'node', ['web/prod'])], [deny, policy(101, 5, 2, 'web', '')])
+    const remove = vi.spyOn(api, 'deletePolicy').mockResolvedValue(undefined)
+    await show(owner, { name: 'node', id: 5 })
+
+    fireEvent.click(within(screen.getByRole('heading', { name: 'node' }).parentElement!).getByRole('button', { name: 'Меню' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Отозвать все доступы' }))
+    const dialog = screen.getByRole('alertdialog')
+    expect(within(dialog).getByText(/Запреты и файлы на сервере сохранятся/)).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Отозвать всё' }))
+    await waitFor(() => expect(remove.mock.calls).toEqual([[101]]))
   })
 })
