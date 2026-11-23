@@ -71,8 +71,10 @@ client, and the allow-list refuses everyone who comes over IPv6.
 
 1. **Change the password and turn on two-factor authentication.** The password
    printed by the installer sits in `.env` in plain text.
-2. **Create the vault** in the Vault section. Until then the panel is sealed and
-   stores nothing. There are three ways to hold the root key:
+2. **Create the vault** in the Vault section. Prepare the key or shares, save
+   them outside the panel, then confirm creation. If the reply is interrupted,
+   repeat the confirmation from the open page. There are three ways to hold
+   the root key:
    - **Shares** (3 of 5 by default): nobody has the whole key. The shares are
      shown once: hand them to different people and keep them in different
      places. After every restart the panel waits for enough shares.

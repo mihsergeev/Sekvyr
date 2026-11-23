@@ -2,9 +2,8 @@
 
 Три вещи, которые нужно знать про этот роутер:
 
-1. **Ключ и доли показываются ровно один раз** - в ответе на инициализацию или
-   ротацию. В базу они не пишутся, повторно узнать их неоткуда, и это не
-   недоработка, а все содержание схемы.
+1. **Ключ и доли показываются до подтверждения настройки или ротации.**
+   В базу они не пишутся, восстановить их из панели неоткуда.
 2. **Запереть может владелец, отпереть - держатели долей.** Подача доли
    доступна с уровня ответственного: доли раздаются людям, а не ролям, но чтобы
    вообще дойти до этого маршрута, нужно войти в панель.
@@ -14,17 +13,20 @@
 """
 
 import asyncio
+import hmac
+import json
 from pathlib import Path
 from typing import Annotated
 
 from anyio import CancelScope
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import alerts, audit, crypto, envkeys, sealbox, shamir
 from app.config import get_settings
 from app.deps import BoxDep, MaintainerUser, OwnerUser, SessionDep, peer_ip
+from app.models import User
 
 router = APIRouter(prefix="/vault", tags=["vault"])
 
@@ -45,8 +47,7 @@ class StatusOut(BaseModel):
     # Чего ждут от панели после перезапуска: поднимется сама или будет ждать
     # ключ. Хранится с момента заведения сейфа.
     auto_unseal_intent: bool = False
-    # Задан ли корневой ключ в окружении СЕЙЧАС. Не сам ключ, а факт: по нему
-    # видно расхождение с намерением до того, как оно всплывет при перезапуске.
+    # Подходит ли настроенный ключ к текущему поколению сейфа.
     root_key_configured: bool = False
     # Куда панель может сохранить ключ, чтобы подниматься самой. Пусто - путь не
     # задан администратором сервера, и сохранять некуда.
@@ -83,6 +84,20 @@ class InitOut(BaseModel):
     warning: str
 
 
+class PreparedKey(BaseModel):
+    proof: str = Field(pattern=r"^[0-9a-f]{64}$", repr=False)
+    root_key: str = Field(default="", max_length=512, repr=False)
+    shares: list[Annotated[str, Field(max_length=512)]] = Field(default_factory=list, max_length=16, repr=False)
+
+
+class InitCommitIn(InitIn):
+    prepared: PreparedKey | None = Field(default=None, repr=False)
+
+
+class PreparedInit(InitOut):
+    proof: str = Field(repr=False)
+
+
 class UnsealIn(BaseModel):
     share: str = Field(default="", max_length=512)
     root_key: str = Field(default="", max_length=512)
@@ -102,20 +117,22 @@ class RotateOut(BaseModel):
     root_key: str = ""
 
 
+class PreparedRotation(PreparedKey):
+    root_generation: int = Field(strict=True, ge=1)
+
+
 async def _status(session: SessionDep, box) -> StatusOut:
     meta = await sealbox.read_meta(session)
     settings = get_settings()
     path = Path(settings.root_key_file) if settings.root_key_file else None
     key_file_present = path is not None and (path.exists() or sealbox.staged_key_file(path).exists())
+    saved = sealbox.saved_root(settings.root_key, settings.root_key_file, meta)
     return StatusOut(
         initialized=meta.initialized,
         sealed=not box.unsealed,
         mode=meta.mode,
         auto_unseal_intent=meta.auto_unseal,
-        # Путь к файлу без самого файла (ключ забыли кнопкой) - ключа нет:
-        # раньше баннер после "забыть" говорил, что ключ лежит на сервере, и
-        # молчал о том, что панель после перезапуска окажется запертой.
-        root_key_configured=bool(settings.root_key) or key_file_present,
+        root_key_configured=saved is not None and sealbox.check_root(saved, meta),
         key_file_path=settings.root_key_file,
         key_file_present=key_file_present,
         shares=meta.shares,
@@ -130,11 +147,9 @@ async def status_(_: MaintainerUser, session: SessionDep, box: BoxDep) -> Status
     return await _status(session, box)
 
 
-@router.post("/init", response_model=InitOut)
-async def init(
-    body: InitIn, request: Request, user: OwnerUser, session: SessionDep, box: BoxDep
-) -> InitOut:
-    seal_epoch = box.seal_epoch
+def _validate_init(body: InitIn) -> None:
+    if body.mode not in (sealbox.MODE_ENV, sealbox.MODE_SHARES):
+        raise HTTPException(status.HTTP_409_CONFLICT, "неизвестный режим корневого ключа")
     if body.mode == sealbox.MODE_SHARES:
         if body.shares < 2:
             raise HTTPException(
@@ -159,33 +174,13 @@ async def init(
                 f"Порог ({body.threshold}) больше числа долей ({body.shares}) — "
                 "отпереть панель было бы невозможно",
             )
-    try:
-        root, parts = await sealbox.initialize(
-            session,
-            mode=body.mode,
-            shares=body.shares,
-            threshold=body.threshold,
-            auto_unseal=body.auto_unseal,
-        )
-    except ValueError as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
-    await audit.record(
-        session,
-        actor=user.username,
-        action="vault_initialized",
-        detail=f"режим: {body.mode}"
-        + (f", доли: {body.threshold} из {body.shares}" if parts else ""),
-        ip=peer_ip(request),
-    )
-    await session.commit()
-    # При откате метаданных новый ключ не должен стать доступен для записи секретов.
-    box.set_root_if_current(root, seal_epoch)
 
-    if parts:
+def _init_material(body: InitIn, root: bytes) -> InitOut:
+    if body.mode == sealbox.MODE_SHARES:
         return InitOut(
             mode=body.mode,
-            shares=parts,
+            shares=shamir.split(root, shares=body.shares, threshold=body.threshold),
             warning=(
                 "Доли показываются один раз. Раздайте их разным людям и сохраните "
                 "вне этой панели: восстановить их неоткуда, а без порога долей "
@@ -201,6 +196,80 @@ async def init(
             "потерянный ключ означает потерю всех значений."
         ),
     )
+
+
+def _init_proof(user: User, body: InitIn, root: bytes, root_key: str, shares: list[str]) -> str:
+    data = json.dumps(
+        [user.id, user.username, body.mode, body.shares, body.threshold, body.auto_unseal,
+         sealbox.b64(root), root_key, shares],
+        separators=(",", ":"),
+    ).encode("ascii")
+    key = get_settings().jwt_secret.encode()
+    return hmac.digest(key, b"sekvyr-vault-init-v1\0" + data, "sha256").hex()
+
+
+@router.post("/init/prepare", response_model=PreparedInit)
+async def prepare_init(body: InitIn, response: Response, user: OwnerUser, session: SessionDep) -> PreparedInit:
+    _validate_init(body)
+    if (await sealbox.read_meta(session)).initialized:
+        raise HTTPException(status.HTTP_409_CONFLICT, "сейф уже заведён")
+    root = crypto.new_key()
+    material = _init_material(body, root)
+    proof = _init_proof(user, body, root, material.root_key, material.shares)
+    response.headers["Cache-Control"] = "no-store"
+    return PreparedInit(**material.model_dump(), proof=proof)
+
+
+@router.post("/init", response_model=InitOut)
+async def init(
+    body: InitCommitIn, request: Request, response: Response, user: OwnerUser, session: SessionDep, box: BoxDep
+) -> InitOut:
+    _validate_init(body)
+    seal_epoch = box.seal_epoch
+    await envkeys.lock_material(session, exclusive=True)
+    meta = await sealbox.read_meta(session)
+    response.headers["Cache-Control"] = "no-store"
+    prepared = body.prepared
+    shares_mode = body.mode == sealbox.MODE_SHARES
+    shares = body.shares if shares_mode else 0
+    threshold = body.threshold if shares_mode else 0
+    auto_unseal = body.auto_unseal and not shares_mode
+    if prepared is not None:
+        root = _prepared_root(
+            prepared, mode=body.mode, shares=shares, invalid_detail="Подготовленный ключ или доли повреждены",
+        )
+        proof = _init_proof(user, body, root, prepared.root_key, prepared.shares)
+        if not hmac.compare_digest(proof, prepared.proof):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Подготовленный материал для настройки не совпадает")
+        result = InitOut(mode=body.mode, warning="")
+        if meta.initialized:
+            if (
+                meta.generation == 1 and meta.mode == body.mode and meta.shares == shares
+                and meta.threshold == threshold and meta.auto_unseal == auto_unseal
+                and sealbox.check_root(root, meta)
+            ):
+                return result
+            raise HTTPException(status.HTTP_409_CONFLICT, "сейф уже заведён")
+    else:
+        if meta.initialized:
+            raise HTTPException(status.HTTP_409_CONFLICT, "сейф уже заведён")
+        root = crypto.new_key()
+        result = _init_material(body, root)
+
+    await sealbox.initialize(
+        session, root=root, mode=body.mode, shares=shares, threshold=threshold, auto_unseal=auto_unseal,
+    )
+    await audit.record(
+        session,
+        actor=user.username,
+        action="vault_initialized",
+        detail=f"режим: {body.mode}" + (f", доли: {threshold} из {shares}" if shares_mode else ""),
+        ip=peer_ip(request),
+    )
+    await session.commit()
+    # При откате метаданных новый ключ не должен стать доступен для записи секретов.
+    box.set_root_if_current(root, seal_epoch)
+    return result
 
 
 @router.post("/unseal", response_model=UnsealOut)
@@ -353,9 +422,72 @@ async def _commit_root_rotation(
         sealbox.publish_staged_key_file(key_path)
 
 
+def _current_root(box: sealbox.SealBox, meta: sealbox.VaultMeta) -> bytes:
+    if not box.unsealed:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Панель заперта: сначала введите текущий корневой ключ",
+        )
+    root = box.root()
+    if not sealbox.check_root(root, meta):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Корневой ключ изменился: откройте сейф заново")
+    return root
+
+
+def _rotation_proof(old_root: bytes, generation: int, new_root: bytes, shares: list[str]) -> str:
+    # The proof also binds the exact ordered list of prepared shares. Returning a
+    # different share that reconstructs the same key with all the others would
+    # otherwise risk making a smaller, threshold-sized subset unusable.
+    data = (b"sekvyr-vault-root-rotation-v1\0" + str(generation).encode("ascii") + b"\0"
+            + new_root + json.dumps(shares, separators=(",", ":")).encode("ascii"))
+    return hmac.digest(old_root, data, "sha256").hex()
+
+
+def _rotation_shares(root: bytes, meta: sealbox.VaultMeta) -> list[str]:
+    return shamir.split(root, shares=meta.shares, threshold=meta.threshold) if meta.mode == sealbox.MODE_SHARES else []
+
+
+def _prepared_root(
+    body: PreparedKey, *, mode: str, shares: int,
+    invalid_detail: str = "Ключ или доли для ротации повреждены",
+) -> bytes:
+    candidate = None
+    if mode == sealbox.MODE_SHARES and not body.root_key and len(body.shares) == shares:
+        try:
+            candidate = shamir.combine(body.shares)
+        except shamir.ShareError:
+            pass
+    elif mode == sealbox.MODE_ENV and not body.shares and body.root_key:
+        candidate = sealbox.root_from_env(body.root_key, "")
+    if candidate is None or len(candidate) != crypto.KEY_SIZE:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, invalid_detail)
+    return candidate
+
+
+@router.post("/rotate-root/prepare", response_model=PreparedRotation)
+async def prepare_root_rotation(
+    response: Response, _user: OwnerUser, session: SessionDep, box: BoxDep
+) -> PreparedRotation:
+    """Показывает материал заранее, чтобы его сохранили до необратимой смены."""
+    meta = await sealbox.read_meta(session)
+    if not meta.initialized:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Сейф ещё не заведён")
+    old_root = _current_root(box, meta)
+    new_root = crypto.new_key()
+    shares = _rotation_shares(new_root, meta)
+    response.headers["Cache-Control"] = "no-store"
+    return PreparedRotation(
+        root_generation=meta.generation,
+        proof=_rotation_proof(old_root, meta.generation, new_root, shares),
+        root_key="" if shares else sealbox.b64(new_root),
+        shares=shares,
+    )
+
+
 @router.post("/rotate-root", response_model=RotateOut)
 async def rotate_root(
-    request: Request, user: OwnerUser, session: SessionDep, box: BoxDep, _key_lock: KeyFileLock
+    request: Request, response: Response, user: OwnerUser, session: SessionDep,
+    box: BoxDep, _key_lock: KeyFileLock, body: PreparedRotation | None = None,
 ) -> RotateOut:
     """Новый корневой ключ. Значения не трогаются: перекладываются обертки
     ключей окружений, и все это одной транзакцией - половинчатого состояния,
@@ -364,25 +496,35 @@ async def rotate_root(
     meta = await sealbox.read_meta(session)
     if not meta.initialized:
         raise HTTPException(status.HTTP_409_CONFLICT, "Сейф ещё не заведён")
-    if not box.unsealed:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Панель заперта: сначала введите текущий корневой ключ",
-        )
+    response.headers["Cache-Control"] = "no-store"
+    if body is not None and body.root_generation != meta.generation:
+        if body.root_generation + 1 == meta.generation:
+            # A lost reply can be retried even after restart. Matching the
+            # verifier establishes that this exact prepared key was committed.
+            if sealbox.check_root(_prepared_root(body, mode=meta.mode, shares=meta.shares), meta):
+                return RotateOut(root_generation=meta.generation, rewrapped_keys=0)
+        raise HTTPException(status.HTTP_409_CONFLICT, "Поколение изменилось: подготовьте смену ключа заново")
 
-    old_root = box.root()
-    if not sealbox.check_root(old_root, meta):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Корневой ключ изменился: откройте сейф заново")
-    new_root = crypto.new_key()
+    old_root = _current_root(box, meta)
+    configured_file = get_settings().root_key_file
+    key_path = None
+    if configured_file and sealbox.saved_root("", configured_file, meta) == old_root:
+        key_path = Path(configured_file)
+    if body is None:
+        if key_path is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Подготовьте и сохраните новый ключ перед сменой")
+        new_root = crypto.new_key()
+        parts = _rotation_shares(new_root, meta)
+    else:
+        new_root = _prepared_root(body, mode=meta.mode, shares=meta.shares)
+        proof = _rotation_proof(old_root, meta.generation, new_root, body.shares)
+        if new_root == old_root or not hmac.compare_digest(proof, body.proof):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Подготовленный материал для ротации не совпадает")
+        parts = []
     generation = meta.generation + 1
     count = await envkeys.rewrap_for_new_root(session, old_root, new_root, generation)
     await sealbox.rewrap_root(session, new_root, generation)
 
-    parts = (
-        shamir.split(new_root, shares=meta.shares, threshold=meta.threshold)
-        if meta.mode == sealbox.MODE_SHARES
-        else []
-    )
     await audit.record(
         session,
         actor=user.username,
@@ -394,18 +536,15 @@ async def rotate_root(
     # иначе после перезапуска панель не отопрется старым ключом из файла, а
     # новый, показанный один раз, мог никто не сохранить, и значения потеряны.
     # Новый файл пишется рядом до коммита и встает на место после него.
-    configured_file = get_settings().root_key_file
-    key_path = Path(configured_file) if configured_file else None
     if key_path is not None:
-        staged = sealbox.staged_key_file(key_path)
         # После предыдущей ошибки замены .new может быть единственной
         # сохраненной копией действующего ключа. Сначала публикуем ее.
-        if sealbox.read_key_file(key_path) != old_root and sealbox.read_key_file(staged) == old_root:
+        if sealbox.read_key_file(key_path) != old_root:
+            staged = sealbox.staged_key_file(key_path)
+            if sealbox.read_key_file(staged) != old_root:
+                raise HTTPException(status.HTTP_409_CONFLICT, "Сохраненный ключ изменился во время ротации")
             sealbox.replace_key_file(staged, key_path)
-        if key_path.exists():
-            sealbox.stage_key_file(key_path, new_root)
-        else:
-            key_path = None
+        sealbox.stage_key_file(key_path, new_root)
 
     box.begin_rotation(old_root, new_root)
     completion = asyncio.create_task(_commit_root_rotation(session, box, new_root, key_path))
@@ -426,7 +565,7 @@ async def rotate_root(
         root_generation=generation,
         rewrapped_keys=count,
         shares=parts,
-        root_key="" if parts else sealbox.b64(new_root),
+        root_key="" if body is not None or parts else sealbox.b64(new_root),
     )
 
 

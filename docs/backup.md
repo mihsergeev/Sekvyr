@@ -169,7 +169,12 @@ database upgrade, a root key rotation). Keep it where you keep the shares, and
 no longer than it stays true: a stale archive is worse than a missing one,
 because it creates a false sense of readiness.
 
-## After a root key rotation
+## Rotating the root key
+
+The panel shows the new key or shares before it changes the vault. Save them
+outside the panel before confirming. If the response is interrupted, keep the
+material and retry the same confirmation from the open page. A retry can
+confirm that the prepared key was applied without rotating it again.
 
 A dump holds the environment keys wrapped by the root key of its time, so a
 backup taken before the rotation opens only with the old shares or the old key.

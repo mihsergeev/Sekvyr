@@ -531,7 +531,7 @@ export type VaultStatus = {
   key_file_present: boolean
 }
 
-export const vaultStatus = () => api<VaultStatus>('/api/vault/status')
+export const vaultStatus = () => api<VaultStatus>('/api/vault/status', { cache: 'no-store' })
 
 export type VaultInit = {
   mode: string
@@ -540,15 +540,30 @@ export type VaultInit = {
   warning: string
 }
 
+export type VaultInitOptions = {
+  mode: 'shares' | 'env'
+  shares: number
+  threshold: number
+  auto_unseal: boolean
+}
+
+export type VaultInitPreparation = VaultInit & { proof: string }
+
+export const vaultPrepareInit = (options: VaultInitOptions) =>
+  api<VaultInitPreparation>('/api/vault/init/prepare', {
+    method: 'POST',
+    cache: 'no-store',
+    body: JSON.stringify(options),
+  })
+
 export const vaultInit = (
-  mode: string,
-  shares: number,
-  threshold: number,
-  autoUnseal = false,
+  options: VaultInitOptions,
+  { root_key, shares, proof }: VaultInitPreparation,
 ) =>
   api<VaultInit>('/api/vault/init', {
     method: 'POST',
-    body: JSON.stringify({ mode, shares, threshold, auto_unseal: autoUnseal }),
+    cache: 'no-store',
+    body: JSON.stringify({ ...options, prepared: { root_key, shares, proof } }),
   })
 
 export type UnsealResult = {
@@ -583,8 +598,17 @@ export type RootRotation = {
   root_key: string
 }
 
-export const vaultRotateRoot = () =>
-  api<RootRotation>('/api/vault/rotate-root', { method: 'POST' })
+export type RootRotationPreparation = Omit<RootRotation, 'rewrapped_keys'> & { proof: string }
+
+export const vaultPrepareRootRotation = () =>
+  api<RootRotationPreparation>('/api/vault/rotate-root/prepare', { method: 'POST', cache: 'no-store' })
+
+export const vaultRotateRoot = (preparation: RootRotationPreparation) =>
+  api<RootRotation>('/api/vault/rotate-root', {
+    method: 'POST',
+    cache: 'no-store',
+    body: JSON.stringify(preparation),
+  })
 
 // --- проекты и окружения ---
 

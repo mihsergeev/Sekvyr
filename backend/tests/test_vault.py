@@ -8,11 +8,28 @@ import pytest
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import config, sealbox, secrets_store
+from app import alerts, config, sealbox, secrets_store
 from app.cli import _mark_multiline
 from app.main import _auto_unseal, create_app
-from app.models import EnvKey, SecretVersion
+from app.models import AppSetting, AuditLog, EnvKey, SecretVersion, User
+from app.security import create_access_token
 from tests.conftest import login
+
+
+async def prepare_rotation(client, headers):
+    res = await client.post("/api/vault/rotate-root/prepare", headers=headers)
+    assert res.status_code == 200
+    assert res.headers["Cache-Control"] == "no-store"
+    return res.json()
+
+
+async def prepare_init(client, headers, options):
+    res = await client.post("/api/vault/init/prepare", headers=headers, json=options)
+    assert res.status_code == 200
+    assert res.headers["Cache-Control"] == "no-store"
+    material = res.json()
+    assert material["mode"] == options["mode"] and material["warning"]
+    return {key: material[key] for key in ("root_key", "shares", "proof")}
 
 
 async def test_starts_sealed_and_uninitialized(client: httpx.AsyncClient, owner_headers):
@@ -49,6 +66,103 @@ async def test_init_commit_failure_keeps_vault_sealed(client, owner_headers, mon
     state = (await client.get("/api/vault/status", headers=owner_headers)).json()
     assert state["initialized"] is True
     assert state["sealed"] is False
+
+
+@pytest.mark.parametrize("mode", ["env", "shares"])
+async def test_prepared_init_survives_losing_commit_reply(client, owner_headers, monkeypatch, mode):
+    options = {"mode": mode, "shares": 3, "threshold": 2, "auto_unseal": mode == "env"}
+    prepared = await prepare_init(client, owner_headers, options)
+    other = await prepare_init(client, owner_headers, options)
+    if mode == "shares":
+        assert prepared["root_key"] == "" and len(prepared["shares"]) == 3
+        tampered = {**prepared, "shares": prepared["shares"][::-1]}
+    else:
+        assert prepared["root_key"] and prepared["shares"] == []
+        tampered = {**prepared, "root_key": prepared["root_key"] + " "}
+
+    app = client._transport.app
+    async with app.state.session_factory() as session:
+        assert not await session.scalar(select(AppSetting.key).where(AppSetting.key.startswith("vault_")))
+        assert not await session.scalar(select(AuditLog.id).where(AuditLog.action == "vault_initialized"))
+    assert not app.state.sealbox.unsealed
+
+    for invalid in (
+        {**options, "prepared": tampered},
+        {**options, "prepared": {**prepared, "proof": "0" * 64}},
+        {**options, "auto_unseal": not options["auto_unseal"], "prepared": prepared},
+    ):
+        rejected = await client.post("/api/vault/init", headers=owner_headers, json=invalid)
+        assert rejected.status_code == 400
+    body = {**options, "prepared": prepared}
+    committed, resume = asyncio.Event(), asyncio.Event()
+    commit = AsyncSession.commit
+
+    async def pause_after_commit(session):
+        await commit(session)
+        committed.set()
+        await resume.wait()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(AsyncSession, "commit", pause_after_commit)
+        request = asyncio.create_task(client.post("/api/vault/init", headers=owner_headers, json=body))
+        try:
+            await asyncio.wait_for(committed.wait(), timeout=5)
+            request.cancel()
+            await asyncio.sleep(0)
+        finally:
+            resume.set()
+            outcome, = await asyncio.gather(request, return_exceptions=True)
+    assert isinstance(outcome, asyncio.CancelledError)
+
+    app = create_app()
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as restarted:
+            repeated = await restarted.post("/api/vault/init", headers=owner_headers, json=body)
+            assert repeated.status_code == 200
+            assert repeated.headers["Cache-Control"] == "no-store"
+            assert repeated.json() == {"mode": mode, "root_key": "", "shares": [], "warning": ""}
+            assert not app.state.sealbox.unsealed
+            rejected = await restarted.post("/api/vault/init", headers=owner_headers,
+                                            json={**options, "prepared": other})
+            assert rejected.status_code == 409
+            assert (await restarted.post("/api/vault/init/prepare", headers=owner_headers,
+                                         json=options)).status_code == 409
+
+            material = ([{"share": value} for value in prepared["shares"][1:]]
+                        if mode == "shares" else [{"root_key": prepared["root_key"]}])
+            for item in material:
+                opened = await restarted.post("/api/vault/unseal", headers=owner_headers, json=item)
+                assert opened.status_code == 200
+            assert not opened.json()["sealed"]
+            rotated = await restarted.post("/api/vault/rotate-root", headers=owner_headers,
+                                           json=await prepare_rotation(restarted, owner_headers))
+            assert rotated.status_code == 200
+            assert (await restarted.post("/api/vault/init", headers=owner_headers, json=body)).status_code == 409
+        async with app.state.session_factory() as session:
+            initialized = list(await session.scalars(select(AuditLog.id).where(AuditLog.action == "vault_initialized")))
+            assert len(initialized) == 1
+    finally:
+        await app.state.engine.dispose()
+
+
+async def test_prepared_init_is_bound_to_the_owner(client, owner_headers):
+    options = {"mode": "env"}
+    prepared = await prepare_init(client, owner_headers, options)
+    app = client._transport.app
+    async with app.state.session_factory() as session:
+        other = User(username="other-owner", password_hash="unused", role="owner")
+        session.add(other)
+        await session.commit()
+    settings = config.get_settings()
+    token = create_access_token(other.username, settings.jwt_secret, settings.jwt_ttl_minutes)
+    body = {**options, "prepared": prepared}
+    rejected = await client.post("/api/vault/init", headers={"Authorization": f"Bearer {token}"}, json=body)
+    assert rejected.status_code == 400
+    assert not app.state.sealbox.unsealed
+    confirmed = await client.post("/api/vault/init", headers=owner_headers, json=body)
+    assert confirmed.status_code == 200
+    assert app.state.sealbox.unsealed
 
 
 async def test_init_with_shares_and_unseal(client: httpx.AsyncClient, owner_headers):
@@ -242,8 +356,6 @@ async def test_seal_after_decryption_blocks_response(client, owner_headers, env_
     assert "synthetic-value" not in result.text
 
 
-
-
 @pytest.mark.parametrize("endpoint", ["/secrets", "/env"])
 async def test_seal_after_machine_decryption_blocks_response(client, owner_headers, env_id, monkeypatch, endpoint):
     from tests.test_pass9_backend import _bearer, _machine
@@ -287,6 +399,7 @@ async def test_only_owner_initializes_and_seals(client: httpx.AsyncClient, owner
     assert (await client.post("/api/vault/init", headers=boss, json={"mode": "env"})).status_code == 403
     await client.post("/api/vault/init", headers=owner_headers, json={"mode": "env"})
     assert (await client.post("/api/vault/seal", headers=boss)).status_code == 403
+    assert (await client.post("/api/vault/rotate-root/prepare", headers=boss)).status_code == 403
     # ...но подать долю ответственный может: доли раздают людям, а не ролям
     assert (await client.get("/api/vault/status", headers=boss)).status_code == 200
 
@@ -299,7 +412,8 @@ async def test_root_rotation_keeps_values_readable(
         headers=owner_headers,
         json={"name": "DB_PASSWORD", "value": "prod-secret"},
     )
-    res = await client.post("/api/vault/rotate-root", headers=owner_headers)
+    prepared = await prepare_rotation(client, owner_headers)
+    res = await client.post("/api/vault/rotate-root", headers=owner_headers, json=prepared)
     assert res.status_code == 200, res.text
     assert res.json()["root_generation"] == 2
     assert res.json()["rewrapped_keys"] == 1
@@ -310,6 +424,101 @@ async def test_root_rotation_keeps_values_readable(
         params={"name": "DB_PASSWORD"},
     )
     assert value.json()["value"] == "prod-secret"
+
+
+async def test_prepare_rotation_keeps_current_material_until_confirmation(client, owner_headers, env_id, unsealed):
+    app = client._transport.app
+    async with app.state.session_factory() as session:
+        previous = await sealbox.read_meta(session)
+    prepared = await prepare_rotation(client, owner_headers)
+    assert prepared["root_generation"] == previous.generation
+    assert prepared["root_key"] != unsealed and prepared["shares"] == []
+    assert app.state.sealbox.root() == sealbox.unb64(unsealed)
+
+    for tampered in (
+        {**prepared, "proof": "0" * 64},
+        {**prepared, "root_key": unsealed},
+        {**prepared, "shares": ["invalid"]},
+    ):
+        refused = await client.post("/api/vault/rotate-root", headers=owner_headers, json=tampered)
+        assert refused.status_code == 400
+    assert (await client.post("/api/vault/rotate-root", headers=owner_headers)).status_code == 409
+    async with app.state.session_factory() as session:
+        assert await sealbox.read_meta(session) == previous
+        assert await session.scalar(select(AuditLog.id).where(AuditLog.action == "vault_root_rotated")) is None
+
+    committed = await client.post("/api/vault/rotate-root", headers=owner_headers, json=prepared)
+    assert committed.status_code == 200
+    assert committed.json() == {"root_generation": 2, "rewrapped_keys": 1, "root_key": "", "shares": []}
+
+
+async def test_prepared_proof_binds_every_share(client, owner_headers):
+    initialized = await client.post("/api/vault/init", headers=owner_headers,
+                                    json={"mode": "shares", "shares": 3, "threshold": 2})
+    assert initialized.status_code == 200
+    prepared = await prepare_rotation(client, owner_headers)
+    assert len(prepared["shares"]) == 3 and prepared["root_key"] == ""
+    reordered = {**prepared, "shares": prepared["shares"][::-1]}
+    assert (await client.post("/api/vault/rotate-root", headers=owner_headers, json=reordered)).status_code == 400
+    assert (await client.post("/api/vault/rotate-root", headers=owner_headers, json=prepared)).status_code == 200
+
+
+@pytest.mark.parametrize("mode", ["env", "shares"])
+async def test_prepared_rotation_can_be_retried_after_losing_commit_reply(
+    client, owner_headers, monkeypatch, mode,
+):
+    initialized = await client.post("/api/vault/init", headers=owner_headers,
+                                    json={"mode": mode, "shares": 3, "threshold": 2})
+    assert initialized.status_code == 200
+    project = await client.post("/api/projects", headers=owner_headers,
+                                json={"slug": "rotation-test", "environments": ["prod"]})
+    assert project.status_code == 201
+    envs = await client.get(f"/api/projects/{project.json()['id']}/environments", headers=owner_headers)
+    base = f"/api/environments/{envs.json()[0]['id']}"
+    wrote = await client.put(base + "/secrets", headers=owner_headers,
+                             json={"name": "CHECK", "value": "synthetic-value"})
+    assert wrote.status_code == 200
+
+    prepared = await prepare_rotation(client, owner_headers)
+    committed, resume = asyncio.Event(), asyncio.Event()
+    real_commit = AsyncSession.commit
+
+    async def pause_after_commit(session):
+        await real_commit(session)
+        committed.set()
+        await resume.wait()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(AsyncSession, "commit", pause_after_commit)
+        request = asyncio.create_task(client.post("/api/vault/rotate-root", headers=owner_headers, json=prepared))
+        try:
+            await asyncio.wait_for(committed.wait(), timeout=5)
+            request.cancel()
+            await asyncio.sleep(0)
+        finally:
+            resume.set()
+            outcome, = await asyncio.gather(request, return_exceptions=True)
+    assert isinstance(outcome, asyncio.CancelledError)
+
+    app = create_app()
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as restarted:
+            repeated = await restarted.post("/api/vault/rotate-root", headers=owner_headers, json=prepared)
+            assert repeated.status_code == 200
+            assert repeated.json() == {"root_generation": 2, "rewrapped_keys": 0, "root_key": "", "shares": []}
+            assert not app.state.sealbox.unsealed
+            material = ([{"share": value} for value in prepared["shares"][:2]]
+                        if mode == "shares" else [{"root_key": prepared["root_key"]}])
+            for item in material:
+                opened = await restarted.post("/api/vault/unseal", headers=owner_headers, json=item)
+                assert opened.status_code == 200
+            value = await restarted.get(base + "/secret", headers=owner_headers, params={"name": "CHECK"})
+            assert value.status_code == 200 and value.json()["value"] == "synthetic-value"
+        async with app.state.session_factory() as session:
+            rotations = list(await session.scalars(select(AuditLog.id).where(AuditLog.action == "vault_root_rotated")))
+            assert len(rotations) == 1
+    finally:
+        await app.state.engine.dispose()
 
 
 async def test_new_environment_records_the_current_root_generation(
@@ -323,7 +532,8 @@ async def test_new_environment_records_the_current_root_generation(
     from app.db import create_engine_and_factory
     from app.models import EnvKey, Environment
 
-    assert (await client.post("/api/vault/rotate-root", headers=owner_headers)).status_code == 200
+    prepared = await prepare_rotation(client, owner_headers)
+    assert (await client.post("/api/vault/rotate-root", headers=owner_headers, json=prepared)).status_code == 200
     engine, factory = create_engine_and_factory(get_settings().db_url)
     async with factory() as session:
         project_id = (await session.get(Environment, env_id)).project_id
@@ -342,7 +552,8 @@ async def test_old_root_key_stops_working_after_rotation(
 ):
     """Прежний ключ после ротации бесполезен - иначе "ротация" ничего не меняет
     для того, у кого утек старый ключ."""
-    await client.post("/api/vault/rotate-root", headers=owner_headers)
+    prepared = await prepare_rotation(client, owner_headers)
+    assert (await client.post("/api/vault/rotate-root", headers=owner_headers, json=prepared)).status_code == 200
     await client.post("/api/vault/seal", headers=owner_headers)
     res = await client.post(
         "/api/vault/unseal", headers=owner_headers, json={"root_key": unsealed}
@@ -409,7 +620,9 @@ async def test_old_share_after_rotation_is_refused_cleanly(
         "/api/vault/init", headers=owner_headers, json={"mode": "shares", "shares": 3, "threshold": 2}
     )
     old = first.json()["shares"]
-    fresh = (await client.post("/api/vault/rotate-root", headers=owner_headers)).json()["shares"]
+    prepared = await prepare_rotation(client, owner_headers)
+    assert (await client.post("/api/vault/rotate-root", headers=owner_headers, json=prepared)).status_code == 200
+    fresh = prepared["shares"]
     await client.post("/api/vault/seal", headers=owner_headers)
     await client.post("/api/vault/unseal", headers=owner_headers, json={"share": old[0]})
     mixed = await client.post("/api/vault/unseal", headers=owner_headers, json={"share": fresh[1]})
@@ -445,19 +658,21 @@ async def test_rotation_rewrites_the_remembered_key(
 
 
 async def test_concurrent_empty_vault_rotations(client: httpx.AsyncClient, owner_headers, unsealed):
-    async def rotate():
-        return await client.post("/api/vault/rotate-root", headers=owner_headers)
+    async def rotate(prepared):
+        return await client.post("/api/vault/rotate-root", headers=owner_headers, json=prepared)
 
-    first, second = await asyncio.gather(rotate(), rotate())
-    assert first.status_code == second.status_code == 200
-    generations = {res.json()["root_generation"]: res.json()["root_key"] for res in (first, second)}
-    assert generations.keys() == {2, 3}
+    candidates = [await prepare_rotation(client, owner_headers) for _ in range(2)]
+    results = await asyncio.gather(*(rotate(prepared) for prepared in candidates))
+    assert sorted(res.status_code for res in results) == [200, 409]
+    generation_two = next(prepared for prepared, res in zip(candidates, results) if res.status_code == 200)
+    generation_three = await prepare_rotation(client, owner_headers)
+    assert (await rotate(generation_three)).json()["root_generation"] == 3
 
     headers = owner_headers
     assert (await client.post("/api/vault/seal", headers=headers)).json()["sealed"]
-    stale = await client.post("/api/vault/unseal", headers=headers, json={"root_key": generations[2]})
+    stale = await client.post("/api/vault/unseal", headers=headers, json={"root_key": generation_two["root_key"]})
     assert stale.status_code == 400
-    current = await client.post("/api/vault/unseal", headers=headers, json={"root_key": generations[3]})
+    current = await client.post("/api/vault/unseal", headers=headers, json={"root_key": generation_three["root_key"]})
     assert current.status_code == 200 and not current.json()["sealed"]
 
 
@@ -481,6 +696,67 @@ async def _restart_and_check_root(root: bytes | None):
             assert box.root() == root
     finally:
         await app.state.engine.dispose()
+
+
+async def test_stale_key_files_do_not_report_auto_unseal(client, owner_headers, remembered_key):
+    stale = remembered_key.read_text()
+    rotated = await client.post("/api/vault/rotate-root", headers=owner_headers)
+    assert rotated.status_code == 200
+    remembered_key.write_text(stale)
+    sealbox.staged_key_file(remembered_key).write_text(stale)
+
+    state = (await client.get("/api/vault/status", headers=owner_headers)).json()
+    assert state["key_file_present"] is True
+    assert state["root_key_configured"] is False
+    assert (await client.post("/api/vault/rotate-root", headers=owner_headers)).status_code == 409
+    await _restart_and_check_root(None)
+
+
+async def test_rotation_with_stale_file_preserves_manual_share_mode(client, owner_headers, tmp_path, monkeypatch):
+    path = tmp_path / "root.key"
+    stale = sealbox.b64(bytes(32))
+    path.write_text(stale)
+    monkeypatch.setenv("SEKVYR_ROOT_KEY_FILE", str(path))
+    config.get_settings.cache_clear()
+    initialized = await client.post("/api/vault/init", headers=owner_headers,
+                                    json={"mode": "shares", "shares": 3, "threshold": 2})
+    assert initialized.status_code == 200
+
+    prepared = await prepare_rotation(client, owner_headers)
+    committed = await client.post("/api/vault/rotate-root", headers=owner_headers, json=prepared)
+    assert committed.status_code == 200
+    assert path.read_text() == stale
+    assert not sealbox.staged_key_file(path).exists()
+    await _restart_and_check_root(None)
+
+
+async def test_legacy_rotation_accepts_a_valid_staged_file(client, owner_headers, remembered_key):
+    staged = sealbox.staged_key_file(remembered_key)
+    remembered_key.replace(staged)
+    rotated = await client.post("/api/vault/rotate-root", headers=owner_headers)
+    assert rotated.status_code == 200
+    assert not staged.exists()
+    assert remembered_key.read_text() == rotated.json()["root_key"]
+    await _restart_and_check_root(sealbox.unb64(remembered_key.read_text()))
+
+
+async def test_startup_warns_when_the_configured_key_is_stale(client, owner_headers, tmp_path, monkeypatch):
+    result = await client.post("/api/vault/init", headers=owner_headers, json={"mode": "env", "auto_unseal": True})
+    assert result.status_code == 200
+    stale_file = tmp_path / "root.key"
+    stale_file.write_text(result.json()["root_key"])
+    prepared = await prepare_rotation(client, owner_headers)
+    assert (await client.post("/api/vault/rotate-root", headers=owner_headers, json=prepared)).status_code == 200
+    monkeypatch.setenv("SEKVYR_ROOT_KEY_FILE", str(stale_file))
+    config.get_settings.cache_clear()
+    messages = []
+
+    async def notify(_session, message):
+        messages.append(message)
+
+    monkeypatch.setattr(alerts, "notify", notify)
+    await _restart_and_check_root(None)
+    assert len(messages) == 1 and "ЗАПЕРТОЙ" in messages[0]
 
 
 @pytest.mark.parametrize("forget", [False, True])
@@ -512,6 +788,8 @@ async def test_rotation_key_file_recovers_or_forgets_after_failed_rename(
         assert remembered_key.read_text() == original
         fresh = rotated.json()["root_key"]
         assert staged.read_text() == fresh
+        state = (await client.get("/api/vault/status", headers=owner_headers)).json()
+        assert state["root_key_configured"] is True
         if not forget:
             # CLI использует валидную копию без изменения файлов ключа.
             assert await _mark_multiline() == 0

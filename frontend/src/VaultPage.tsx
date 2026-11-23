@@ -1,16 +1,24 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { setLeaveGuard } from './leave'
 import {
+  isCurrentSession,
+  sessionStamp,
   vaultInit,
+  vaultPrepareInit,
+  vaultPrepareRootRotation,
   vaultRotateRoot,
   vaultForgetKey,
   vaultRememberKey,
   vaultSeal,
   vaultStatus,
   vaultUnseal,
+  type RootRotationPreparation,
+  type VaultInitOptions,
+  type VaultInitPreparation,
   type VaultStatus,
 } from './api'
 import { useAuth } from './auth'
+import { copyToClipboard, forgetLater } from './clipboard'
 import { useDialogs } from './Dialogs'
 import { ErrorNote, WarnNote } from './Notes'
 import { useI18n } from './i18n'
@@ -23,13 +31,18 @@ import { useEscape } from './useEscape'
  * стоять первым: когда значения перестают выдаваться, сюда приходят в спешке.
  * Все остальное здесь редкое и потому убрано в меню.
  *
- * Один момент нельзя сделать "удобнее": доли и корневой ключ показываются один
- * раз и больше нигде не хранятся. Поэтому они выводятся крупно, с
- * предупреждением, и не исчезают сами - человек закрывает их сам, когда
- * переписал.
+ * При создании сейфа и смене ключа материал показываем заранее. Применяем
+ * только после подтверждения, что его сохранили.
  */
 
-type Secrets = { shares: string[]; rootKey: string; warning: string }
+type Material = (
+  | { kind: 'init'; options: VaultInitOptions; preparation: VaultInitPreparation }
+  | { kind: 'rotation'; preparation: RootRotationPreparation }
+) & {
+  saved: boolean
+  uncertain: boolean
+  observedGeneration?: number
+}
 
 export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void }) {
   const { t } = useI18n()
@@ -38,28 +51,39 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
   const [status, setStatus] = useState<VaultStatus | null>(null)
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'action' | 'prepare' | 'issue' | null>(null)
   const [menu, setMenu] = useState(false)
-  const [secrets, setSecrets] = useState<Secrets | null>(null)
-  // Доли и новый ключ показываются один раз: уход со страницы до "Записал"
-  // терял их без следа, а сейф уже перешел на них.
-  useEffect(() => {
-    if (!secrets) return
-    setLeaveGuard(() =>
-      confirm({
-        title: t('Уйти, не записав?'),
-        text: t('Доли и ключ показываются один раз: после ухода со страницы их не увидеть, а сейф уже работает с ними.'),
-        submit: t('Уйти'),
-        danger: true,
-      }),
-    )
+  const [material, setMaterial] = useState<Material | null>(null)
+  const issuing = busy === 'issue'
+  const hasMaterial = material !== null
+  const initMaterial = material?.kind === 'init'
+  const uncertain = Boolean(material?.uncertain)
+  const confirmLeaving = useCallback(() => confirm({
+    title: initMaterial
+      ? uncertain ? t('Уйти до подтверждения создания?') : t('Уйти до создания сейфа?')
+      : t('Уйти до подтверждения смены?'),
+    text: uncertain
+      ? initMaterial
+        ? t('Сохраните этот комплект: сейф уже мог быть создан с этим ключом.')
+        : t('Сохраните комплект и дождитесь подтверждения смены, прежде чем запирать панель.')
+      : t('Подготовленный комплект исчезнет с экрана. Без подтверждения он не вступит в силу.'),
+    submit: t('Уйти'),
+    danger: true,
+  }), [confirm, initMaterial, uncertain, t])
+  // Сервер может успеть принять новый ключ до ответа браузеру.
+  useLayoutEffect(() => {
+    if (!issuing && !hasMaterial) return
+    setLeaveGuard(async () => {
+      if (issuing) return false
+      return confirmLeaving()
+    })
     const warn = (event: BeforeUnloadEvent) => event.preventDefault()
     window.addEventListener('beforeunload', warn)
     return () => {
       setLeaveGuard(null)
       window.removeEventListener('beforeunload', warn)
     }
-  }, [secrets, confirm, t])
+  }, [issuing, hasMaterial, confirmLeaving])
   // Три варианта, а не два: режимов криптографии действительно два, но человек
   // выбирает не режим, а способ жить с ключом. "Один ключ" без уточнения, где он
   // лежит, читался как "ключ будет на сервере" - и вариант "ввожу сам" просто не
@@ -68,63 +92,86 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
   const [shares, setShares] = useState(5)
   const [threshold, setThreshold] = useState(3)
   const [input, setInput] = useState('')
+  const mounted = useRef(false)
+  const statusRequest = useRef(0)
+  useLayoutEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      statusRequest.current += 1
+    }
+  }, [])
 
   useEscape(() => setMenu(false), menu)
 
   const reload = useCallback(async () => {
+    const session = sessionStamp()
+    const request = ++statusRequest.current
+    const current = () =>
+      mounted.current && request === statusRequest.current && isCurrentSession(session)
     try {
       const fresh = await vaultStatus()
+      if (!current()) return null
+      if (!fresh || typeof fresh.sealed !== 'boolean') {
+        throw new Error(t('Панель не вернула состояние сейфа.'))
+      }
       setStatus(fresh)
       // Баннер состояния замка живет в шапке, а меняется состояние здесь. Без
       // этого человек распечатывал панель и продолжал видеть "панель
       // заперта" - и шел выяснять, почему не помогло.
       onStatus?.(fresh)
       setError('')
+      return fresh
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (current()) setError(err instanceof Error ? err.message : String(err))
+      return null
     }
-  }, [onStatus])
+  }, [onStatus, t])
 
   useEffect(() => {
     void reload()
   }, [reload])
 
-  async function run(action: () => Promise<void>) {
-    setBusy(true)
+  async function run(action: (current: () => boolean) => Promise<void>, kind: NonNullable<typeof busy> = 'action') {
+    const session = sessionStamp()
+    const current = () => mounted.current && isCurrentSession(session)
+    if (!current()) return
+    setBusy(kind)
     setError('')
     setNote('')
     try {
-      await action()
-      await reload()
+      await action(current)
+      if (kind !== 'prepare' && current()) await reload()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (current()) setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setBusy(false)
+      if (current()) setBusy(null)
     }
   }
 
-  const init = () =>
-    run(async () => {
-      const res = await vaultInit(
-        mode === 'shares' ? 'shares' : 'env',
+  const prepareInit = () =>
+    run(async (current) => {
+      const options: VaultInitOptions = {
+        mode: mode === 'shares' ? 'shares' : 'env',
         shares,
         threshold,
-        mode === 'auto',
-      )
-      setSecrets({
-        shares: res.shares,
-        rootKey: res.root_key,
-        warning:
-          mode === 'auto'
-            ? t('Ключ показывается один раз. Положите его файлом на сервер и укажите путь в SEKVYR_ROOT_KEY_FILE, иначе после перезапуска панель окажется запертой. Копию храните отдельно от бэкапов.')
-            : mode === 'single'
-              ? t('Ключ показывается один раз. Положите его в менеджер паролей: после каждого перезапуска панели вы будете вставлять его здесь. На сервере он не хранится, поэтому дамп базы и бэкап без него бесполезны.')
-              : serverText(res.warning),
-      })
-    })
+        auto_unseal: mode === 'auto',
+      }
+      const preparation = await vaultPrepareInit(options)
+      if (!current()) return
+      if (
+        preparation?.mode !== options.mode || !preparation.proof || !Array.isArray(preparation.shares) ||
+        (options.mode === 'shares'
+          ? preparation.shares.length !== options.shares || preparation.shares.some((share) => !share)
+          : !preparation.root_key)
+      ) {
+        throw new Error(t('Панель не вернула новый ключ или доли.'))
+      }
+      setMaterial({ kind: 'init', options, preparation, saved: false, uncertain: false })
+    }, 'prepare')
 
   const unseal = () =>
-    run(async () => {
+    run(async (current) => {
       const value = input.trim()
       // Отличаем долю от корневого ключа по префиксу, а не отдельной галочкой:
       // человек и так копирует то, что ему выдали, и лишний переключатель здесь
@@ -132,21 +179,77 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
       const res = await vaultUnseal(
         value.toUpperCase().startsWith('SEKVYR-') ? { share: value } : { root_key: value },
       )
+      if (!current()) return
       setInput('')
       setNote(serverText(res.detail))
     })
 
-  const rotate = () =>
-    run(async () => {
-      const res = await vaultRotateRoot()
-      setSecrets({
-        shares: res.shares,
-        rootKey: res.root_key,
-        warning: t(
-          'Корневой ключ сменён. Прежние доли и прежний ключ больше не работают — замените их везде, где они лежат.',
-        ),
-      })
-    })
+  const prepareRotation = () =>
+    run(async (current) => {
+      const preparation = await vaultPrepareRootRotation()
+      if (!current()) return
+      if (
+        !preparation || !Number.isSafeInteger(preparation.root_generation) || !preparation.proof ||
+        !Array.isArray(preparation.shares) || (!preparation.root_key && !preparation.shares.length)
+      ) {
+        throw new Error(t('Панель не вернула новый ключ или доли.'))
+      }
+      setMaterial({ kind: 'rotation', preparation, saved: false, uncertain: false })
+    }, 'prepare')
+
+  const commitMaterial = () => {
+    if (!material?.saved) return
+    return run(async (current) => {
+      try {
+        if (material.kind === 'init') {
+          const result = await vaultInit(material.options, material.preparation)
+          if (result?.mode !== material.options.mode || result.shares?.length !== 0 || result.root_key !== '') {
+            throw new Error(t('Панель не подтвердила создание сейфа.'))
+          }
+        } else {
+          const result = await vaultRotateRoot(material.preparation)
+          if (result?.root_generation !== material.preparation.root_generation + 1) {
+            throw new Error(t('Панель не подтвердила смену корневого ключа.'))
+          }
+        }
+      } catch (err) {
+        if (!current()) return
+        const pending = { ...material, uncertain: true, observedGeneration: undefined }
+        setMaterial(pending)
+        const fresh = await reload()
+        if (current() && fresh && material.kind === 'rotation') {
+          setMaterial({ ...pending, observedGeneration: fresh.root_generation })
+        }
+        throw err
+      }
+      if (!current()) return
+      setMaterial(null)
+      setNote(material.kind === 'init'
+        ? t('Сейф создан. Для отпирания используйте сохраненный комплект.')
+        : t('Корневой ключ сменён. Прежние доли и прежний ключ больше не работают — замените их везде, где они лежат.'))
+    }, 'issue')
+  }
+
+  async function copyMaterial(text: string) {
+    if (await copyToClipboard(text)) {
+      forgetLater(text)
+      setNote(t('Скопировано в буфер'))
+    } else {
+      setError(t('Скопировать не вышло'))
+    }
+  }
+
+  async function closeMaterial() {
+    if (!uncertain || await confirmLeaving()) setMaterial(null)
+  }
+
+  const initWarning = material?.kind !== 'init'
+    ? ''
+    : material.options.auto_unseal
+      ? t('Сохраните ключ и положите его файлом на сервер. Укажите путь в SEKVYR_ROOT_KEY_FILE, иначе после перезапуска панель будет заперта. Копию храните отдельно от бэкапов.')
+      : material.options.mode === 'env'
+        ? t('Сохраните ключ в менеджере паролей. После перезапуска панели его нужно будет ввести здесь. Без него значения из резервной копии не открыть.')
+        : serverText(material.preparation.warning)
 
   // Те же правила, что и на бэкенде, но сказанные до отправки: форма, которая
   // дает нажать кнопку и получить отказ, заставляет угадывать, что не так.
@@ -154,7 +257,7 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
     !status?.initialized || status.mode !== 'env'
       ? ''
       : status.auto_unseal_intent && !status.root_key_configured
-        ? t('Выбран автоматический подъём, но ключ панели не задан: после перезапуска она окажется запертой. Положите ключ файлом и укажите путь в SEKVYR_ROOT_KEY_FILE.')
+        ? t('Для автоматического отпирания нужен действующий ключ. После перезапуска панель будет заперта. Сохраните действующий ключ в файле и укажите путь в SEKVYR_ROOT_KEY_FILE.')
         : !status.auto_unseal_intent && status.root_key_configured
           ? t('Корневой ключ задан в окружении панели, хотя при заведении выбирался ручной ввод. Панель поднимется сама, и ключ лежит на сервере.')
           : ''
@@ -175,6 +278,7 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
   // У запертой панели из редких действий остается одно - забыть ключ,
   // сохраненный на сервере. Если и его нет, показывать нечего.
   const hasMenu = !status.sealed || Boolean(status.key_file_path && status.key_file_present)
+  const keyActionsDisabled = Boolean(busy || hasMaterial)
 
   const state = !status.initialized ? 'off' : status.sealed ? 'bad' : 'ok'
   const answer = !status.initialized
@@ -187,6 +291,7 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
     <div className="stack">
       <ErrorNote text={error} onClose={() => setError('')} />
       {note && <p className="muted small">{note}</p>}
+      {issuing && <p role="status">{t('Оставайтесь на странице до ответа панели.')}</p>}
       {intentMismatch && <div className="banner">{intentMismatch}</div>}
 
       <div className="ops-head">
@@ -200,7 +305,7 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
             {!status.sealed && (
               <button
                 className="ghost"
-                disabled={busy}
+                disabled={keyActionsDisabled}
                 onClick={async () => {
                   // В режиме долей запертую панель отпирают держатели долей:
                   // случайный щелчок значит собирать людей.
@@ -220,10 +325,10 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
                 необратима: под кнопку такое не выносят. */}
             {hasMenu && (
             <div className="menu-wrap">
-              <button className="ghost icon-btn" aria-label={t('Меню')} onClick={() => setMenu(!menu)}>
+              <button className="ghost icon-btn" aria-label={t('Меню')} disabled={keyActionsDisabled} onClick={() => setMenu(!menu)}>
                 ⋯
               </button>
-              {menu && (
+              {menu && !keyActionsDisabled && (
                 <>
                   <div className="menu-catcher" onClick={() => setMenu(false)} />
                   <div className="menu-pop menu-pop-right">
@@ -235,9 +340,11 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
                             setMenu(false)
                             const yes = await confirm({
                               title: t('Забыть ключ на сервере?'),
-                              text: status.sealed
-                                ? t('Панель заперта, и файл ключа на сервере - его единственная копия здесь. Без своей копии ключа или долей значения будут потеряны.')
-                                : t('Панель перестанет отпираться сама после перезапуска: ключ придется вводить или собирать из долей.'),
+                              text: !status.root_key_configured
+                                ? t('Файл не подходит к текущему поколению ключа.')
+                                : status.sealed
+                                  ? t('Панель заперта, и файл ключа на сервере - его единственная копия здесь. Без своей копии ключа или долей значения будут потеряны.')
+                                  : t('Панель перестанет отпираться сама после перезапуска: ключ придется вводить или собирать из долей.'),
                               submit: t('Забыть'),
                               danger: true,
                             })
@@ -262,15 +369,9 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
                     {!status.sealed && (
                     <button
                       className="menu-item menu-item-danger"
-                      onClick={async () => {
+                      onClick={() => {
                         setMenu(false)
-                        const yes = await confirm({
-                          title: t('Сменить корневой ключ?'),
-                          text: t('Прежние доли и прежний ключ перестанут подходить.'),
-                          submit: t('Сменить'),
-                          danger: true,
-                        })
-                        if (yes) void rotate()
+                        void prepareRotation()
                       }}
                     >
                       {t('Сменить корневой ключ')}
@@ -297,6 +398,7 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
           <label>
             {t('Доля или корневой ключ')}
             <input
+              type="password"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               autoComplete="off"
@@ -305,26 +407,65 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
             />
           </label>
           <div>
-            <button onClick={unseal} disabled={busy || !input.trim()}>
+            <button onClick={unseal} disabled={busy !== null || !input.trim()}>
               {t('Ввести')}
             </button>
           </div>
         </div>
       )}
 
-      {secrets && (
+      {material && (
         <div className="card stack">
-          <h3>{t('Запишите это сейчас')}</h3>
-          <WarnNote>{secrets.warning}</WarnNote>
-          {secrets.shares.map((s, i) => (
-            <div key={s} className="mono share-line">
-              <span className="muted">{i + 1}.</span> {s}
+          <h3>{initMaterial ? t('Запишите это сейчас') : t('Сохраните новый ключ или доли')}</h3>
+          <WarnNote>
+            {material.uncertain
+              ? initMaterial
+                ? t('Результат создания неизвестен. Сохраните этот комплект. Повторное подтверждение проверит или завершит создание сейфа с этим же ключом.')
+                : t('Результат смены неизвестен. Сохраните эти материалы и оставьте панель открытой. Повторное подтверждение проверит или завершит смену с этим же ключом.')
+              : initMaterial
+                ? initWarning
+                : t('Сохраните новый ключ в защищённом хранилище или разложите новые доли по разным местам. После смены прежний ключ и прежние доли перестанут подходить.')}
+          </WarnNote>
+          {material.observedGeneration !== undefined && (
+            <p className="muted small">
+              {t('Панель сообщает поколение ключа {n}.', { n: material.observedGeneration })}
+            </p>
+          )}
+          {material.preparation.shares.map((share, index) => (
+            <div key={share} className="row-actions">
+              <div className="mono share-line"><span className="muted">{index + 1}.</span> {share}</div>
+              <button
+                className="ghost small-btn"
+                aria-label={t('Скопировать долю {n}', { n: index + 1 })}
+                onClick={() => void copyMaterial(share)}
+              >
+                {t('Скопировать')}
+              </button>
             </div>
           ))}
-          {secrets.rootKey && <div className="mono share-line">{secrets.rootKey}</div>}
+          {material.preparation.root_key && (
+            <div className="row-actions">
+              <div className="mono share-line">{material.preparation.root_key}</div>
+              <button className="ghost small-btn" onClick={() => void copyMaterial(material.preparation.root_key)}>
+                {t('Скопировать')}
+              </button>
+            </div>
+          )}
+          <label className="checkline">
+            <input
+              type="checkbox"
+              checked={material.saved}
+              disabled={busy !== null}
+              onChange={(event) => setMaterial({ ...material, saved: event.target.checked })}
+            />
+            {t('Я сохранил новый ключ или все новые доли')}
+          </label>
           <div className="row-actions">
-            <button className="ghost" onClick={() => setSecrets(null)}>
-              {t('Записал, скрыть')}
+            <button disabled={!material.saved || busy !== null} onClick={commitMaterial}>
+              {material.uncertain ? t('Повторить подтверждение') : initMaterial ? t('Подтвердить создание') : t('Сменить')}
+            </button>
+            <button className="ghost" disabled={busy !== null} onClick={closeMaterial}>
+              {material.uncertain ? t('Закрыть материалы') : t('Отменить подготовку')}
             </button>
           </div>
         </div>
@@ -338,7 +479,7 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
           <span className="small">
             {status.mode === 'shares'
               ? `${t('доли')} ${status.threshold} ${t('из')} ${status.shares}`
-              : status.auto_unseal_intent
+              : status.root_key_configured
                 ? t('один ключ, панель поднимается сама')
                 : t('один ключ, вводится вручную')}
           </span>
@@ -355,7 +496,9 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
                     <span className="mono">{status.key_file_path}</span>
                     <span className="muted">
                       {' · '}
-                      {t('панель поднимается сама, но root на хосте открывает все значения')}
+                      {status.root_key_configured
+                        ? t('панель поднимается сама, но root на хосте открывает все значения')
+                        : t('Файл не подходит к текущему поколению ключа.')}
                     </span>
                   </>
                 ) : (
@@ -369,7 +512,7 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
         </div>
       )}
 
-      {!status.initialized && auth.isOwner && (
+      {!status.initialized && auth.isOwner && !hasMaterial && (
         <div className="card stack">
           <h3>{t('Создать сейф')}</h3>
           <p className="muted small">
@@ -419,8 +562,8 @@ export function VaultPage({ onStatus }: { onStatus?: (s: VaultStatus) => void })
           </p>
           {sharesProblem && <p className="form-error">{sharesProblem}</p>}
           <div>
-            <button onClick={init} disabled={busy || Boolean(sharesProblem)}>
-              {t('Создать')}
+            <button onClick={prepareInit} disabled={keyActionsDisabled || Boolean(sharesProblem)}>
+              {t('Подготовить ключ или доли')}
             </button>
           </div>
         </div>

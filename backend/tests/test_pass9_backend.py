@@ -20,6 +20,7 @@ from app.api import projects as projects_api
 from app.models import AuditLog
 from tests.conftest import PG, login
 from tests.test_pass8b_backend import PASS, _pol, _user
+from tests.test_vault import prepare_rotation
 
 
 class Gate:
@@ -247,7 +248,8 @@ async def test_seal_during_root_rotation_stays_sealed(client: httpx.AsyncClient,
     await _put(client, h, env_id, "K", "v")
     gate = Gate("rotate")
     gate_async(monkeypatch, envkeys, "rewrap_for_new_root", gate)
-    task = await _gated("rotate", client.post("/api/vault/rotate-root", headers=h), gate)
+    prepared = await prepare_rotation(client, h)
+    task = await _gated("rotate", client.post("/api/vault/rotate-root", headers=h, json=prepared), gate)
     sealed = asyncio.Event()
     box = client._transport.app.state.sealbox
     original_seal = type(box).seal
@@ -267,8 +269,8 @@ async def test_seal_during_root_rotation_stays_sealed(client: httpx.AsyncClient,
     assert (await seal_task).json()["sealed"] is True
     assert res.status_code == 200, res.text
     assert (await client.get("/api/vault/status", headers=h)).json()["sealed"] is True
-    # Новый ключ, показанный при смене, и отпирает панель.
-    assert (await client.post("/api/vault/unseal", headers=h, json={"root_key": res.json()["root_key"]})).status_code == 200
+    # Заранее сохраненный новый ключ отпирает панель.
+    assert (await client.post("/api/vault/unseal", headers=h, json={"root_key": prepared["root_key"]})).status_code == 200
     assert (await _read(client, h, env_id, "K")).json()["value"] == "v"
 
 

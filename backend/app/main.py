@@ -87,6 +87,7 @@ async def _auto_unseal(app: FastAPI, settings: Settings) -> None:
         log.error(
             "заданный корневой ключ не подходит к этой базе — панель осталась запертой"
         )
+        await _warn_if_sealed(app, meta)
         return
     app.state.sealbox.set_root(key)
     log.info("панель открыта корневым ключом из окружения")

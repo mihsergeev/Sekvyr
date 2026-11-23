@@ -423,6 +423,8 @@ const EN: Record<string, string> = {
   'Ключ на сервере': 'Key on the server',
   'панель поднимается сама, но root на хосте открывает все значения':
     'the panel unlocks itself, but root on the host opens every value',
+  'Файл не подходит к текущему поколению ключа.':
+    'The file does not match the current key generation.',
   'не сохранён: после перезапуска панель ждёт ключ':
     'not stored: after a restart the panel waits for the key',
   'это вы': 'you',
@@ -592,9 +594,6 @@ const EN: Record<string, string> = {
     'will sign in with the password alone and turn two-factor on again. Existing sessions will end, and the event goes into the audit log and the alerts.',
   'право, выданное группе, действует на всех её участников':
     'a right granted to a group applies to all of its members',
-  'Сменить корневой ключ?': 'Rotate the root key?',
-  'Прежние доли и прежний ключ перестанут подходить.':
-    'The old shares and the old key will stop working.',
   Проекты: 'Projects',
   окружение: 'environment',
   проект: 'project',
@@ -1037,8 +1036,8 @@ const EN: Record<string, string> = {
     'The key is shown once. Put it in your password manager: you will paste it here after every restart. It is not stored on the server, so a database dump and a backup are useless without it.',
   'Ключ показывается один раз. Положите его файлом на сервер и укажите путь в SEKVYR_ROOT_KEY_FILE, иначе после перезапуска панель окажется запертой. Копию храните отдельно от бэкапов.':
     'The key is shown once. Put it in a file on the server and point SEKVYR_ROOT_KEY_FILE at it, otherwise the panel comes up sealed after a restart. Keep a copy away from your backups.',
-  'Выбран автоматический подъём, но ключ панели не задан: после перезапуска она окажется запертой. Положите ключ файлом и укажите путь в SEKVYR_ROOT_KEY_FILE.':
-    'Automatic unsealing was chosen, but no root key is configured: the panel will come up sealed after a restart. Put the key in a file and point SEKVYR_ROOT_KEY_FILE at it.',
+  'Для автоматического отпирания нужен действующий ключ. После перезапуска панель будет заперта. Сохраните действующий ключ в файле и укажите путь в SEKVYR_ROOT_KEY_FILE.':
+    'Automatic unsealing needs the current key. The panel will come up sealed after a restart. Save the current key to a file and point SEKVYR_ROOT_KEY_FILE at it.',
   'Корневой ключ задан в окружении панели, хотя при заведении выбирался ручной ввод. Панель поднимется сама, и ключ лежит на сервере.':
     'A root key is configured for the panel even though manual entry was chosen. The panel will unseal itself, and the key sits on the server.',
   'Администратор один? Берите один ключ и держите его в менеджере паролей — или доли, разложенные по разным местам, чтобы потеря одного хранилища не была фатальной.':
@@ -1053,6 +1052,41 @@ const EN: Record<string, string> = {
   'Доля или корневой ключ': 'Share or root key',
   'Введено долей': 'Shares entered',
   'Запишите это сейчас': 'Write this down now',
+  'Оставайтесь на странице до ответа панели.': 'Stay on this page until the panel responds.',
+  'Сохраните новый ключ или доли': 'Save the new key or shares',
+  'Сохраните новый ключ в защищённом хранилище или разложите новые доли по разным местам. После смены прежний ключ и прежние доли перестанут подходить.':
+    'Store the new key securely or keep the new shares in separate places. The old key and shares will stop working after rotation.',
+  'Скопировать долю {n}': 'Copy share {n}',
+  'Панель не вернула состояние сейфа.': 'The panel did not return the vault status.',
+  'Панель не вернула новый ключ или доли.': 'The panel did not return a new key or shares.',
+  'Панель не подтвердила смену корневого ключа.': 'The panel did not confirm the root key rotation.',
+  'Результат смены неизвестен. Сохраните эти материалы и оставьте панель открытой. Повторное подтверждение проверит или завершит смену с этим же ключом.':
+    'The rotation outcome is unknown. Keep these materials and leave the panel unlocked. Confirm again to verify or finish rotation with the same key.',
+  'Панель сообщает поколение ключа {n}.': 'The panel reports key generation {n}.',
+  'Я сохранил новый ключ или все новые доли': 'I saved the new key or all the new shares',
+  'Повторить подтверждение': 'Confirm again',
+  'Отменить подготовку': 'Discard preparation',
+  'Закрыть материалы': 'Close materials',
+  'Уйти до подтверждения смены?': 'Leave before confirming rotation?',
+  'Уйти до подтверждения создания?': 'Leave before confirming vault creation?',
+  'Уйти до создания сейфа?': 'Leave before creating the vault?',
+  'Сохраните этот комплект: сейф уже мог быть создан с этим ключом.':
+    'Keep these materials: the vault may already have been created with this key.',
+  'Подготовленный комплект исчезнет с экрана. Без подтверждения он не вступит в силу.':
+    'The prepared materials will disappear from the screen. They only take effect after confirmation.',
+  'Панель не подтвердила создание сейфа.': 'The panel did not confirm that the vault was created.',
+  'Сейф создан. Для отпирания используйте сохраненный комплект.':
+    'The vault was created. Use the materials you saved to unlock it.',
+  'Сохраните ключ и положите его файлом на сервер. Укажите путь в SEKVYR_ROOT_KEY_FILE, иначе после перезапуска панель будет заперта. Копию храните отдельно от бэкапов.':
+    'Save the key and place it in a file on the server. Set SEKVYR_ROOT_KEY_FILE to that path or the panel will be locked after a restart. Keep a copy separately from backups.',
+  'Сохраните ключ в менеджере паролей. После перезапуска панели его нужно будет ввести здесь. Без него значения из резервной копии не открыть.':
+    'Save the key in a password manager. You will need to enter it here after the panel restarts. It is also needed to read values from a backup.',
+  'Результат создания неизвестен. Сохраните этот комплект. Повторное подтверждение проверит или завершит создание сейфа с этим же ключом.':
+    'It is unclear whether the vault was created. Keep these materials. Confirm again to verify or finish creating the vault with the same key.',
+  'Подтвердить создание': 'Confirm creation',
+  'Подготовить ключ или доли': 'Prepare the key or shares',
+  'Сохраните комплект и дождитесь подтверждения смены, прежде чем запирать панель.':
+    'Keep the materials and wait for rotation to be confirmed before locking the panel.',
   'Записал, скрыть': 'Written down, hide',
   'Сменить корневой ключ': 'Rotate the root key',
   'Корневой ключ сменён. Прежние доли и прежний ключ больше не работают — замените их везде, где они лежат.':

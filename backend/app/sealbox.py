@@ -229,44 +229,27 @@ class SealBox:
 async def initialize(
     session: AsyncSession,
     *,
+    root: bytes,
     mode: str,
-    shares: int = 5,
-    threshold: int = 3,
-    auto_unseal: bool = False,
-) -> tuple[bytes, list[str]]:
-    """Заводит сейф: генерирует корневой ключ и маркер проверки.
-
-    Возвращает сам ключ и (для режима долей) список долей. Это ЕДИНСТВЕННЫЙ
-    момент, когда панель показывает их: ни ключ, ни доли в базу не пишутся, и
-    восстановить их потом неоткуда.
-    """
-    meta = await read_meta(session)
-    if meta.initialized:
-        raise ValueError("сейф уже заведён")
-    if mode not in (MODE_SHARES, MODE_ENV):
-        raise ValueError("неизвестный режим корневого ключа")
-
-    root = crypto.new_key()
+    shares: int,
+    threshold: int,
+    auto_unseal: bool,
+) -> None:
+    """Создает маркер для переданного ключа после проверки под блокировкой."""
     generation = 1
     nonce, ct = _make_verifier(root, generation)
-    parts = (
-        shamir.split(root, shares=shares, threshold=threshold)
-        if mode == MODE_SHARES
-        else []
-    )
     await _write_meta(
         session,
         VaultMeta(
             mode=mode,
             generation=generation,
-            shares=shares if mode == MODE_SHARES else 0,
-            threshold=threshold if mode == MODE_SHARES else 0,
+            shares=shares,
+            threshold=threshold,
             verifier_nonce=nonce,
             verifier_ct=ct,
-            auto_unseal=auto_unseal and mode == MODE_ENV,
+            auto_unseal=auto_unseal,
         ),
     )
-    return root, parts
 
 
 async def rewrap_root(session: AsyncSession, new_root: bytes, generation: int) -> None:

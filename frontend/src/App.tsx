@@ -9,6 +9,7 @@ import {
   setToken,
   watchToken,
   type Me,
+  type VaultStatus,
 } from './api'
 import { AboutModal } from './AboutModal'
 import { AccessPage } from './AccessPage'
@@ -237,6 +238,11 @@ export default function App() {
     () => document.documentElement.getAttribute('data-theme') === 'light',
   )
   const [sealed, setSealed] = useState(false)
+  const vaultStatusRevision = useRef(0)
+  const onVaultStatus = useCallback(({ sealed }: VaultStatus) => {
+    vaultStatusRevision.current += 1
+    setSealed(sealed)
+  }, [])
   const load = useCallback(async () => {
     const session = sessionStamp()
     const revision = ++loadRevision.current
@@ -309,18 +315,19 @@ export default function App() {
   useEffect(() => {
     if (!user) return
     const session = sessionStamp()
+    const revision = vaultStatusRevision.current
     let active = true
     getHealth()
       .then((h) => {
         if (!active || !isCurrentSession(session)) return
-        setSealed(Boolean(h.sealed))
+        if (revision === vaultStatusRevision.current && typeof h.sealed === 'boolean') {
+          setSealed(h.sealed)
+        }
         // Зону задает панель, а не браузер: журнал должен читаться одинаково у
         // всех, кто в него смотрит.
         setTimeZone(h.timezone ?? 'UTC')
       })
-      .catch(() => {
-        if (active && isCurrentSession(session)) setSealed(false)
-      })
+      .catch(() => {})
     return () => { active = false }
   }, [user, view])
 
@@ -663,7 +670,7 @@ export default function App() {
             />
           )}
           {view.kind === 'vault' && auth.isManager && (
-            <VaultPage onStatus={(s) => setSealed(s.sealed)} />
+            <VaultPage onStatus={onVaultStatus} />
           )}
           {view.kind === 'access' && auth.isOwner && (
             <AccessPage

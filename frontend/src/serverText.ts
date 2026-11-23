@@ -314,6 +314,15 @@ const EXACT: Record<string, string> = {
   'снято переопределение': 'override removed',
   'уже открыта': 'already unsealed',
   'заперта во время отпирания': 'sealed while being unsealed',
+  'Ключ или доли для ротации повреждены': 'The rotation key or shares are invalid',
+  'Поколение изменилось: подготовьте смену ключа заново':
+    'The key generation changed. Prepare a new rotation',
+  'Подготовьте и сохраните новый ключ перед сменой':
+    'Prepare and save the new key before rotating',
+  'Подготовленный материал для ротации не совпадает': 'The prepared rotation material does not match',
+  'Подготовленный ключ или доли повреждены': 'The prepared key or shares are invalid',
+  'Подготовленный материал для настройки не совпадает': 'The prepared setup material does not match',
+  'Сохраненный ключ изменился во время ротации': 'The stored key changed during rotation',
   'корневым ключом': 'with the root key',
   'долей достаточно, но ключ не сошёлся': 'enough shares, but the key did not match',
   открыта: 'unsealed',
