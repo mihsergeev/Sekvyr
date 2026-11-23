@@ -160,8 +160,15 @@ ver_lt() {
 # нет), и историю - для веток.
 if [ -n "$REF" ]; then
     # Ветку - по origin: локальная после fetch стоит там, где была.
-    TARGET="$(git rev-parse -q --verify "origin/$REF^{commit}" 2>/dev/null \
-        || git rev-parse -q --verify "$REF^{commit}" 2>/dev/null || true)"
+    TAG_TARGET=""
+    if [ "$GHCR" = "1" ]; then
+        TAG_TARGET="$(git rev-parse -q --verify "refs/tags/$REF^{commit}" 2>/dev/null || true)"
+    fi
+    TARGET="$TAG_TARGET"
+    if [ -z "$TARGET" ]; then
+        TARGET="$(git rev-parse -q --verify "origin/$REF^{commit}" 2>/dev/null \
+            || git rev-parse -q --verify "$REF^{commit}" 2>/dev/null || true)"
+    fi
     [ -n "$TARGET" ] || { msg "✗ нет такой метки или ветки: $REF" "✗ no such tag or branch: $REF" >&2; exit 1; }
     CUR="$(git describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null || true)"
     OLDER=""
@@ -171,7 +178,7 @@ if [ -n "$REF" ]; then
     # Локальная ветка впереди origin (свои коммиты на сервере): цель - она
     # сама, иначе "origin позади" выглядел бы откатом. Разошедшиеся локальная
     # и origin - отказ до бэкапа: fast-forward тут невозможен.
-    if git show-ref -q --verify "refs/heads/$REF" && git show-ref -q --verify "refs/remotes/origin/$REF"; then
+    if [ -z "$TAG_TARGET" ] && git show-ref -q --verify "refs/heads/$REF" && git show-ref -q --verify "refs/remotes/origin/$REF"; then
         if git merge-base --is-ancestor "refs/remotes/origin/$REF" "refs/heads/$REF" 2>/dev/null; then
             TARGET="$(git rev-parse "refs/heads/$REF")"
         elif ! git merge-base --is-ancestor "refs/heads/$REF" "refs/remotes/origin/$REF" 2>/dev/null; then
@@ -210,6 +217,23 @@ dc_tag() {
     fi
 }
 
+panel_image_config() {
+    # config --images включает зависимости, в том числе отдельно закрепленную БД.
+    { dc_tag "$1" config backend frontend && printf '\n# compose-config-complete\n'; } | awk '
+        /^services:$/ { services = 1; next }
+        /^[^ ]/ { services = 0 }
+        services && /^  [^ ]/ { service = $1 }
+        services && service == "backend:" && /^    image: / { backend = $2 }
+        services && service == "frontend:" && /^    image: / { frontend = $2 }
+        /^# compose-config-complete$/ { complete = 1 }
+        END {
+            if (!complete || backend == "" || frontend == "") exit 1
+            print backend
+            print frontend
+        }
+    '
+}
+
 # Образы новой версии берем до бэкапа и до checkout. Раньше их скачивал up,
 # когда код уже стоял на новой метке, а в .env был новый SEKVYR_IMAGE_TAG:
 # без доступа к ghcr.io или с выпуском, который CI еще собирает, обновление
@@ -221,16 +245,7 @@ if [ "$GHCR" = "1" ]; then
     OLD_TAG="$(grep -m1 '^SEKVYR_IMAGE_TAG=' .env | cut -d= -f2-)"
     NEW_TAG="${REF#v}"
     # Переопределение image в Compose может сохранить старый digest при смене тега.
-    # config --images включает зависимости, в том числе отдельно закрепленную БД.
-    if ! panel_images="$(
-        { dc_tag "$NEW_TAG" config backend frontend && printf '\n# compose-config-complete\n'; } | awk '
-        /^services:$/ { services = 1; next }
-        /^[^ ]/ { services = 0 }
-        services && /^  [^ ]/ { panel = /^  (backend|frontend):$/ }
-        services && panel && /^    image: / { print $2; count++ }
-        /^# compose-config-complete$/ { complete = 1 }
-        END { if (!complete || count != 2) exit 1 }
-    ')"; then
+    if ! panel_images="$(panel_image_config "$NEW_TAG")"; then
         msg "✗ не удалось определить оба образа панели в конфигурации Compose." \
             "✗ both panel images must be present in the Compose configuration." >&2
         exit 1
@@ -281,17 +296,30 @@ while :; do
 done
 
 if [ "$GHCR" = "1" ]; then
-    PREVIOUS_COMMIT=$(git rev-parse HEAD)
-    PREVIOUS_BRANCH=$(git symbolic-ref -q --short HEAD || true)
-    git checkout --quiet "$REF"
+    PREVIOUS_COMMIT="$(git rev-parse HEAD)"
+    PREVIOUS_BRANCH="$(git symbolic-ref -q --short HEAD || true)"
+    git checkout --quiet --detach "$TARGET"
+    # A release can change a Compose file that was used for the preflight.
+    # Keep the old checkout and .env if this would start an unverified pair.
+    PROBLEM=""
     if ! check_networks; then
+        PROBLEM=networks
+    elif ! checkout_images="$(panel_image_config "$NEW_TAG")" || [ "$checkout_images" != "$panel_images" ]; then
+        PROBLEM=images
+    fi
+    if [ -n "$PROBLEM" ]; then
         if [ -n "$PREVIOUS_BRANCH" ]; then
             git checkout --quiet "$PREVIOUS_BRANCH"
         else
             git checkout --quiet --detach "$PREVIOUS_COMMIT"
         fi
-        msg "Конфигурация сети нового выпуска небезопасна. Вернул прежний checkout." \
-            "The new release has an unsafe network configuration. Restored the previous checkout." >&2
+        if [ "$PROBLEM" = networks ]; then
+            msg "Конфигурация сети нового выпуска небезопасна. Вернул прежний checkout." \
+                "The new release has an unsafe network configuration. Restored the previous checkout." >&2
+        else
+            msg "✗ метка меняет образы в Compose. Вернул прежний checkout, .env и контейнеры не изменены." \
+                "✗ the release changes the Compose image references. Restored the previous checkout; .env and containers were not changed." >&2
+        fi
         exit 1
     fi
     if grep -q '^SEKVYR_IMAGE_TAG=' .env; then
@@ -342,7 +370,7 @@ fi
 check_networks || exit 1
 if [ "$GHCR" = "1" ]; then
     msg "→ поднимаю $REF" "→ starting $REF"
-    $DC up -d --pull missing
+    dc_tag "$NEW_TAG" up -d --pull missing
 else
     msg "→ собираю и поднимаю" "→ building and starting"
     $DC up -d --build
