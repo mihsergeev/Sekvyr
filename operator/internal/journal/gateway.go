@@ -11,12 +11,12 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mihsergeev/Sekvyr/operator/internal/e2e2"
+	"github.com/mihsergeev/Sekvyr/operator/internal/panelauth"
 )
 
 type GatewayClient struct {
@@ -221,8 +221,8 @@ type APIStorageClient struct {
 func (*APIStorageClient) String() string   { return "journal gateway client [redacted]" }
 func (*APIStorageClient) GoString() string { return "journal gateway client [redacted]" }
 func NewAPIStorageClient(origin string, ca []byte, cert tls.Certificate) (*APIStorageClient, error) {
-	u, err := url.Parse(origin)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || len(cert.Certificate) == 0 {
+	canonical, err := panelauth.CanonicalOrigin(origin)
+	if err != nil || len(cert.Certificate) == 0 {
 		return nil, Failure("StorageConfigInvalid")
 	}
 	pool := x509.NewCertPool()
@@ -232,7 +232,7 @@ func NewAPIStorageClient(origin string, ca []byte, cert tls.Certificate) (*APISt
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool, Certificates: []tls.Certificate{cert}}
-	return &APIStorageClient{origin: origin, http: &http.Client{Transport: transport, Timeout: 65 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	return &APIStorageClient{origin: canonical, http: &http.Client{Transport: transport, Timeout: 65 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 func (c *APIStorageClient) Close() {
 	if c != nil && c.http != nil {

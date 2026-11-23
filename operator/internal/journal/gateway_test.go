@@ -309,3 +309,20 @@ func TestStrictJournalDecoderRejectsCaseMissingNullAndUnknown(t *testing.T) {
 		t.Fatal("explicit null union rejected", err)
 	}
 }
+
+func TestGatewayClientUsesCanonicalOrigin(t *testing.T) {
+	ca, _, cert := gatewayTLS(t)
+	for _, invalid := range []string{"https://gateway.example.test?", "https://gateway.example.test#", "https://gateway.example.test:", "https://gateway.example.test/path"} {
+		if _, err := NewAPIStorageClient(invalid, ca, cert); Reason(err) != "StorageConfigInvalid" {
+			t.Errorf("invalid origin accepted: %q", invalid)
+		}
+	}
+	client, err := NewAPIStorageClient("https://GATEWAY.example.test:443/", ca, cert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if client.origin != "https://gateway.example.test" {
+		t.Fatal("gateway origin was not canonicalized")
+	}
+}

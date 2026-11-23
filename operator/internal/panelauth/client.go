@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -55,17 +56,22 @@ type Client struct {
 // No credentials, query, fragment, path escaping, trailing dot or implicit
 // environment proxy is allowed. DNS is still an administrator/network boundary.
 func CanonicalOrigin(raw string) (string, error) {
+	if len(raw) > 2048 || strings.ContainsAny(raw, "#\\\t\r\n ") {
+		return "", failure("OriginInvalid")
+	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.Host == "" || u.Opaque != "" ||
 		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "" ||
-		(u.Path != "" && u.Path != "/") || u.RawPath != "" || strings.ContainsAny(raw, "\\\t\r\n ") {
+		(u.Path != "" && u.Path != "/") || u.RawPath != "" {
 		return "", failure("OriginInvalid")
 	}
 	host := strings.ToLower(u.Hostname())
 	if host == "" || strings.HasSuffix(host, ".") || strings.Contains(host, "%") {
 		return "", failure("OriginInvalid")
 	}
-	if net.ParseIP(host) == nil {
+	if ip, err := netip.ParseAddr(host); err == nil {
+		host = ip.String()
+	} else {
 		if len(host) > 253 {
 			return "", failure("OriginInvalid")
 		}

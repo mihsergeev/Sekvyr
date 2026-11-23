@@ -34,8 +34,14 @@ func TestHARequiresExplicitIndependentPinsAndSingleTarget(t *testing.T) {
 		"multi witness": func(c *Config) {
 			c.AllowedWitnessOrigins = append(c.AllowedWitnessOrigins, "https://another.example.test")
 		},
-		"untrusted fencer":          func(c *Config) { c.HA.FencerOrigin = "https://unexpected.example.test" },
-		"shared journal witness":    func(c *Config) { c.HA.GatewayOrigin = c.AllowedWitnessOrigins[0] },
+		"untrusted fencer":         func(c *Config) { c.HA.FencerOrigin = "https://unexpected.example.test" },
+		"shared journal witness":   func(c *Config) { c.HA.GatewayOrigin = c.AllowedWitnessOrigins[0] },
+		"journal alias of witness": func(c *Config) { c.HA.GatewayOrigin = "https://WITNESS.example.test:443/" },
+		"journal alias of fencer":  func(c *Config) { c.HA.GatewayOrigin = "https://FENCER.example.test:443" },
+		"fencer alias of witness": func(c *Config) {
+			c.HA.FencerOrigin = "https://WITNESS.example.test/"
+			c.HA.AllowedFencerOrigins = []string{c.AllowedWitnessOrigins[0]}
+		},
 		"mutable identity adoption": func(c *Config) { c.HA.GatewayClientSecret.UID = c.IdentityKeySecret.UID },
 		"client credential target":  func(c *Config) { c.AllowedTargetSecrets = []string{c.HA.GatewayClientSecret.Name} },
 		"missing CA pin":            func(c *Config) { c.HA.GatewayCAConfigMapRef = &CARef{Name: "untrusted", Key: "ca.crt"} },

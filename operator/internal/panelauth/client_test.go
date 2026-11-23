@@ -197,12 +197,12 @@ func TestTLSVerificationCancellationAndOrigins(t *testing.T) {
 	cancel()
 	_, err = c.Login(ctx)
 	requireReason(t, err, "PanelUnavailable")
-	for _, raw := range []string{"http://panel.example.com", "https://user:password@panel.example.com", "https://panel.example.com/path", "https://panel.example.com?secret=a", "https://panel.example.com#fragment", "https://panel.example.com.", "https://panel.example.com:", "https://panel.example.com:0", "https://panel.example.com/%2f", "https://panel.example.com\\evil"} {
+	for _, raw := range []string{"http://panel.example.com", "https://user:password@panel.example.com", "https://panel.example.com/path", "https://panel.example.com?secret=a", "https://panel.example.com#fragment", "https://panel.example.com.", "https://panel.example.com:", "https://panel.example.com:0", "https://panel.example.com/%2f", "https://panel.example.com\\evil", "https://panel.example.com#"} {
 		if _, err := CanonicalOrigin(raw); err == nil {
 			t.Errorf("unsafe origin accepted: %s", raw)
 		}
 	}
-	for raw, want := range map[string]string{"https://PANEL.example.com:443/": "https://panel.example.com", "https://panel.example.com:8443": "https://panel.example.com:8443"} {
+	for raw, want := range map[string]string{"https://PANEL.example.com:443/": "https://panel.example.com", "https://panel.example.com:8443": "https://panel.example.com:8443", "https://[0:0::1]:8443": "https://[::1]:8443"} {
 		got, err := CanonicalOrigin(raw)
 		if err != nil || got != want {
 			t.Errorf("origin normalization failed %s", raw)

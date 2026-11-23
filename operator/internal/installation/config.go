@@ -13,8 +13,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
-	"net"
-	"net/url"
 	"os"
 	"regexp"
 	"sort"
@@ -22,6 +20,7 @@ import (
 
 	"github.com/mihsergeev/Sekvyr/operator/internal/e2e2"
 	"github.com/mihsergeev/Sekvyr/operator/internal/journal"
+	"github.com/mihsergeev/Sekvyr/operator/internal/panelauth"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -108,46 +107,11 @@ func ValidName(value string) bool { return len(validation.IsDNS1123Subdomain(val
 
 // CanonicalOrigin accepts HTTPS origins only. Paths, credentials, queries and fragments are rejected.
 func CanonicalOrigin(raw string) (string, error) {
-	if len(raw) > 2048 || strings.ContainsAny(raw, "\\\t\r\n ") {
+	origin, err := panelauth.CanonicalOrigin(raw)
+	if err != nil {
 		return "", Reject("ScopeDenied")
 	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Opaque != "" ||
-		(u.Path != "" && u.Path != "/") || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(raw, "#") {
-		return "", Reject("ScopeDenied")
-	}
-	if strings.HasSuffix(u.Host, ":") {
-		return "", Reject("ScopeDenied")
-	}
-	host := strings.ToLower(u.Hostname())
-	if host == "" || strings.HasSuffix(host, ".") || strings.Contains(host, "%") {
-		return "", Reject("ScopeDenied")
-	}
-	if net.ParseIP(host) == nil && !ValidName(host) {
-		return "", Reject("ScopeDenied")
-	}
-	port := u.Port()
-	if port != "" && port != "443" {
-		// A numeric nonzero TCP port, without alternate spellings.
-		var n int
-		for _, ch := range port {
-			if ch < '0' || ch > '9' {
-				return "", Reject("ScopeDenied")
-			}
-			n = n*10 + int(ch-'0')
-			if n > 65535 {
-				return "", Reject("ScopeDenied")
-			}
-		}
-		if n == 0 || (len(port) > 1 && port[0] == '0') {
-			return "", Reject("ScopeDenied")
-		}
-		return "https://" + net.JoinHostPort(host, port), nil
-	}
-	if strings.Contains(host, ":") {
-		host = "[" + host + "]"
-	}
-	return "https://" + host, nil
+	return origin, nil
 }
 func originAllowed(value string, allowed []string) bool {
 	origin, err := CanonicalOrigin(value)
@@ -350,10 +314,13 @@ func (c Config) Validate() error {
 		if !h.Trial || !originAllowed(h.FencerOrigin, h.AllowedFencerOrigins) || len(h.AllowedFencerOrigins) != 1 || len(c.AllowedTargetSecrets) != 1 || len(c.AllowedWitnessOrigins) != 1 {
 			return Reject("HAProfileInvalid")
 		}
-		if _, err := CanonicalOrigin(h.GatewayOrigin); err != nil {
+		gatewayOrigin, err := CanonicalOrigin(h.GatewayOrigin)
+		if err != nil {
 			return Reject("HAProfileInvalid")
 		}
-		if h.FencerOrigin == h.GatewayOrigin || h.FencerOrigin == c.AllowedWitnessOrigins[0] || h.GatewayOrigin == c.AllowedWitnessOrigins[0] {
+		fencerOrigin, _ := CanonicalOrigin(h.FencerOrigin)
+		witnessOrigin, _ := CanonicalOrigin(c.AllowedWitnessOrigins[0])
+		if fencerOrigin == gatewayOrigin || fencerOrigin == witnessOrigin || gatewayOrigin == witnessOrigin {
 			return Reject("HAProfileInvalid")
 		}
 		p := h.GatewayClientSecret
