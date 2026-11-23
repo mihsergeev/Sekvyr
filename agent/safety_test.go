@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -63,6 +64,53 @@ func TestWriteFileIgnoresPlantedLinks(t *testing.T) {
 		if strings.HasSuffix(e.Name(), ".tmp") && e.Name() != "app.env.tmp" {
 			t.Fatalf("остался временный файл %s", e.Name())
 		}
+	}
+}
+
+func TestSyncAgentFileRepairsPermissionsWithoutChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.env")
+	const values = "A=synthetic\n"
+	if err := writeFile(path, values, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := syncAgentFile(path, values, 0o400); err != nil || changed {
+		t.Fatalf("permission repair should not trigger the hook: %v, %v", changed, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o400 {
+		t.Fatalf("unsafe file permissions after sync: %v, %v", info, err)
+	}
+	if changed, err := syncAgentFile(path, values, 0o400); err != nil || changed {
+		t.Fatalf("unchanged output should not trigger the hook: %v, %v", changed, err)
+	}
+}
+
+func TestSyncAgentFileReplacesLinksAndPipes(t *testing.T) {
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "external")
+	const values = "A=synthetic\n"
+	if err := writeFile(victim, values, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link, pipe := filepath.Join(dir, "link.env"), filepath.Join(dir, "pipe.env")
+	if err := os.Symlink(victim, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(pipe, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{link, pipe} {
+		if changed, err := syncAgentFile(path, values, 0o400); err != nil || !changed {
+			t.Fatalf("expected to replace %s: %v, %v", path, changed, err)
+		}
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode() != 0o400 {
+			t.Fatalf("expected a private regular file at %s: %v, %v", path, info, err)
+		}
+	}
+	info, err := os.Stat(victim)
+	if err != nil || info.Mode() != 0o644 {
+		t.Fatalf("symlink destination was changed: %v, %v", info, err)
 	}
 }
 

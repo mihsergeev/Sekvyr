@@ -1774,6 +1774,9 @@ func cmdUpdate(args []string) error {
 	}
 	if m.Version == Version {
 		fmt.Printf(tr("уже последняя версия: %s\n", "already the latest version: %s\n"), Version)
+		if *restart != "" && !*check {
+			return restartAgentUnit(*restart)
+		}
 		return nil
 	}
 	if !newer(m.Version, Version) && !*down {
@@ -1798,12 +1801,24 @@ func cmdUpdate(args []string) error {
 	}
 	fmt.Println(tr("обновлено до", "updated to"), m.Version)
 	if *restart != "" {
-		runHook(context.Background(), "systemctl restart "+*restart)
-	} else if _, err := exec.LookPath("systemctl"); err == nil {
+		return restartAgentUnit(*restart)
+	}
+	if _, err := exec.LookPath("systemctl"); err == nil {
 		fmt.Println(tr("работающая служба остается на прежней версии до перезапуска: sudo systemctl restart sekvyr-agent (или sekvyr update --restart sekvyr-agent)",
 			"the running service stays on the previous version until it restarts: sudo systemctl restart sekvyr-agent (or sekvyr update --restart sekvyr-agent)"))
 	} else {
 		fmt.Println(tr("работающий агент остается на прежней версии до перезапуска", "the running agent stays on the previous version until it restarts"))
+	}
+	return nil
+}
+
+func restartAgentUnit(unit string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "systemctl", "restart", "--", unit)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf(tr("не удалось перезапустить службу %q: %w", "could not restart service %q: %w"), unit, err)
 	}
 	return nil
 }
@@ -1846,44 +1861,32 @@ func applyUpdate(cfg *Config, m *manifest) error {
 	if err != nil {
 		return err
 	}
-	tmp := self + ".new"
-	// Файл с таким именем мог остаться от оборванной установки (curl -o, 0644):
-	// его права сохранились бы, и новый бинарь стал бы неисполняемым.
-	_ = os.Remove(tmp)
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
+	running, err := os.Stat("/proc/self/exe")
 	if err != nil {
 		return err
 	}
-	done := false
-	defer func() {
-		if !done {
-			// Недописанный бинарь (кончилось место) не должен лежать рядом.
-			_ = os.Remove(tmp)
-		}
-	}()
-	if _, err := f.Write(blob); err != nil {
-		f.Close()
+	return installUpdate(self, running, blob)
+}
+
+func installUpdate(path string, running os.FileInfo, blob []byte) error {
+	current, err := os.Open(path)
+	if err != nil {
 		return err
 	}
-	// На диск до переименования, как и файл со значениями: на XFS после сбоя
-	// питания на месте агента оставался файл нулевой длины, и служба больше не
-	// поднималась вовсе.
-	if err := f.Sync(); err != nil {
-		f.Close()
+	defer current.Close()
+	// Processes running the same binary serialize on its inode. After an
+	// update, an older process cannot replace the installed version using
+	// a version comparison it made against its own executable.
+	if err := syscall.Flock(int(current.Fd()), syscall.LOCK_EX); err != nil {
 		return err
 	}
-	if err := f.Close(); err != nil {
+	installed, err := os.Stat(path)
+	if err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp, 0o755); err != nil {
-		return err
+	if !os.SameFile(running, installed) {
+		return errors.New(tr("бинарь агента уже заменен, повторите обновление из новой версии",
+			"the agent binary has already been replaced, retry the update from the installed version"))
 	}
-	// Переименование атомарно: работающий процесс продолжает жить со старым
-	// файлом, а следующий запуск берет новый.
-	if err := os.Rename(tmp, self); err != nil {
-		return err
-	}
-	syncDir(filepath.Dir(self))
-	done = true
-	return nil
+	return writeFile(path, string(blob), 0o755)
 }

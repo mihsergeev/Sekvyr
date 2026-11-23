@@ -16,12 +16,21 @@ LOG="$WORK/log"
 mkdir -p "$STUBS"
 
 # Агент-заглушка: пишет в журнал свои аргументы. update завершается с кодом из
-# FAKE_UPDATE_RC; ls и прочее молча проходят.
+# FAKE_UPDATE_RC. enroll пишет конфиг и может вернуть FAKE_ENROLL_RC.
 fake_agent() {
     cat > "$1" <<EOF
 #!/bin/sh
 echo "$2 \$*" >> "$LOG"
 if [ "\${1:-}" = update ]; then exit "\${FAKE_UPDATE_RC:-0}"; fi
+if [ "\${1:-}" = enroll ]; then
+    while [ \$# -gt 0 ]; do
+        case "\$1" in
+            --config) (umask 077 && printf '%s\n' '{"url":"https://panel.example"}' > "\$2"); break ;;
+            *) shift ;;
+        esac
+    done
+    exit "\${FAKE_ENROLL_RC:-0}"
+fi
 exit 0
 EOF
     chmod 0755 "$1"
@@ -58,7 +67,16 @@ case "\$url" in
     *) cp "$WORK/new-agent" "\$out" ;;
 esac
 EOF
-chmod 0755 "$STUBS/id" "$STUBS/ln" "$STUBS/curl"
+REAL_MV=$(command -v mv)
+cat > "$STUBS/mv" <<EOF
+#!/bin/sh
+for arg do :; done
+if [ "\${FAKE_PUBLISH_CONFIG_RC:-0}" != 0 ] && [ "\$arg" = "$WORK/etc/agent.json" ]; then
+    exit "\$FAKE_PUBLISH_CONFIG_RC"
+fi
+exec "$REAL_MV" "\$@"
+EOF
+chmod 0755 "$STUBS/id" "$STUBS/ln" "$STUBS/curl" "$STUBS/mv"
 
 FAILED=0
 fail() { echo "FAIL: $*"; FAILED=1; }
@@ -116,6 +134,7 @@ fake_agent "$WORK/bin/sekvyr" "old-agent"
 run "reenroll" 0 --token tok --reenroll
 grep -q "^curl .*agent?arch=" "$LOG" || fail "reenroll: the binary was not downloaded"
 grep -q "^new-agent enroll .*--force" "$LOG" || fail "reenroll: no enroll by the new binary"
+grep -q 'https://panel.example' "$WORK/etc/agent.json" || fail "reenroll: the new config was not installed"
 
 # 5. Чистая нода: бинарь с панели, сверка хеша с описанием, подключение.
 reset_node
@@ -143,6 +162,33 @@ echo '{"url":"https://panel.example"}' > "$WORK/etc/agent.json"
 fake_agent "$WORK/bin/sekvyr" "old-agent"
 run "connected without --lang" 0
 grep -q "^old-agent lang" "$LOG" && fail "connected without --lang: the config language was changed"
+
+check_old_pair() {
+    grep -q 'echo "old-agent ' "$WORK/bin/sekvyr" || fail "$1: the old binary was lost"
+    grep -q 'https://old-panel.example' "$WORK/etc/agent.json" || fail "$1: the old config was lost"
+    for stage in "$WORK/bin"/.sekvyr-install.* "$WORK/etc"/.sekvyr-enroll.*; do
+        [ ! -e "$stage" ] || fail "$1: a staging directory was left behind"
+    done
+}
+
+reset_node
+echo '{"url":"https://old-panel.example"}' > "$WORK/etc/agent.json"
+fake_agent "$WORK/bin/sekvyr" "old-agent"
+run "reenroll without a token" 2 --reenroll
+grep -q "^curl " "$LOG" && fail "reenroll without a token: something was downloaded"
+check_old_pair "reenroll without a token"
+
+export FAKE_ENROLL_RC=1
+run "reenroll rejected" 1 --token tok --reenroll
+unset FAKE_ENROLL_RC
+grep -q '^new-agent enroll ' "$LOG" || fail "reenroll rejected: enrollment was not attempted"
+check_old_pair "reenroll rejected"
+
+export FAKE_PUBLISH_CONFIG_RC=1
+run "reenroll config could not be published" 1 --token tok --reenroll
+unset FAKE_PUBLISH_CONFIG_RC
+grep -q '^new-agent enroll ' "$LOG" || fail "reenroll publish failed: enrollment was not attempted"
+check_old_pair "reenroll config could not be published"
 
 if [ "$FAILED" = 0 ]; then
     echo "install.sh: all cases passed"

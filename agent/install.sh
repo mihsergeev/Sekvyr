@@ -154,6 +154,11 @@ if [ -z "$PANEL" ]; then
     msg "нужен --url" "--url is required" >&2
     exit 2
 fi
+if [ -n "$REENROLL" ] && [ -z "$TOKEN" ]; then
+    msg "для --reenroll нужен --token: возьмите команду \"Подключить сервер\" в панели" \
+        "--reenroll needs --token: take the \"Connect a server\" command from the panel" >&2
+    exit 2
+fi
 # Команда старого режима с одним файлом уходит в ExecStart юнита в одинарных
 # кавычках, и кавычку внутри нее там не записать, как и перенос строки.
 # Проверяем до установки, чтобы не оставить ноду наполовину подключенной.
@@ -219,6 +224,7 @@ esac
 # откатывается на старую версию. При --reenroll нода может переезжать на
 # другую панель, поэтому там прежний путь.
 TRUSTED_CONFIG=""
+ENROLLED=""
 if [ -z "$REENROLL" ]; then
     if [ -f "$CONFIG" ]; then
         TRUSTED_CONFIG="$CONFIG"
@@ -235,41 +241,103 @@ if [ -n "$TRUSTED_CONFIG" ] && [ -x "$BIN_DIR/sekvyr" ]; then
         exit 1
     fi
 else
+    if ! command -v sha256sum >/dev/null 2>&1; then
+        msg "sekvyr: для проверки скачанного агента нужен sha256sum" \
+            "sekvyr: sha256sum is required to verify the downloaded agent" >&2
+        exit 1
+    fi
     msg "sekvyr: качаю агента ($ARCH)" "sekvyr: downloading the agent ($ARCH)"
     mkdir -p "$BIN_DIR"
-    TMP="$BIN_DIR/sekvyr.new"
+    BIN_STAGE="$(mktemp -d "$BIN_DIR/.sekvyr-install.XXXXXXXX")"
+    CONFIG_STAGE=""
+    STAGED_CONFIG=""
+    KEEP_PREVIOUS=""
+    TMP="$BIN_STAGE/sekvyr"
+    cleanup_install() {
+        # After the binary rename, the staged config still existing means the
+        # second rename failed or the script was interrupted in between.
+        if [ -n "$STAGED_CONFIG" ] && [ -f "$STAGED_CONFIG" ] && [ ! -e "$TMP" ]; then
+            if [ -e "$BIN_STAGE/previous" ] || [ -L "$BIN_STAGE/previous" ]; then
+                if ! mv -fT -- "$BIN_STAGE/previous" "$BIN_DIR/sekvyr"; then
+                    KEEP_PREVIOUS=1
+                    msg "sekvyr: не удалось вернуть прежний бинарь: $BIN_STAGE/previous" \
+                        "sekvyr: could not restore the previous binary: $BIN_STAGE/previous" >&2
+                fi
+            else
+                rm -f -- "$BIN_DIR/sekvyr"
+            fi
+            msg "sekvyr: новый конфиг не установлен; токен уже использован, удалите новую учетку машины в панели" \
+                "sekvyr: the new config was not installed; the token was used, delete the new machine identity in the panel" >&2
+        fi
+        if [ -n "$CONFIG_STAGE" ]; then
+            rm -f -- "$CONFIG_STAGE/agent.json"
+            rmdir -- "$CONFIG_STAGE"
+        fi
+        rm -f -- "$TMP"
+        if [ -z "$KEEP_PREVIOUS" ]; then
+            rm -f -- "$BIN_STAGE/previous"
+            rmdir -- "$BIN_STAGE"
+        fi
+    }
+    trap cleanup_install 0
+    trap 'exit 1' HUP INT TERM
     curl -fsSL "$PANEL/api/v1/machine/agent?arch=$ARCH" -o "$TMP"
 
     # Сверяем с описанием версии. Первую установку все равно приходится
     # доверить панели и её TLS - подписи здесь проверять нечем, ключа на чистой
     # ноде еще нет. Дальше бинарь меняет только сам агент, и там подпись
     # проверяется по ключу, вшитому в него: панель уже не подсунет что угодно.
-    WANT="$(curl -fsSL "$PANEL/api/v1/machine/agent/manifest" | grep -o "\"$ARCH\"[^}]*" | grep -oE '[0-9a-f]{64}' | head -1)"
+    MANIFEST="$(curl -fsSL "$PANEL/api/v1/machine/agent/manifest")"
+    WANT="$(printf '%s\n' "$MANIFEST" | grep -o "\"$ARCH\"[^}]*" | grep -oE '[0-9a-f]{64}' | head -1)"
     # Хеша для этой архитектуры в описании нет - бинарь не с чем сверить, и
     # молча ставить его нельзя (описание подписывали только для одной
     # архитектуры, или панель отдала не то).
     if [ -z "$WANT" ]; then
-        rm -f "$TMP"
         msg "sekvyr: в описании версии нет хеша для $ARCH - установка отменена" \
             "sekvyr: the release description has no hash for $ARCH, installation cancelled" >&2
         exit 1
     fi
-    if ! command -v sha256sum >/dev/null 2>&1; then
-        msg "sekvyr: нет sha256sum, хеш агента не сверен" "sekvyr: no sha256sum, the agent hash was not checked" >&2
+    GOT="$(sha256sum < "$TMP")"
+    if [ "${GOT%% *}" != "$WANT" ]; then
+        msg "sekvyr: хеш скачанного агента не совпал с описанием - установка отменена" \
+            "sekvyr: the downloaded agent does not match the release hash, installation cancelled" >&2
+        exit 1
     fi
-    if command -v sha256sum >/dev/null 2>&1; then
-        GOT="$(sha256sum "$TMP" | cut -d' ' -f1)"
-        if [ "$GOT" != "$WANT" ]; then
-            rm -f "$TMP"
-            msg "sekvyr: хеш скачанного агента не совпал с описанием - установка отменена" \
-                "sekvyr: the downloaded agent does not match the release hash, installation cancelled" >&2
-            exit 1
-        fi
-        msg "sekvyr: хеш сошелся с описанием" "sekvyr: the hash matches the release"
-    fi
+    msg "sekvyr: хеш сошелся с описанием" "sekvyr: the hash matches the release"
 
     chmod 0755 "$TMP"
-    mv "$TMP" "$BIN_DIR/sekvyr"
+    if [ -n "$TOKEN" ] && { [ -n "$REENROLL" ] || [ ! -f "$CONFIG" ]; }; then
+        # Keep the running installation until the new panel accepts enrollment.
+        # Stage beside each destination so publishing each file is a rename.
+        if [ -d "$BIN_DIR/sekvyr" ] || [ -d "$CONFIG" ]; then
+            msg "sekvyr: путь бинаря или конфига занят каталогом" \
+                "sekvyr: the binary or config path is a directory" >&2
+            exit 1
+        fi
+        if [ -e "$BIN_DIR/sekvyr" ] || [ -L "$BIN_DIR/sekvyr" ]; then
+            cp -pP -- "$BIN_DIR/sekvyr" "$BIN_STAGE/previous"
+        fi
+        CONFIG_DIR="$(dirname "$CONFIG")"
+        (umask 077 && mkdir -p -- "$CONFIG_DIR")
+        CONFIG_STAGE="$(mktemp -d "$CONFIG_DIR/.sekvyr-enroll.XXXXXXXX")"
+        STAGED_CONFIG="$CONFIG_STAGE/agent.json"
+        if [ -f "$CONFIG" ]; then
+            # --force preserves app paths and hooks from the previous config.
+            (umask 077 && cat -- "$CONFIG" > "$STAGED_CONFIG")
+        fi
+        msg "sekvyr: подключаю сервер к панели" "sekvyr: connecting this server to the panel"
+        "$TMP" enroll --url "$PANEL" --token "$TOKEN" --config "$STAGED_CONFIG" \
+            ${NAME:+--name "$NAME"} --lang "$OUT_LANG" ${REENROLL:+--force}
+        [ -s "$STAGED_CONFIG" ]
+        "$TMP" ls --paths --config "$STAGED_CONFIG" >/dev/null
+        mv -fT -- "$TMP" "$BIN_DIR/sekvyr"
+        mv -fT -- "$STAGED_CONFIG" "$CONFIG"
+        ENROLLED=1
+    else
+        mv -fT -- "$TMP" "$BIN_DIR/sekvyr"
+    fi
+    cleanup_install
+    trap - 0 HUP INT TERM
 fi
 ln -sf "$BIN_DIR/sekvyr" /usr/local/bin/sekvyr 2>/dev/null || true
 # На RHEL, Rocky и Alma secure_path sudo не содержит /usr/local/bin, и
@@ -284,7 +352,9 @@ fi
 SEKVYR_LANG="$OUT_LANG"
 export SEKVYR_LANG
 
-if [ -n "$TOKEN" ] && [ -f "$CONFIG" ] && [ -z "$REENROLL" ]; then
+if [ -n "$ENROLLED" ]; then
+    : # Already enrolled with the staged binary and config.
+elif [ -n "$TOKEN" ] && [ -f "$CONFIG" ] && [ -z "$REENROLL" ]; then
     # Команду "новый сервер" берут из панели и для подключенного. Новая
     # личность оставила бы старую в панели с правами, а приложения из
     # sekvyr add пропали бы из списка, и их файлы молча перестали бы
@@ -296,10 +366,6 @@ if [ -n "$TOKEN" ] && [ -f "$CONFIG" ] && [ -z "$REENROLL" ]; then
     # Окружение из этой команды выдано другой, новой машине, а не этой: add
     # дал бы 403 каждую минуту.
     SKIP_ADD=1
-elif [ -n "$REENROLL" ] && [ -z "$TOKEN" ]; then
-    msg "для --reenroll нужен --token: возьмите команду \"Подключить сервер\" в панели" \
-        "--reenroll needs --token: take the \"Connect a server\" command from the panel" >&2
-    exit 2
 elif [ -n "$TOKEN" ]; then
     msg "sekvyr: подключаю сервер к панели" "sekvyr: connecting this server to the panel"
     "$BIN_DIR/sekvyr" enroll --url "$PANEL" --token "$TOKEN" --config "$CONFIG" \
