@@ -21,7 +21,7 @@ from sqlalchemy import select
 from app import alerts, audit, backups, e2e2, emergency, machines, ratelimit, roles, settings_store, urlguard
 from app.api.auth import confirm_password, consume_totp, reauth_failed
 from app.config import get_settings
-from app.deps import OwnerUser, SessionDep, UnsealedBox, peer_ip
+from app.deps import OwnerUser, SessionDep, UnsealedBox, get_unsealed_box, peer_ip
 from app.models import E2E2View, User
 
 router = APIRouter(prefix="/ops", tags=["ops"])
@@ -282,6 +282,8 @@ async def emergency_archive(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Этой учётной записи не разрешён вход с вашего адреса"
         )
+    # Панель могли запереть, пока архив собирался.
+    await get_unsealed_box(box)
     return Response(
         content=blob,
         media_type="application/octet-stream",

@@ -185,6 +185,35 @@ async def test_emergency_does_not_return_archive_to_revoked_session(
     assert "Content-Disposition" not in response.headers
 
 
+async def test_emergency_does_not_return_archive_after_seal(
+    client, owner_headers, env_id, monkeypatch
+):
+    notifying, release = asyncio.Event(), asyncio.Event()
+
+    async def pause_notice(*_args):
+        # Запирание тоже шлет уведомление, его не держим.
+        if asyncio.current_task() is export:
+            notifying.set()
+            await release.wait()
+
+    monkeypatch.setattr(alerts, "notify", pause_notice)
+    export = asyncio.create_task(client.post(
+        "/api/ops/emergency",
+        headers=owner_headers,
+        json={"password": "archive-fixture-password", "login_password": OWNER_PASSWORD},
+    ))
+    try:
+        await asyncio.wait_for(notifying.wait(), timeout=5)
+        sealed = await client.post("/api/vault/seal", headers=owner_headers)
+        assert sealed.status_code == 200 and sealed.json()["sealed"]
+    finally:
+        release.set()
+        response = await export
+
+    assert response.status_code == 503
+    assert "Content-Disposition" not in response.headers
+
+
 async def test_emergency_needs_own_password(client: httpx.AsyncClient, owner_headers, env_id):
     res = await client.post(
         "/api/ops/emergency",
