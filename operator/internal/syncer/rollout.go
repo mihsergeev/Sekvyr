@@ -2,7 +2,6 @@ package syncer
 
 import (
 	"context"
-	"encoding/json"
 	"sort"
 	"time"
 
@@ -42,9 +41,10 @@ type rolloutGuard struct {
 	head                      witness.Head
 	targetUID, revision, hash string
 	data                      map[string][]byte
+	revalidate                func(context.Context) error
 }
 
-func (e Engine) rolloutGuard(cr *api.SekvyrSecret, store *api.SekvyrStore, b api.Binding, head witness.Head, target *corev1.Secret, data map[string][]byte, a *rollout.Authorization) rollout.Guard {
+func (e Engine) rolloutGuard(cr *api.SekvyrSecret, store *api.SekvyrStore, b api.Binding, head witness.Head, target *corev1.Secret, data map[string][]byte, a *rollout.Authorization, revalidate func(context.Context) error) rollout.Guard {
 	if a == nil || a.Cancelled || !rollout.ValidAuthorization(a) {
 		return nil
 	}
@@ -53,7 +53,7 @@ func (e Engine) rolloutGuard(cr *api.SekvyrSecret, store *api.SekvyrStore, b api
 	for k, v := range data {
 		copied[k] = append([]byte(nil), v...)
 	}
-	return &rolloutGuard{engine: e, key: expected.StoreUID + "/" + expected.BindingID, expected: expected, head: head, targetUID: string(target.UID), revision: a.Intent.Revision, hash: a.IntentHash, data: copied}
+	return &rolloutGuard{engine: e, key: expected.StoreUID + "/" + expected.BindingID, expected: expected, head: head, targetUID: string(target.UID), revision: a.Intent.Revision, hash: a.IntentHash, data: copied, revalidate: revalidate}
 }
 func (g *rolloutGuard) record(ctx context.Context) (Record, error) {
 	_, state, err := g.engine.state().load(ctx)
@@ -69,6 +69,17 @@ func (g *rolloutGuard) record(ctx context.Context) (Record, error) {
 func (g *rolloutGuard) Confirm(ctx context.Context, target *corev1.Secret, i rollout.Intent) error {
 	if target == nil || string(target.UID) != g.targetUID || target.Name != g.expected.TargetName || target.Namespace != g.engine.Config.Namespace || !target.DeletionTimestamp.IsZero() || !equalData(target.Data, g.data) || target.Annotations[revisionAnnotation] != g.revision {
 		return &rollout.Error{Reason: "RolloutTargetChanged"}
+	}
+	checkpoint := target.Annotations[checkpointAnnotation]
+	if g.expected.Mode == "Plain" {
+		if checkpoint != "" {
+			return &rollout.Error{Reason: "RolloutTargetChanged"}
+		}
+	} else {
+		var observed witness.Head
+		if strict([]byte(checkpoint), &observed, 16<<10) != nil || observed != g.head {
+			return &rollout.Error{Reason: "RolloutTargetChanged"}
+		}
 	}
 	parsed, err := rollout.Decode(target.Annotations[intentAnnotation])
 	if err != nil {
@@ -98,7 +109,7 @@ func (g *rolloutGuard) Applied(ctx context.Context, d rollout.DeploymentRef) (bo
 	return false, nil
 }
 func (g *rolloutGuard) MarkApplied(ctx context.Context, d rollout.DeploymentRef) error {
-	_, err := g.engine.state().update(ctx, g.key, g.expected, func(r *Record) error {
+	_, err := g.engine.state().update(ctx, g.key, g.expected, g.revalidate, func(r *Record) error {
 		if r.TargetUID != g.targetUID || !recordHeadMatches(*r, g.head) || r.Rollout == nil || r.Rollout.Cancelled || r.Rollout.IntentHash != g.hash {
 			return &rollout.Error{Reason: "RolloutStateAmbiguous"}
 		}
@@ -123,7 +134,7 @@ func (g *rolloutGuard) MarkApplied(ctx context.Context, d rollout.DeploymentRef)
 	return err
 }
 func (g *rolloutGuard) Cancel(ctx context.Context) error {
-	_, err := g.engine.state().update(ctx, g.key, g.expected, func(r *Record) error {
+	_, err := g.engine.state().update(ctx, g.key, g.expected, g.revalidate, func(r *Record) error {
 		if r.TargetUID != g.targetUID || !recordHeadMatches(*r, g.head) || r.Rollout == nil || r.Rollout.IntentHash != g.hash || r.Rollout.Intent.Revision != g.revision {
 			return fail("RolloutAuthorizationChanged")
 		}
@@ -135,7 +146,7 @@ func (g *rolloutGuard) Cancel(ctx context.Context) error {
 
 // CancelRollout invalidates an existing protected candidate after a terminal
 // authorization failure. It never fetches panel data or writes the target.
-func (e Engine) CancelRollout(ctx context.Context, cr *api.SekvyrSecret, store *api.SekvyrStore, b api.Binding) error {
+func (e Engine) CancelRollout(ctx context.Context, cr *api.SekvyrSecret, store *api.SekvyrStore, b api.Binding, revalidate func(context.Context) error) error {
 	expected := e.expected(cr, store, b)
 	key := expected.StoreUID + "/" + expected.BindingID
 	_, state, err := e.state().load(ctx)
@@ -158,7 +169,7 @@ func (e Engine) CancelRollout(ctx context.Context, cr *api.SekvyrSecret, store *
 		return nil
 	}
 	hash := record.Rollout.IntentHash
-	_, err = e.state().update(ctx, key, expected, func(r *Record) error {
+	_, err = e.state().update(ctx, key, expected, revalidate, func(r *Record) error {
 		if r.TargetUID != record.TargetUID || r.Mode != record.Mode || (r.Mode == "Plain" && (r.Head != nil || record.Head != nil)) || (r.Mode != "Plain" && (r.Head == nil || record.Head == nil || *r.Head != *record.Head)) || r.Rollout == nil || r.Rollout.IntentHash != hash || r.Rollout.Intent.Context != rollout.NewContext(cr, store, b, e.Config.BootstrapGeneration, record.TargetUID) {
 			return nil
 		}
@@ -166,6 +177,22 @@ func (e Engine) CancelRollout(ctx context.Context, cr *api.SekvyrSecret, store *
 		return nil
 	})
 	return err
+}
+
+// matchesUnresolvedIntent checks whether the public marker can be repaired
+// solely by filling empty UIDs from the already-authorized protected intent.
+func matchesUnresolvedIntent(i rollout.Intent, a *rollout.Authorization) bool {
+	if len(i.Deployments) != len(a.Intent.Deployments) {
+		return false
+	}
+	i.Deployments = append([]rollout.DeploymentRef(nil), i.Deployments...)
+	for n := range i.Deployments {
+		if i.Deployments[n].UID == "" {
+			i.Deployments[n].UID = a.Intent.Deployments[n].UID
+		}
+	}
+	hash, err := rollout.Hash(i)
+	return err == nil && hash == a.IntentHash
 }
 
 // Equal plaintext never creates eligibility. Only exact protected authorization
@@ -188,9 +215,17 @@ func (e Engine) resumeRollout(ctx context.Context, cr *api.SekvyrSecret, store *
 	if err != nil {
 		return nil, "RolloutStateAmbiguous"
 	}
-	hash, err := rollout.Hash(current)
-	if err != nil || hash != r.Rollout.IntentHash || current.Revision != target.Annotations[revisionAnnotation] {
+	targetHash, err := rollout.Hash(current)
+	if err != nil || current.Revision != target.Annotations[revisionAnnotation] {
 		return nil, "RolloutStateAmbiguous"
+	}
+	hash := r.Rollout.IntentHash
+	if targetHash != hash {
+		if !matchesUnresolvedIntent(current, r.Rollout) {
+			return nil, "RolloutStateAmbiguous"
+		}
+		// Protected UID resolution may have succeeded before the target write failed.
+		current = r.Rollout.Intent
 	}
 	if !current.Eligible {
 		return nil, "Ineligible"
@@ -200,7 +235,7 @@ func (e Engine) resumeRollout(ctx context.Context, cr *api.SekvyrSecret, store *
 	}
 	reason := rollout.Allowed(e.RolloutPolicy, cr, store, b)
 	if reason != "" {
-		return e.rolloutGuard(cr, store, b, head, target, data, r.Rollout), reason
+		return e.rolloutGuard(cr, store, b, head, target, data, r.Rollout, revalidate), reason
 	}
 	resolved, reason := rollout.Resolve(ctx, e.Reader, current)
 	resolvedHash, _ := rollout.Hash(resolved)
@@ -208,7 +243,7 @@ func (e Engine) resumeRollout(ctx context.Context, cr *api.SekvyrSecret, store *
 		if revalidate(ctx) != nil {
 			return nil, "RolloutAuthorizationChanged"
 		}
-		updated, updateErr := e.state().update(ctx, key, expected, func(record *Record) error {
+		updated, updateErr := e.state().update(ctx, key, expected, revalidate, func(record *Record) error {
 			if !recordHeadMatches(*record, head) || record.TargetUID != string(target.UID) || record.Rollout == nil || record.Rollout.Cancelled || record.Rollout.IntentHash != hash {
 				return fail("HeadChanged")
 			}
@@ -219,18 +254,20 @@ func (e Engine) resumeRollout(ctx context.Context, cr *api.SekvyrSecret, store *
 		if updateErr != nil {
 			return nil, "RolloutStateAmbiguous"
 		}
-		raw, _ := json.Marshal(resolved)
+		r = updated
+	}
+	if resolvedHash != targetHash {
+		raw, _ := rollout.Encode(resolved)
 		target.Annotations[intentAnnotation] = string(raw)
 		if revalidate(ctx) != nil || e.confirmRolloutAuthorization(ctx, key, expected, head, string(target.UID), resolvedHash) != nil {
 			return nil, "RolloutAuthorizationChanged"
 		}
-		if updateErr = e.Writer.Update(ctx, target); updateErr != nil {
-			if apierrors.IsConflict(updateErr) {
+		if err = e.Writer.Update(ctx, target); err != nil {
+			if apierrors.IsConflict(err) {
 				return nil, "TargetConflict"
 			}
 			return nil, "TargetWriteFailed"
 		}
-		r = updated
 	}
-	return e.rolloutGuard(cr, store, b, head, target, data, r.Rollout), reason
+	return e.rolloutGuard(cr, store, b, head, target, data, r.Rollout, revalidate), reason
 }

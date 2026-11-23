@@ -106,6 +106,16 @@ func TestBootstrapScopePinsAndGeneration(t *testing.T) {
 		reason string
 	}{
 		{"replaced", func(o []client.Object) { o[0].SetUID("55555555-5555-4555-8555-555555555555") }, "BootstrapMismatch"},
+		{"terminating-trust", func(o []client.Object) {
+			now := metav1.Now()
+			o[1].SetDeletionTimestamp(&now)
+			o[1].SetFinalizers([]string{"secrets.sekvyr.ru/test-hold"})
+		}, "BootstrapMismatch"},
+		{"terminating-state", func(o []client.Object) {
+			now := metav1.Now()
+			o[2].SetDeletionTimestamp(&now)
+			o[2].SetFinalizers([]string{"secrets.sekvyr.ru/test-hold"})
+		}, "StateReplaced"},
 		{"mutable-trust", func(o []client.Object) { o[1].(*corev1.Secret).Immutable = nil }, "BootstrapMismatch"},
 		{"wrong-type", func(o []client.Object) { o[0].(*corev1.Secret).Type = corev1.SecretTypeServiceAccountToken }, "BootstrapMismatch"},
 		{"oversized-key", func(o []client.Object) { o[0].(*corev1.Secret).Data[c.IdentityKeySecret.Key] = make([]byte, 16385) }, "BootstrapMismatch"},

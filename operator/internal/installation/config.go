@@ -458,6 +458,12 @@ func (c Config) ValidateRuntime(ctx context.Context, reader client.Reader, names
 			}
 			return Reject("BootstrapMismatch")
 		}
+		if !secret.DeletionTimestamp.IsZero() {
+			if i == 2 {
+				return Reject("StateReplaced")
+			}
+			return Reject("BootstrapMismatch")
+		}
 		maximum := 65536
 		if i == 0 {
 			maximum = 16384
@@ -495,7 +501,7 @@ func (c Config) ValidateCA(ctx context.Context, reader client.Reader, name, key 
 		return Reject("ScopeDenied")
 	}
 	var config corev1.ConfigMap
-	if reader.Get(ctx, types.NamespacedName{Namespace: c.Namespace, Name: name}, &config) != nil || string(config.UID) != pin.UID || config.Immutable == nil || !*config.Immutable {
+	if reader.Get(ctx, types.NamespacedName{Namespace: c.Namespace, Name: name}, &config) != nil || string(config.UID) != pin.UID || !config.DeletionTimestamp.IsZero() || config.Immutable == nil || !*config.Immutable {
 		return Reject("BootstrapMismatch")
 	}
 	data, ok := config.Data[key]

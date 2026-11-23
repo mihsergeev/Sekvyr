@@ -384,3 +384,75 @@ func TestReviewRegistryAdvanceBeforeTargetStopsOldAcceptedHead(t *testing.T) {
 		t.Fatal("concurrent newer checkpoint was overwritten")
 	}
 }
+
+func TestReviewTerminatingSecretStopsBeforeExternalRead(t *testing.T) {
+	for _, scenario := range []struct{ name, reason string }{
+		{"target", "TargetMissing"},
+		{"state", "StateReplaced"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			ctx := context.Background()
+			first, _, fingerprint := reviewReader(t, false, true)
+			e, cr, store, b, writer := reviewEngine(t, fingerprint)
+			if _, err := e.Sync(ctx, cr, store, b, first, authorize); err != nil {
+				t.Fatal(err)
+			}
+			var secret corev1.Secret
+			if err := writer.Client.Get(ctx, client.ObjectKey{Namespace: e.Config.Namespace, Name: scenario.name}, &secret); err != nil {
+				t.Fatal(err)
+			}
+			secret.Finalizers = []string{"secrets.sekvyr.ru/test-hold"}
+			if err := writer.Client.Update(ctx, &secret); err != nil {
+				t.Fatal(err)
+			}
+			if err := writer.Client.Delete(ctx, &secret); err != nil {
+				t.Fatal(err)
+			}
+			before := len(writer.events)
+			// No source is needed because preflight must stop before calling it.
+			if _, err := e.Sync(ctx, cr, store, b, nil, authorize); Reason(err) != scenario.reason {
+				t.Fatal("terminating Secret was used", err)
+			}
+			if len(writer.events) != before {
+				t.Fatal("terminating Secret reconciliation mutated state or data")
+			}
+		})
+	}
+}
+
+type checkpointConflictWriter struct {
+	client.Client
+	stateName string
+	attempts  int
+}
+
+func (w *checkpointConflictWriter) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	if obj.GetName() == w.stateName {
+		w.attempts++
+		if w.attempts == 1 {
+			return apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, obj.GetName(), errors.New("synthetic checkpoint CAS conflict"))
+		}
+	}
+	return w.Client.Update(ctx, obj, opts...)
+}
+
+func TestReviewStateCASRetryRevalidatesAuthorization(t *testing.T) {
+	ctx := context.Background()
+	reader, _, fingerprint := reviewReader(t, false, true)
+	e, cr, store, b, writer := reviewEngine(t, fingerprint)
+	conflict := &checkpointConflictWriter{Client: writer, stateName: e.Config.StateSecret.Name}
+	e.Writer = conflict
+	check := func(context.Context) error {
+		if conflict.attempts > 0 {
+			return fail("AuthorizationChanged")
+		}
+		return nil
+	}
+	if _, err := e.Sync(ctx, cr, store, b, reader, check); Reason(err) != "AuthorizationChanged" {
+		t.Fatal("revoked authorization was not rejected", err)
+	}
+	_, state, err := e.state().load(ctx)
+	if err != nil || conflict.attempts != 1 || len(state.Bindings) != 0 || len(writer.events) != 0 {
+		t.Fatal("revoked authorization retried a protected write", err)
+	}
+}

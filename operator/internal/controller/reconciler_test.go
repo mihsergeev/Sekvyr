@@ -7,6 +7,7 @@ import (
 
 	api "github.com/mihsergeev/Sekvyr/operator/api/v1alpha1"
 	"github.com/mihsergeev/Sekvyr/operator/internal/installation"
+	"github.com/mihsergeev/Sekvyr/operator/internal/syncer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -290,5 +291,59 @@ func TestSuspendedAndMissingStateStayClosed(t *testing.T) {
 		if condition == nil || condition.Status != metav1.ConditionFalse || condition.Reason != expected {
 			t.Fatal("failure state not reflected")
 		}
+	}
+}
+
+type reservationListReader struct {
+	client.Reader
+	beforeList func(context.Context) error
+}
+
+func (r reservationListReader) List(ctx context.Context, objects client.ObjectList, options ...client.ListOption) error {
+	if _, ok := objects.(*api.SekvyrStoreList); ok {
+		if err := r.beforeList(ctx); err != nil {
+			return err
+		}
+	}
+	return r.Reader.List(ctx, objects, options...)
+}
+
+func TestStillAuthorizedRejectsChangesDuringReservationRead(t *testing.T) {
+	for _, change := range []string{"store-update", "store-delete", "secret-suspend"} {
+		t.Run(change, func(t *testing.T) {
+			ctx := context.Background()
+			r, writer, _ := fakeRuntime(t)
+			var store api.SekvyrStore
+			var secret api.SekvyrSecret
+			if err := writer.Get(ctx, client.ObjectKeyFromObject(storeFixture()), &store); err != nil {
+				t.Fatal(err)
+			}
+			if err := writer.Get(ctx, client.ObjectKeyFromObject(secretFixture()), &secret); err != nil {
+				t.Fatal(err)
+			}
+			binding := store.Spec.Bindings[0]
+			if err := r.stillAuthorized(ctx, &secret, &store, binding); err != nil {
+				t.Fatal("current authorization rejected", err)
+			}
+			r.APIReader = reservationListReader{Reader: r.APIReader, beforeList: func(ctx context.Context) error {
+				switch change {
+				case "store-update":
+					current := store.DeepCopy()
+					current.Generation++
+					current.Spec.Bindings[0].Source.PathPrefix = "/restricted"
+					return writer.Update(ctx, current)
+				case "store-delete":
+					return writer.Delete(ctx, store.DeepCopy())
+				default:
+					current := secret.DeepCopy()
+					current.Generation++
+					current.Spec.Suspend = true
+					return writer.Update(ctx, current)
+				}
+			}}
+			if err := r.stillAuthorized(ctx, &secret, &store, binding); syncer.Reason(err) != "AuthorizationChanged" {
+				t.Fatal("stale authorization was accepted", err)
+			}
+		})
 	}
 }

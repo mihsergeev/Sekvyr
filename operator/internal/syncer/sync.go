@@ -87,6 +87,22 @@ func policy(b api.Binding) string {
 	}
 	return b.Target.DeletionPolicy
 }
+func targetOwnerMatches(target *corev1.Secret, cr *api.SekvyrSecret, b api.Binding) bool {
+	owners := target.OwnerReferences
+	switch policy(b) {
+	case "Retain":
+		return len(owners) == 0
+	case "Delete":
+		if len(owners) != 1 {
+			return false
+		}
+		owner := owners[0]
+		return owner.UID == cr.UID && owner.Kind == "SekvyrSecret" && owner.APIVersion == api.GroupVersion.String() &&
+			owner.Name == cr.Name && owner.Controller != nil && *owner.Controller
+	default:
+		return false
+	}
+}
 func (e Engine) expected(cr *api.SekvyrSecret, store *api.SekvyrStore, b api.Binding) Record {
 	mode := ""
 	if b.Encryption.Mode == "Plain" {
@@ -112,6 +128,9 @@ func (e Engine) target(ctx context.Context, record Record) (*corev1.Secret, erro
 	if err != nil {
 		return nil, fail("TargetUnavailable")
 	}
+	if !secret.DeletionTimestamp.IsZero() {
+		return nil, fail("TargetMissing")
+	}
 	if e.Config.Protected(secret.Name, secret.UID) || secret.Type != corev1.SecretTypeOpaque || secret.Immutable != nil && *secret.Immutable {
 		return nil, fail("ProtectedTarget")
 	}
@@ -127,7 +146,7 @@ func (e Engine) target(ctx context.Context, record Record) (*corev1.Secret, erro
 // Preflight reads ownership before any external fetch. No target is adopted by
 // labels or checkpoint annotations. State is precreated and UID-pinned.
 func (e Engine) Preflight(ctx context.Context, cr *api.SekvyrSecret, store *api.SekvyrStore, b api.Binding) (*witness.Head, error) {
-	if cr.Namespace != e.Config.Namespace || store.Namespace != e.Config.Namespace || !cr.DeletionTimestamp.IsZero() || cr.Spec.Suspend {
+	if cr.Namespace != e.Config.Namespace || store.Namespace != e.Config.Namespace || !cr.DeletionTimestamp.IsZero() || !store.DeletionTimestamp.IsZero() || cr.Spec.Suspend {
 		return nil, fail("ScopeDenied")
 	}
 	if !e.Config.TargetAllowed(b.Target.Name) || e.Config.Protected(b.Target.Name, "") {
@@ -208,13 +227,9 @@ func (e Engine) applySnapshot(ctx context.Context, cr *api.SekvyrSecret, store *
 	} else if b.Encryption.Mode != "E2E" || b.Encryption.Protocol != "e2e2" || !validHead(head) {
 		return result, fail("VerificationRequired")
 	}
-	var err error
-	if err = revalidate(ctx); err != nil {
-		return result, err
-	}
 	expected := e.expected(cr, store, b)
 	key := expected.StoreUID + "/" + expected.BindingID
-	record, err := e.state().update(ctx, key, expected, func(r *Record) error {
+	record, err := e.state().update(ctx, key, expected, revalidate, func(r *Record) error {
 		if !plain && r.Head != nil {
 			if err := monotonic(*r.Head, head); err != nil {
 				return err
@@ -254,10 +269,7 @@ func (e Engine) applySnapshot(ctx context.Context, cr *api.SekvyrSecret, store *
 				return result, err
 			}
 		}
-		if policy(b) == "Retain" && len(target.OwnerReferences) != 0 {
-			return result, fail("OwnershipConflict")
-		}
-		if policy(b) == "Delete" && (len(target.OwnerReferences) != 1 || string(target.OwnerReferences[0].UID) != string(cr.UID) || target.OwnerReferences[0].Kind != "SekvyrSecret" || target.OwnerReferences[0].APIVersion != api.GroupVersion.String() || target.OwnerReferences[0].Name != cr.Name || target.OwnerReferences[0].Controller == nil || !*target.OwnerReferences[0].Controller) {
+		if !targetOwnerMatches(target, cr, b) {
 			return result, fail("OwnershipConflict")
 		}
 		if equalData(target.Data, data) {
@@ -306,7 +318,7 @@ func (e Engine) applySnapshot(ctx context.Context, cr *api.SekvyrSecret, store *
 	}
 	// Authorization is independently durable BEFORE the target data/revision/intent
 	// transaction. A crash with mismatched public metadata fails closed.
-	record, err = e.state().update(ctx, key, expected, func(r *Record) error {
+	record, err = e.state().update(ctx, key, expected, revalidate, func(r *Record) error {
 		if !recordHeadMatches(*r, head) || r.TargetUID != record.TargetUID {
 			return fail("HeadChanged")
 		}
@@ -354,7 +366,8 @@ func (e Engine) applySnapshot(ctx context.Context, cr *api.SekvyrSecret, store *
 		if uid == "" {
 			return result, fail("StateAmbiguous")
 		}
-		bound, bindErr := e.state().update(ctx, key, expected, func(r *Record) error {
+		// Finalize ownership of the Secret already created under authorization.
+		bound, bindErr := e.state().update(ctx, key, expected, nil, func(r *Record) error {
 			if r.TargetUID != "" && r.TargetUID != uid {
 				return fail("StateAmbiguous")
 			}
@@ -377,7 +390,7 @@ func (e Engine) applySnapshot(ctx context.Context, cr *api.SekvyrSecret, store *
 	}
 	var guard rollout.Guard
 	if !wasInitial {
-		guard = e.rolloutGuard(cr, store, b, head, target, data, authorization)
+		guard = e.rolloutGuard(cr, store, b, head, target, data, authorization, revalidate)
 	}
 	return Result{Plain: plain, Head: head, Revision: revision, Changed: true, TargetUID: string(target.UID), RolloutGuard: guard, RolloutReason: rolloutReason}, nil
 }

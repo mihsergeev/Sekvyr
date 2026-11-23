@@ -90,6 +90,11 @@ func strict(raw []byte, out any, max int) error {
 	}
 	return nil
 }
+func (s stateStore) acceptsSecret(secret *corev1.Secret) bool {
+	return string(secret.UID) == s.cfg.StateSecret.UID && secret.DeletionTimestamp.IsZero() &&
+		secret.Type == corev1.SecretTypeOpaque && (secret.Immutable == nil || !*secret.Immutable)
+}
+
 func (s stateStore) load(ctx context.Context) (*corev1.Secret, State, error) {
 	var secret corev1.Secret
 	var state State
@@ -100,7 +105,7 @@ func (s stateStore) load(ctx context.Context) (*corev1.Secret, State, error) {
 		}
 		return nil, state, fail("StateUnavailable")
 	}
-	if string(secret.UID) != s.cfg.StateSecret.UID || secret.Type != corev1.SecretTypeOpaque || secret.Immutable != nil && *secret.Immutable {
+	if !s.acceptsSecret(&secret) {
 		return nil, state, fail("StateReplaced")
 	}
 	if strict(secret.Data[StateKey], &state, stateLimit) != nil || state.Version != 1 || state.InstallationID != s.cfg.InstallationID || state.BootstrapGeneration != s.cfg.BootstrapGeneration || state.TrustBundleUID != s.cfg.TrustBundleSecret.UID || state.NodeFingerprint != s.fingerprint || state.Bindings == nil || len(state.Bindings) > 64 {
@@ -184,8 +189,9 @@ func recordHeadMatches(r Record, head witness.Head) bool {
 	return r.Mode == "" && r.Head != nil && *r.Head == head
 }
 
-// update uses Kubernetes resourceVersion CAS and NEVER creates/reset state.
-func (s stateStore) update(ctx context.Context, key string, expected Record, fn func(*Record) error) (Record, error) {
+// update uses Kubernetes resourceVersion CAS and NEVER creates or resets state.
+// Each write attempt rechecks authorization after loading the current state.
+func (s stateStore) update(ctx context.Context, key string, expected Record, beforeWrite func(context.Context) error, fn func(*Record) error) (Record, error) {
 	for attempt := 0; attempt < 5; attempt++ {
 		secret, state, err := s.load(ctx)
 		if err != nil {
@@ -219,6 +225,11 @@ func (s stateStore) update(ctx context.Context, key string, expected Record, fn 
 			return Record{}, fail("StateCapacity")
 		}
 		secret.Data[StateKey] = raw
+		if beforeWrite != nil {
+			if err := beforeWrite(ctx); err != nil {
+				return Record{}, err
+			}
+		}
 		if ctx.Err() != nil {
 			return Record{}, fail("Cancelled")
 		}

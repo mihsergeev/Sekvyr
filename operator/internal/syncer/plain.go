@@ -70,7 +70,7 @@ func (r *Runtime) syncPlain(ctx context.Context, cr *api.SekvyrSecret, store *ap
 		return Result{}, err
 	}
 	if !policy.Enabled || !cr.Spec.Rollout.Enabled {
-		if err = engine.CancelRollout(ctx, cr, store, b); err != nil {
+		if err = engine.CancelRollout(ctx, cr, store, b, revalidate); err != nil {
 			return Result{}, err
 		}
 	}
@@ -104,7 +104,7 @@ func (r *Runtime) syncPlain(ctx context.Context, cr *api.SekvyrSecret, store *ap
 	if err != nil {
 		classified := failureFrom(err)
 		if Reason(classified) == "AccessDenied" || Reason(classified) == "AuthenticationDenied" || Reason(classified) == "ScopeDenied" {
-			if cancelErr := engine.CancelRollout(ctx, cr, store, b); cancelErr != nil {
+			if cancelErr := engine.CancelRollout(ctx, cr, store, b, revalidate); cancelErr != nil {
 				return Result{}, fail("RolloutCancellationFailed")
 			}
 		}
@@ -123,10 +123,7 @@ func (r *Runtime) syncPlain(ctx context.Context, cr *api.SekvyrSecret, store *ap
 		case result.RolloutReason == "InitialCreate" || result.RolloutReason == "Ineligible" || result.RolloutReason == "Cancelled" || result.RolloutReason == "RolloutInvalidated":
 			progress = rollout.Result{Ready: true, Reason: result.RolloutReason}
 		case result.RolloutGuard == nil:
-			progress = rollout.Result{Reason: result.RolloutReason}
-			if progress.Reason == "" {
-				progress.Reason = "RolloutNotAuthorized"
-			}
+			progress = blockedRollout(result.RolloutReason)
 		default:
 			progress = (rollout.Runner{Reader: r.Reader, Writer: r.Writer}).Reconcile(ctx, rollout.Request{
 				Policy: policy, CR: cr, Store: store, Binding: b, BootstrapGeneration: r.Config.BootstrapGeneration,

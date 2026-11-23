@@ -281,3 +281,147 @@ func TestRecoveryConcurrentJournalAdvanceLeavesPendingWithoutFalseCompletion(t *
 		t.Fatal("unexpected completion after journal advance", w.events)
 	}
 }
+
+func TestRecoveryRejectsInvalidOrTerminatingPreparedState(t *testing.T) {
+	for _, scenario := range []struct{ name, reason string }{
+		{"missing authorization", "RecoveryProgressInvalid"},
+		{"terminating", "StateReplaced"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			ctx := context.Background()
+			e, cr, store, b, w, plan, accepted := recoverySetup(t, true)
+			w.failTarget = true
+			if err := e.RestoreCheckpoint(ctx, plan, accepted, cr, store, b, authorize); Reason(err) != "RecoveryTargetWriteFailed" {
+				t.Fatal("injected target failure", err)
+			}
+			var secret corev1.Secret
+			if err := e.Reader.Get(ctx, client.ObjectKey{Namespace: e.Config.Namespace, Name: e.Config.StateSecret.Name}, &secret); err != nil {
+				t.Fatal(err)
+			}
+			switch scenario.name {
+			case "missing authorization":
+				var state State
+				if err := json.Unmarshal(secret.Data[StateKey], &state); err != nil {
+					t.Fatal(err)
+				}
+				for key, record := range state.Bindings {
+					record.Rollout = nil
+					state.Bindings[key] = record
+				}
+				raw, err := json.Marshal(state)
+				if err != nil {
+					t.Fatal(err)
+				}
+				secret.Data[StateKey] = raw
+			case "terminating":
+				secret.Finalizers = []string{"secrets.sekvyr.ru/test-hold"}
+			}
+			if err := w.Client.Update(ctx, &secret); err != nil {
+				t.Fatal(err)
+			}
+			if scenario.name == "terminating" {
+				if err := w.Client.Delete(ctx, &secret); err != nil {
+					t.Fatal(err)
+				}
+			}
+			w.events, w.failTarget = nil, false
+			before := targetFor(t, e)
+			if err := e.RestoreCheckpoint(ctx, plan, accepted, cr, store, b, authorize); Reason(err) != scenario.reason {
+				t.Fatal("unsafe prepared state was accepted", err)
+			}
+			if len(w.events) != 0 || targetFor(t, e).ResourceVersion != before.ResourceVersion {
+				t.Fatal("unsafe prepared state mutated recovery objects")
+			}
+		})
+	}
+}
+
+type recoveryTargetChangeWriter struct {
+	client.Client
+	admin client.Client
+}
+
+func (w recoveryTargetChangeWriter) Update(ctx context.Context, obj client.Object, options ...client.UpdateOption) error {
+	if err := w.Client.Update(ctx, obj, options...); err != nil {
+		return err
+	}
+	if target, ok := obj.(*corev1.Secret); ok && target.Name == "target" {
+		modified := target.DeepCopy()
+		delete(modified.Annotations, checkpointAnnotation)
+		return w.admin.Update(ctx, modified)
+	}
+	return nil
+}
+
+func TestRecoveryDoesNotFinalizeAfterTargetChanges(t *testing.T) {
+	ctx := context.Background()
+	e, cr, store, b, w, plan, accepted := recoverySetup(t, true)
+	e.Writer = recoveryTargetChangeWriter{Client: e.Writer, admin: w.Client}
+	if err := e.RestoreCheckpoint(ctx, plan, accepted, cr, store, b, authorize); Reason(err) != "RecoveryTargetChanged" {
+		t.Fatal("recovery completed despite changed target", err)
+	}
+	if _, err := e.Preflight(ctx, cr, store, b); Reason(err) != "RecoveryPending" {
+		t.Fatal("changed target failed to block normal synchronization", err)
+	}
+	e.Writer = w
+	if err := e.RestoreCheckpoint(ctx, plan, accepted, cr, store, b, authorize); err != nil {
+		t.Fatal("exact plan failed to repair the same target", err)
+	}
+	if _, err := e.Preflight(ctx, cr, store, b); err != nil {
+		t.Fatal("repaired target was not finalized", err)
+	}
+}
+
+func TestRecoveryRechecksObjectsAfterOnlineAuthorization(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		step int
+		want string
+	}{
+		{"prepared state replaced before target write", 2, "RecoveryStateChanged"},
+		{"target changed before completion", 3, "RecoveryTargetChanged"},
+		{"target owner changed before completion", 3, "RecoveryTargetChanged"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			e, cr, store, b, w, plan, accepted := recoverySetup(t, true)
+			before := targetFor(t, e)
+			checks := 0
+			check := func(ctx context.Context) error {
+				checks++
+				if checks != tc.step {
+					return nil
+				}
+				if tc.step == 2 {
+					var state corev1.Secret
+					if err := w.Client.Get(ctx, client.ObjectKey{Namespace: e.Config.Namespace, Name: e.Config.StateSecret.Name}, &state); err != nil {
+						t.Fatal(err)
+					}
+					var prepared State
+					if err := json.Unmarshal(state.Data[StateKey], &prepared); err != nil {
+						t.Fatal(err)
+					}
+					prepared.Recovery.ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+					state.Data[StateKey], _ = json.Marshal(prepared)
+					return w.Client.Update(ctx, &state)
+				}
+				target := targetFor(t, e)
+				if tc.name == "target owner changed before completion" {
+					target.OwnerReferences = []metav1.OwnerReference{{Name: "new-owner", UID: "ffffffff-ffff-4fff-8fff-ffffffffffff", Kind: "ConfigMap", APIVersion: "v1"}}
+				} else {
+					delete(target.Annotations, checkpointAnnotation)
+				}
+				return w.Client.Update(ctx, target)
+			}
+			if err := e.RestoreCheckpoint(ctx, plan, accepted, cr, store, b, check); Reason(err) != tc.want {
+				t.Fatalf("expected %s, got %v", tc.want, err)
+			}
+			if _, err := e.Preflight(ctx, cr, store, b); Reason(err) != "RecoveryPending" {
+				t.Fatal("concurrent edit did not leave recovery pending", err)
+			}
+			if tc.step == 2 && targetFor(t, e).ResourceVersion != before.ResourceVersion {
+				t.Fatal("superseded recovery changed the target")
+			}
+		})
+	}
+}

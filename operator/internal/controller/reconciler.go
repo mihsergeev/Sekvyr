@@ -98,21 +98,23 @@ func syncStatus(previous api.ResourceStatus, generation int64, result *syncer.Re
 }
 
 func (r *Reconciler) stillAuthorized(ctx context.Context, expected *api.SekvyrSecret, store *api.SekvyrStore, binding api.Binding) error {
-	var current api.SekvyrSecret
-	var currentStore api.SekvyrStore
-	if r.APIReader.Get(ctx, client.ObjectKeyFromObject(expected), &current) != nil || r.APIReader.Get(ctx, client.ObjectKeyFromObject(store), &currentStore) != nil {
-		return &syncer.Error{Reason: "AuthorizationChanged"}
-	}
-	if current.UID != expected.UID || current.Generation != expected.Generation || current.Spec.Suspend || !current.DeletionTimestamp.IsZero() || !reflect.DeepEqual(current.Spec, expected.Spec) || currentStore.UID != store.UID || currentStore.Generation != store.Generation || !currentStore.DeletionTimestamp.IsZero() || !reflect.DeepEqual(currentStore.Spec, store.Spec) {
-		return &syncer.Error{Reason: "AuthorizationChanged"}
-	}
 	if err := r.bootstrap(ctx); err != nil {
 		return err
 	}
-	if _, err := r.stores(ctx); err != nil {
+	stores, err := r.stores(ctx)
+	if err != nil {
 		return err
 	}
-	found, err := ValidateSecret(r.Installation, &current, &currentStore)
+	// Check the exact Store revision from the same list that validated all reservations.
+	currentStore := storeByName(stores, store.Name)
+	if currentStore == nil || currentStore.UID != store.UID || currentStore.Generation != store.Generation || !currentStore.DeletionTimestamp.IsZero() || !reflect.DeepEqual(currentStore.Spec, store.Spec) {
+		return &syncer.Error{Reason: "AuthorizationChanged"}
+	}
+	var current api.SekvyrSecret
+	if r.APIReader.Get(ctx, client.ObjectKeyFromObject(expected), &current) != nil || current.UID != expected.UID || current.Generation != expected.Generation || current.Spec.Suspend || !current.DeletionTimestamp.IsZero() || !reflect.DeepEqual(current.Spec, expected.Spec) {
+		return &syncer.Error{Reason: "AuthorizationChanged"}
+	}
+	found, err := ValidateSecret(r.Installation, &current, currentStore)
 	if err != nil {
 		return err
 	}
@@ -166,6 +168,15 @@ func (r *Reconciler) stores(ctx context.Context) ([]api.SekvyrStore, error) {
 	return stores.Items, nil
 }
 
+func storeByName(stores []api.SekvyrStore, name string) *api.SekvyrStore {
+	for i := range stores {
+		if stores[i].Name == name {
+			return &stores[i]
+		}
+	}
+	return nil
+}
+
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Reject before any API request, including status updates, outside the fixed namespace.
 	if req.Namespace != r.Namespace {
@@ -194,13 +205,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if err != nil {
 			reason = installation.Reason(err)
 		} else {
-			var store *api.SekvyrStore
-			for i := range stores {
-				if stores[i].Name == secret.Spec.StoreRef.Name {
-					store = &stores[i]
-					break
-				}
-			}
+			store := storeByName(stores, secret.Spec.StoreRef.Name)
 			if store == nil {
 				reason = "BootstrapMissing"
 			} else if binding, err := ValidateSecret(r.Installation, &secret, store); err != nil {

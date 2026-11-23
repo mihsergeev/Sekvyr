@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
+
 	api "github.com/mihsergeev/Sekvyr/operator/api/v1alpha1"
 	"github.com/mihsergeev/Sekvyr/operator/internal/installation"
 	"github.com/mihsergeev/Sekvyr/operator/internal/panelauth"
@@ -29,7 +31,7 @@ type Runtime struct {
 
 func (r *Runtime) bootstrapData(ctx context.Context, pin installation.SecretPin, max int) ([]byte, error) {
 	var value corev1.Secret
-	if r.Reader.Get(ctx, types.NamespacedName{Namespace: r.Config.Namespace, Name: pin.Name}, &value) != nil || string(value.UID) != pin.UID || value.Immutable == nil || !*value.Immutable || value.Type != corev1.SecretTypeOpaque || len(value.Data[pin.Key]) == 0 || len(value.Data[pin.Key]) > max {
+	if r.Reader.Get(ctx, types.NamespacedName{Namespace: r.Config.Namespace, Name: pin.Name}, &value) != nil || string(value.UID) != pin.UID || !value.DeletionTimestamp.IsZero() || value.Immutable == nil || !*value.Immutable || value.Type != corev1.SecretTypeOpaque || len(value.Data[pin.Key]) == 0 || len(value.Data[pin.Key]) > max {
 		return nil, fail("BootstrapMismatch")
 	}
 	return value.Data[pin.Key], nil
@@ -97,7 +99,7 @@ func (r *Runtime) Sync(ctx context.Context, cr *api.SekvyrSecret, store *api.Sek
 	if !policy.Enabled || !cr.Spec.Rollout.Enabled {
 		// Turning the installation feature off invalidates an existing candidate;
 		// re-enabling it must not turn an old marker into a new restart request.
-		if err = engine.CancelRollout(ctx, cr, store, binding); err != nil {
+		if err = engine.CancelRollout(ctx, cr, store, binding, revalidate); err != nil {
 			return Result{}, err
 		}
 	}
@@ -133,7 +135,7 @@ func (r *Runtime) Sync(ctx context.Context, cr *api.SekvyrSecret, store *api.Sek
 		classified := failureFrom(err)
 		switch Reason(classified) {
 		case "AccessDenied", "AuthenticationDenied", "ScopeDenied":
-			if cancelErr := engine.CancelRollout(ctx, cr, store, binding); cancelErr != nil {
+			if cancelErr := engine.CancelRollout(ctx, cr, store, binding, revalidate); cancelErr != nil {
 				return result, fail("RolloutCancellationFailed")
 			}
 		}
@@ -147,10 +149,7 @@ func (r *Runtime) Sync(ctx context.Context, cr *api.SekvyrSecret, store *api.Sek
 		case result.RolloutReason == "InitialCreate" || result.RolloutReason == "Ineligible" || result.RolloutReason == "Cancelled" || result.RolloutReason == "RolloutInvalidated":
 			rolloutResult = rollout.Result{Ready: true, Reason: result.RolloutReason}
 		case result.RolloutGuard == nil:
-			rolloutResult = rollout.Result{Reason: result.RolloutReason}
-			if rolloutResult.Reason == "" {
-				rolloutResult.Reason = "RolloutNotAuthorized"
-			}
+			rolloutResult = blockedRollout(result.RolloutReason)
 		default:
 			rolloutResult = (rollout.Runner{Reader: r.Reader, Writer: writer}).Reconcile(ctx, rollout.Request{
 				Policy: policy, CR: cr, Store: store, Binding: binding,
@@ -162,6 +161,17 @@ func (r *Runtime) Sync(ctx context.Context, cr *api.SekvyrSecret, store *api.Sek
 	result.Rollout = &rolloutResult
 	return result, nil
 }
+func blockedRollout(reason string) rollout.Result {
+	if reason == "" {
+		reason = "RolloutNotAuthorized"
+	}
+	result := rollout.Result{Reason: reason}
+	if reason == "TargetConflict" || reason == "TargetWriteFailed" {
+		result.RequeueAfter = 2 * time.Second
+	}
+	return result
+}
+
 func failureFrom(err error) error {
 	var v *verification.Error
 	if errors.As(err, &v) {
