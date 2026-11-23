@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import config, sealbox, secrets_store
 from app.cli import _mark_multiline
 from app.main import _auto_unseal, create_app
-from app.models import SecretVersion
+from app.models import EnvKey, SecretVersion
 from tests.conftest import login
 
 
@@ -125,6 +125,156 @@ async def test_unseal_by_root_key(client: httpx.AsyncClient, owner_headers, unse
         "/api/vault/unseal", headers=owner_headers, json={"root_key": unsealed}
     )
     assert good.json()["sealed"] is False
+
+
+async def test_failed_unseal_commit_keeps_vault_sealed(client, owner_headers, unsealed, monkeypatch):
+    await client.post("/api/vault/seal", headers=owner_headers)
+
+    async def fail_commit(session):
+        await session.rollback()
+        raise RuntimeError("simulated commit failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(AsyncSession, "commit", fail_commit)
+        with pytest.raises(RuntimeError, match="simulated commit failure"):
+            await client.post("/api/vault/unseal", headers=owner_headers, json={"root_key": unsealed})
+
+    state = await client.get("/api/vault/status", headers=owner_headers)
+    assert state.json()["sealed"] is True
+    opened = await client.post("/api/vault/unseal", headers=owner_headers, json={"root_key": unsealed})
+    assert opened.status_code == 200 and not opened.json()["sealed"]
+
+
+@pytest.mark.parametrize("operation", ["init", "unseal"])
+async def test_seal_wins_over_an_in_flight_open(client, owner_headers, monkeypatch, operation):
+    body = {"mode": "env"}
+    if operation == "unseal":
+        initialized = await client.post("/api/vault/init", headers=owner_headers, json=body)
+        assert initialized.status_code == 200
+        body = {"root_key": initialized.json()["root_key"]}
+        await client.post("/api/vault/seal", headers=owner_headers)
+    committed, release = asyncio.Event(), asyncio.Event()
+    commit = AsyncSession.commit
+
+    async def pause_commit(session):
+        await commit(session)
+        if asyncio.current_task() is opening:
+            committed.set()
+            await release.wait()
+
+    monkeypatch.setattr(AsyncSession, "commit", pause_commit)
+    opening = asyncio.create_task(client.post(f"/api/vault/{operation}", headers=owner_headers, json=body))
+    try:
+        await asyncio.wait_for(committed.wait(), timeout=5)
+        sealed = await client.post("/api/vault/seal", headers=owner_headers)
+        assert sealed.status_code == 200 and sealed.json()["sealed"]
+    finally:
+        release.set()
+        result = await opening
+
+    assert result.status_code == 200
+    if operation == "unseal":
+        assert result.json()["sealed"] is True
+    state = await client.get("/api/vault/status", headers=owner_headers)
+    assert state.json()["sealed"] is True
+
+
+async def test_seal_while_reading_an_environment_key_returns_503(client, owner_headers, env_id, monkeypatch):
+    base = f"/api/environments/{env_id}"
+    wrote = await client.put(base + "/secrets", headers=owner_headers,
+                             json={"name": "CHECK", "value": "synthetic-value"})
+    assert wrote.status_code == 200
+    loaded, release = asyncio.Event(), asyncio.Event()
+    scalar = AsyncSession.scalar
+
+    async def pause_after_load(session, statement, *args, **kwargs):
+        result = await scalar(session, statement, *args, **kwargs)
+        if isinstance(result, EnvKey):
+            loaded.set()
+            await release.wait()
+        return result
+
+    monkeypatch.setattr(AsyncSession, "scalar", pause_after_load)
+    read = asyncio.create_task(client.get(base + "/secret", headers=owner_headers, params={"name": "CHECK"}))
+    try:
+        await asyncio.wait_for(loaded.wait(), timeout=5)
+        sealed = await client.post("/api/vault/seal", headers=owner_headers)
+        assert sealed.status_code == 200 and sealed.json()["sealed"]
+    finally:
+        release.set()
+        result = await read
+
+    assert result.status_code == 503
+    assert "synthetic-value" not in result.text
+
+
+@pytest.mark.parametrize("endpoint, params", [
+    ("/secret", {"name": "CHECK"}),
+    ("/secret/version", {"name": "CHECK", "version": 1}),
+    ("/export", {}),
+    ("/values", {}),
+])
+async def test_seal_after_decryption_blocks_response(client, owner_headers, env_id, monkeypatch, endpoint, params):
+    base = f"/api/environments/{env_id}"
+    wrote = await client.put(base + "/secrets", headers=owner_headers,
+                             json={"name": "CHECK", "value": "synthetic-value"})
+    assert wrote.status_code == 200
+    committed, release = asyncio.Event(), asyncio.Event()
+    commit = AsyncSession.commit
+
+    async def pause_commit(session):
+        await commit(session)
+        if asyncio.current_task() is read:
+            committed.set()
+            await release.wait()
+
+    monkeypatch.setattr(AsyncSession, "commit", pause_commit)
+    read = asyncio.create_task(client.get(base + endpoint, headers=owner_headers, params=params))
+    try:
+        await asyncio.wait_for(committed.wait(), timeout=5)
+        sealed = await client.post("/api/vault/seal", headers=owner_headers)
+        assert sealed.status_code == 200 and sealed.json()["sealed"]
+    finally:
+        release.set()
+        result = await read
+
+    assert result.status_code == 503
+    assert "synthetic-value" not in result.text
+
+
+
+
+@pytest.mark.parametrize("endpoint", ["/secrets", "/env"])
+async def test_seal_after_machine_decryption_blocks_response(client, owner_headers, env_id, monkeypatch, endpoint):
+    from tests.test_pass9_backend import _bearer, _machine
+
+    wrote = await client.put(f"/api/environments/{env_id}/secrets", headers=owner_headers,
+                             json={"name": "CHECK", "value": "synthetic-value"})
+    assert wrote.status_code == 200
+    agent = await _bearer(client, await _machine(client, owner_headers, env_id))
+    committed, release = asyncio.Event(), asyncio.Event()
+    commit = AsyncSession.commit
+
+    async def pause_commit(session):
+        await commit(session)
+        if asyncio.current_task() is read:
+            committed.set()
+            await release.wait()
+
+    monkeypatch.setattr(AsyncSession, "commit", pause_commit)
+    read = asyncio.create_task(client.get(
+        "/api/v1/machine" + endpoint, headers=agent, params={"project": "billing", "env": "prod"},
+    ))
+    try:
+        await asyncio.wait_for(committed.wait(), timeout=5)
+        sealed = await client.post("/api/vault/seal", headers=owner_headers)
+        assert sealed.status_code == 200 and sealed.json()["sealed"]
+    finally:
+        release.set()
+        result = await read
+
+    assert result.status_code == 503
+    assert "synthetic-value" not in result.text
 
 
 async def test_only_owner_initializes_and_seals(client: httpx.AsyncClient, owner_headers):

@@ -119,6 +119,8 @@ def get_sealbox(request: Request) -> SealBox:
 
 BoxDep = Annotated[SealBox, Depends(get_sealbox)]
 
+VAULT_SEALED = "Панель заперта: чтобы читать значения, введите корневой ключ"
+
 
 async def get_unsealed_box(box: BoxDep) -> SealBox:
     """То же, но с отказом, если панель заперта.
@@ -128,10 +130,7 @@ async def get_unsealed_box(box: BoxDep) -> SealBox:
     значения, зависит от ЭТОЙ зависимости, поэтому забыть проверку нельзя.
     """
     if not box.unsealed:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Панель заперта: чтобы читать значения, введите корневой ключ",
-        )
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, VAULT_SEALED)
     return box
 
 

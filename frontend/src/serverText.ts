@@ -313,6 +313,7 @@ const EXACT: Record<string, string> = {
   'вместе с окружениями, ключами и историей': 'with its environments, keys and history',
   'снято переопределение': 'override removed',
   'уже открыта': 'already unsealed',
+  'заперта во время отпирания': 'sealed while being unsealed',
   'корневым ключом': 'with the root key',
   'долей достаточно, но ключ не сошёлся': 'enough shares, but the key did not match',
   открыта: 'unsealed',

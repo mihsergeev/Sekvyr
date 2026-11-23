@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from app import access, alerts, audit, crypto, lint, roles, secrets_store
 from app.audit import to_utc
 from app.config import get_settings
-from app.deps import BoxDep, CurrentUser, MaintainerUser, SessionDep, UnsealedBox, peer_ip
+from app.deps import BoxDep, CurrentUser, MaintainerUser, SessionDep, UnsealedBox, get_unsealed_box, peer_ip
 from app.models import (
     AuditLog,
     Environment,
@@ -282,6 +282,7 @@ async def read_secret(
         ip=peer_ip(request),
     )
     await session.commit()
+    await get_unsealed_box(box)
     return ValueOut(
         name=secret.name, path=secret.path, version=secret.current_version, value=value
     )
@@ -587,6 +588,7 @@ async def secret_version_value(
         ip=peer_ip(request),
     )
     await session.commit()
+    await get_unsealed_box(box)
     return ValueOut(name=secret.name, path=secret.path, version=version, value=value)
 
 
@@ -879,6 +881,7 @@ async def export_env(
         ip=peer_ip(request),
     )
     await session.commit()
+    await get_unsealed_box(box)
     return ExportOut(text=text)
 
 
@@ -1856,6 +1859,7 @@ async def read_all_values(
         ip=peer_ip(request),
     )
     await session.commit()
+    await get_unsealed_box(box)
     return out
 
 

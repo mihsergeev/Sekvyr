@@ -11,7 +11,7 @@ from sqlalchemy import delete, select, update
 from app import access, audit, e2e2, e2e2_rotation, machines, secrets_store
 from app.api.machine import CurrentMachine
 from app.api.machines_admin import _require_read, _require_reach
-from app.deps import CurrentUser, MaintainerUser, OwnerUser, SessionDep, UnsealedBox, peer_ip
+from app.deps import CurrentUser, MaintainerUser, OwnerUser, SessionDep, UnsealedBox, get_unsealed_box, peer_ip
 from app.models import (
     E2E2EnvironmentIdentity, E2E2Envelope, E2E2ProjectIdentity, E2E2ReaderGrant,
     E2E2Realm, E2E2View, E2E2AuthorityProjection, E2E2EpochReaderGrant,
@@ -224,10 +224,11 @@ async def stage(view_id: str, request: Request, user: MaintainerUser, session: S
 
 
 @router.get("/views/{view_id}/envelopes/{envelope_hash}")
-async def admin_snapshot(view_id: str, envelope_hash: str, user: MaintainerUser, session: SessionDep, _box: UnsealedBox):
+async def admin_snapshot(view_id: str, envelope_hash: str, user: MaintainerUser, session: SessionDep, box: UnsealedBox):
     view = await get_view(session, view_id)
     await manage(session, user, view)
     _, encoded = await snapshot(session, view, envelope_hash)
+    await get_unsealed_box(box)
     return raw_response(encoded)
 
 
@@ -431,17 +432,19 @@ async def capabilities(_machine: CurrentMachine, session: SessionDep):
 
 
 @machine_router.get("/e2e2/views/{view_id}/envelopes/{envelope_hash}")
-async def machine_snapshot(view_id: str, envelope_hash: str, machine: CurrentMachine, session: SessionDep, _box: UnsealedBox):
+async def machine_snapshot(view_id: str, envelope_hash: str, machine: CurrentMachine, session: SessionDep, box: UnsealedBox):
     view = await get_view(session, view_id)
     await reader_grant(session, machine, view)
     _, encoded = await snapshot(session, view, envelope_hash)
+    await get_unsealed_box(box)
     return raw_response(encoded)
 
 
 @machine_router.get("/e2e2/views/{view_id}/reader-wrap")
-async def machine_wrapper(view_id: str, envelope_hash: str, machine: CurrentMachine, session: SessionDep, _box: UnsealedBox):
+async def machine_wrapper(view_id: str, envelope_hash: str, machine: CurrentMachine, session: SessionDep, box: UnsealedBox):
     view = await get_view(session, view_id)
     grant = await reader_grant(session, machine, view)
     await snapshot(session, view, envelope_hash)
     wrapper = e2e2.validate_wrapper(grant.canonical_wrapper.encode(), scope(view), grant.recipient_fingerprint, json.loads(view.publisher_keys), view.read_key_epoch, view.publisher_policy_epoch)
+    await get_unsealed_box(box)
     return raw_response(wrapper)

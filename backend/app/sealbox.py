@@ -150,6 +150,7 @@ class SealBox:
     _pending: dict[int, str] = field(default_factory=dict)
     _rotation_root: bytes | None = None
     key_file_lock: Lock = field(default_factory=Lock)
+    seal_epoch: int = field(default=0, init=False)
 
     @property
     def unsealed(self) -> bool:
@@ -168,6 +169,12 @@ class SealBox:
         self._root = root
         self._pending.clear()
         self._rotation_root = None
+
+    def set_root_if_current(self, root: bytes, seal_epoch: int) -> bool:
+        if self.seal_epoch != seal_epoch:
+            return False
+        self.set_root(root)
+        return True
 
     def root_candidates(self) -> tuple[bytes, ...]:
         root = self.root()
@@ -190,6 +197,7 @@ class SealBox:
         self._root = None
         self._pending.clear()
         self._rotation_root = None
+        self.seal_epoch += 1
 
     def add_share(self, share: str) -> None:
         """Кладет долю в набор. Ключ по номеру доли - повторная подача той же

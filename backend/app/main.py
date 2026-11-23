@@ -34,6 +34,7 @@ from app.api import vault as vault_api
 from app.bootstrap import ensure_owner
 from app.config import Settings, get_settings
 from app.db import create_engine_and_factory
+from app.deps import VAULT_SEALED
 
 log = logging.getLogger("sekvyr.main")
 
@@ -200,6 +201,10 @@ def create_app() -> FastAPI:
             status_code=500,
             content={"detail": "Значение не сошлось с ключом — возможна правка базы в обход панели"},
         )
+
+    @app.exception_handler(sealbox.SealedError)
+    async def _sealed(_request: Request, _exc: sealbox.SealedError) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": VAULT_SEALED})
 
     # Ключ без действующего значения (удален, отдан родителю, единственная
     # версия ждет подтверждения): 404 с объяснением, а не 500 в любом маршруте,

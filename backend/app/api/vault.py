@@ -134,6 +134,7 @@ async def status_(_: MaintainerUser, session: SessionDep, box: BoxDep) -> Status
 async def init(
     body: InitIn, request: Request, user: OwnerUser, session: SessionDep, box: BoxDep
 ) -> InitOut:
+    seal_epoch = box.seal_epoch
     if body.mode == sealbox.MODE_SHARES:
         if body.shares < 2:
             raise HTTPException(
@@ -179,7 +180,7 @@ async def init(
     )
     await session.commit()
     # При откате метаданных новый ключ не должен стать доступен для записи секретов.
-    box.set_root(root)
+    box.set_root_if_current(root, seal_epoch)
 
     if parts:
         return InitOut(
@@ -206,10 +207,13 @@ async def init(
 async def unseal(
     body: UnsealIn, request: Request, user: MaintainerUser, session: SessionDep, box: BoxDep
 ) -> UnsealOut:
-    await envkeys.lock_material(session)
+    seal_epoch = box.seal_epoch
+    await envkeys.lock_material(session, exclusive=True)
     meta = await sealbox.read_meta(session)
     if not meta.initialized:
         raise HTTPException(status.HTTP_409_CONFLICT, "Сейф ещё не заведён")
+    if box.seal_epoch != seal_epoch:
+        return _interrupted_unseal(meta)
     if box.unsealed:
         return UnsealOut(
             sealed=False, pending_shares=0, threshold=meta.threshold, detail="уже открыта"
@@ -223,7 +227,6 @@ async def unseal(
             )
             await session.commit()
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Это не корневой ключ панели")
-        box.set_root(key)
         await audit.record(
             session,
             actor=user.username,
@@ -232,6 +235,8 @@ async def unseal(
             ip=peer_ip(request),
         )
         await session.commit()
+        if not box.set_root_if_current(key, seal_epoch):
+            return _interrupted_unseal(meta)
         await alerts.notify(
             session, f"🔓 Sekvyr: {user.username} открыл панель корневым ключом"
         )
@@ -277,7 +282,6 @@ async def unseal(
             detail=f"доля принята, нужно ещё {remaining}",
         )
 
-    box.set_root(root)
     await audit.record(
         session,
         actor=user.username,
@@ -286,6 +290,8 @@ async def unseal(
         ip=peer_ip(request),
     )
     await session.commit()
+    if not box.set_root_if_current(root, seal_epoch):
+        return _interrupted_unseal(meta)
     await alerts.notify(
         session,
         f"🔓 Sekvyr: панель открыта долями ({meta.threshold} из {meta.shares}), "
@@ -293,6 +299,12 @@ async def unseal(
     )
     return UnsealOut(
         sealed=False, pending_shares=0, threshold=meta.threshold, detail="открыта"
+    )
+
+
+def _interrupted_unseal(meta: sealbox.VaultMeta) -> UnsealOut:
+    return UnsealOut(
+        sealed=True, pending_shares=0, threshold=meta.threshold, detail="заперта во время отпирания"
     )
 
 

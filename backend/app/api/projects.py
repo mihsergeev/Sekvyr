@@ -27,6 +27,7 @@ from app.deps import (
     OwnerUser,
     SessionDep,
     UnsealedBox,
+    get_unsealed_box,
     peer_ip,
 )
 from app.models import Environment, Project, Secret, SecretVersion
@@ -832,6 +833,7 @@ async def export_project(
         ip=peer_ip(request),
     )
     await session.commit()
+    await get_unsealed_box(box)
     return ProjectExportOut(text="\n".join(parts), skipped=skipped)
 
 

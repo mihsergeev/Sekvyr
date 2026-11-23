@@ -130,6 +130,44 @@ async def test_explicit_grant_does_not_override_folder_denies_or_revoke(client, 
     assert (await client.get(target, headers=head)).status_code == 403
 
 
+@pytest.mark.parametrize("wrap", [False, True])
+async def test_sealing_stops_inflight_machine_e2e2_delivery(client, owner_headers, env_id, monkeypatch, wrap):
+    registered = await register_view(client, owner_headers, env_id)
+    view = registered["context"]["view_id"]
+    vector, _ = vectors()
+    digest = vector["envelope_hash"]
+    staged = await client.post(f"/api/e2e2/views/{view}/envelopes", headers=owner_headers, json=vector["envelope"])
+    assert staged.status_code == 201
+    machine, headers = await machine_for(client, owner_headers, env_id)
+    await add_reader(client, owner_headers, machine, headers, view)
+    route = f"/api/v1/machine/e2e2/views/{view}"
+    path = route + (f"/reader-wrap?envelope_hash={digest}" if wrap else f"/envelopes/{digest}")
+
+    loaded, release = asyncio.Event(), asyncio.Event()
+    from app.api import e2e2 as e2e2_api
+
+    snapshot = e2e2_api.snapshot
+
+    async def hold_snapshot(*args):
+        result = await snapshot(*args)
+        loaded.set()
+        await release.wait()
+        return result
+
+    monkeypatch.setattr(e2e2_api, "snapshot", hold_snapshot)
+    pending = asyncio.create_task(client.get(path, headers=headers))
+    try:
+        await asyncio.wait_for(loaded.wait(), timeout=5)
+        sealed = await client.post("/api/vault/seal", headers=owner_headers)
+        assert sealed.status_code == 200 and sealed.json()["sealed"]
+    finally:
+        release.set()
+        response = await pending
+    assert response.status_code == 503
+
+
+
+
 async def test_recipient_change_cannot_reuse_signed_wrapper(client, owner_headers, env_id):
     registered = await register_view(client, owner_headers, env_id)
     view = registered["context"]["view_id"]

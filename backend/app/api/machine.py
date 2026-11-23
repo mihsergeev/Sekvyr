@@ -36,7 +36,7 @@ from sqlalchemy.exc import IntegrityError
 from app import access, audit, e2e, kube, machines, ratelimit, roles, secrets_store
 from app.config import get_settings
 from app.db import bump_token_version
-from app.deps import SessionDep, UnsealedBox, peer_ip
+from app.deps import SessionDep, UnsealedBox, get_unsealed_box, peer_ip
 from app.models import (
     ProjectKeyWrap,
     Cluster,
@@ -740,6 +740,8 @@ async def read_secrets(
         fingerprint=_fingerprint(effective),
     )
     await session.commit()
+    # Панель могли запереть, пока значения расшифровывались.
+    await get_unsealed_box(box)
     return SecretsOut(
         project=found.slug,
         environment=environment.name,
@@ -800,6 +802,7 @@ async def read_env_file(
         fingerprint=_fingerprint(effective),
     )
     await session.commit()
+    await get_unsealed_box(box)
     return EnvFileOut(project=found.slug, environment=environment.name, text=text)
 
 
