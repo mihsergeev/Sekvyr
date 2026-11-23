@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,9 @@ import (
 
 	"github.com/mihsergeev/Sekvyr/operator/internal/journal"
 	admissionv1 "k8s.io/api/admission/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -158,6 +161,84 @@ func TestAdmissionReviewV1WireAndMalformedRequestsFailClosed(t *testing.T) {
 			t.Fatal("malformed admission allowed")
 		}
 	}
+}
+
+func TestAdmissionAcceptsKubernetesObjectsOutsideE2E2JSONProfile(t *testing.T) {
+	f := newFixture(t)
+	session := f.active(t)
+	old := f.secret(t)
+	for i := 0; i < 65; i++ {
+		old.Data[fmt.Sprintf("fixture-%d", i)] = []byte("value")
+	}
+	next := old.DeepCopy()
+	next.Annotations[WriteSessionAnnotation] = session.hash
+	next.Data["fixture-0"] = []byte("updated")
+	secret := requestFor(old, next, f.operator())
+
+	var deployment appsv1.Deployment
+	if err := f.kube.Get(context.Background(), client.ObjectKey{Namespace: f.namespace, Name: "app"}, &deployment); err != nil {
+		t.Fatal(err)
+	}
+	deployment.APIVersion, deployment.Kind = "apps/v1", "Deployment"
+	tolerationSeconds := int64(-1)
+	deployment.Spec.Template.Spec.Tolerations = []corev1.Toleration{{Key: "fixture", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoExecute, TolerationSeconds: &tolerationSeconds}}
+	updated := deployment.DeepCopy()
+	updated.Annotations[WriteSessionAnnotation] = session.hash
+	workload := requestFor(&deployment, updated, f.operator())
+	workload.Kind = metav1.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
+	workload.Resource = metav1.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+
+	server := httptest.NewTLSServer(f.service)
+	defer server.Close()
+	check := func(t *testing.T, request *admissionv1.AdmissionRequest, allowed bool) {
+		t.Helper()
+		review := admissionv1.AdmissionReview{TypeMeta: metav1.TypeMeta{APIVersion: "admission.k8s.io/v1", Kind: "AdmissionReview"}, Request: request}
+		raw, err := json.Marshal(review)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := server.Client().Post(server.URL+"/admit?timeout=10s", "application/json", bytes.NewReader(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		var answer admissionv1.AdmissionReview
+		if err := json.NewDecoder(response.Body).Decode(&answer); err != nil || response.StatusCode != http.StatusOK || answer.Response == nil || answer.Response.UID != request.UID || answer.Response.Allowed != allowed {
+			t.Fatalf("admission status %d, allowed wanted %t", response.StatusCode, allowed)
+		}
+	}
+	t.Run("wide Secret data", func(t *testing.T) { check(t, secret, true) })
+	t.Run("negative Deployment toleration", func(t *testing.T) { check(t, workload, true) })
+	t.Run("barrier can only change its annotation", func(t *testing.T) {
+		fencer := authenticationv1.UserInfo{Username: serviceAccountUser(f.namespace, "fencer"), UID: uid(3)}
+		withoutFence := old.DeepCopy()
+		delete(withoutFence.Annotations, FenceAnnotation)
+		check(t, requestFor(withoutFence, old, fencer), true)
+		changed := old.DeepCopy()
+		changed.Data["fixture-0"] = []byte("unauthorized change")
+		check(t, requestFor(withoutFence, changed, fencer), false)
+	})
+	t.Run("barrier compares Kubernetes int64 exactly", func(t *testing.T) {
+		fencer := authenticationv1.UserInfo{Username: serviceAccountUser(f.namespace, "fencer"), UID: uid(3)}
+		withoutFence := deployment.DeepCopy()
+		delete(withoutFence.Annotations, FenceAnnotation)
+		seconds := int64(1 << 53)
+		withoutFence.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
+		barrier := withoutFence.DeepCopy()
+		barrier.Annotations[FenceAnnotation] = session.fence
+		request := requestFor(withoutFence, barrier, fencer)
+		request.Kind, request.Resource = workload.Kind, workload.Resource
+		check(t, request, true)
+		*barrier.Spec.Template.Spec.TerminationGracePeriodSeconds = seconds + 1
+		request = requestFor(withoutFence, barrier, fencer)
+		request.Kind, request.Resource = workload.Kind, workload.Resource
+		check(t, request, false)
+	})
+	t.Run("duplicate field in object", func(t *testing.T) {
+		ambiguous := secret.DeepCopy()
+		ambiguous.Object.Raw = bytes.Replace(ambiguous.Object.Raw, []byte(`"data":{`), []byte(`"data":{"fixture-0":"YW1iaWd1b3Vz",`), 1)
+		check(t, ambiguous, false)
+	})
 }
 
 func TestClientRejectsRedirectWithoutForwardingBearer(t *testing.T) {

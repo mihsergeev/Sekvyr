@@ -2,13 +2,14 @@ package fencing
 
 import (
 	"context"
-	"encoding/json"
+	"maps"
 	"reflect"
 	"strings"
 
 	"github.com/mihsergeev/Sekvyr/operator/internal/e2e2"
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubejson "sigs.k8s.io/json"
 )
 
 // Admit is side-effect free. In particular it never reads a Lease or mutates a
@@ -42,6 +43,18 @@ func (s *Service) Admit(ctx context.Context, request *admissionv1.AdmissionReque
 	if !configured {
 		return deny("ObjectDenied")
 	}
+	var old, next map[string]any
+	var err error
+	if len(request.OldObject.Raw) != 0 {
+		if old, err = decodeObject(request.OldObject.Raw); err != nil {
+			return deny("ObjectInvalid")
+		}
+	}
+	if len(request.Object.Raw) != 0 {
+		if next, err = decodeObject(request.Object.Raw); err != nil {
+			return deny("ObjectInvalid")
+		}
+	}
 	for _, subject := range s.Config.BootstrapSubjects {
 		if subject.Username != "" && request.UserInfo.Username == subject.Username && request.UserInfo.UID == subject.UID {
 			if request.UserInfo.UID == s.Config.OperatorServiceAccountUID || request.UserInfo.UID == s.Config.FencerServiceAccountUID {
@@ -54,14 +67,6 @@ func (s *Service) Admit(ctx context.Context, request *admissionv1.AdmissionReque
 	}
 	if request.Operation != admissionv1.Update {
 		return deny("PrecreatedObjectsRequired")
-	}
-	old, err := decodeObject(request.OldObject.Raw)
-	if err != nil {
-		return deny("ObjectInvalid")
-	}
-	next, err := decodeObject(request.Object.Raw)
-	if err != nil {
-		return deny("ObjectInvalid")
 	}
 	oldMeta, oldOK := old["metadata"].(map[string]any)
 	newMeta, newOK := next["metadata"].(map[string]any)
@@ -141,12 +146,13 @@ func (s *Service) Admit(ctx context.Context, request *admissionv1.AdmissionReque
 }
 
 func decodeObject(raw []byte) (map[string]any, error) {
-	canonical, err := e2e2.Canonical(raw, maxAdmissionBytes)
-	if err != nil {
+	if len(raw) == 0 || len(raw) > maxAdmissionBytes {
 		return nil, fail("ObjectInvalid")
 	}
+	// Kubernetes objects can have wide maps and signed integer fields. The
+	// restricted E2E2 JSON profile applies only to the signed fence itself.
 	var result map[string]any
-	if json.Unmarshal(canonical, &result) != nil || result == nil {
+	if problems, err := kubejson.UnmarshalStrict(raw, &result, kubejson.DisallowDuplicateFields); err != nil || len(problems) != 0 || result == nil {
 		return nil, fail("ObjectInvalid")
 	}
 	return result, nil
@@ -157,17 +163,19 @@ func annotation(metadata map[string]any, key string) string {
 	return text(values, key)
 }
 func withoutBarrier(value map[string]any) map[string]any {
-	raw, _ := json.Marshal(value)
-	var copy map[string]any
-	_ = json.Unmarshal(raw, &copy)
-	metadata, _ := copy["metadata"].(map[string]any)
+	copy := maps.Clone(value)
+	metadata := maps.Clone(value["metadata"].(map[string]any))
+	copy["metadata"] = metadata
 	delete(metadata, "managedFields")
 	delete(metadata, "generation")
 	delete(metadata, "resourceVersion")
 	annotations, _ := metadata["annotations"].(map[string]any)
+	annotations = maps.Clone(annotations)
 	delete(annotations, FenceAnnotation)
 	if len(annotations) == 0 {
 		delete(metadata, "annotations")
+	} else {
+		metadata["annotations"] = annotations
 	}
 	return copy
 }

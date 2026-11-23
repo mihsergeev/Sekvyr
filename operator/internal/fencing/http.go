@@ -17,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
+	kubejson "sigs.k8s.io/json"
 )
 
 func validUUID(value string) bool {
@@ -138,7 +139,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/admit" {
 		raw, err := readBody(w, r, maxAdmissionBytes)
 		var review admissionv1.AdmissionReview
-		if err != nil || journal.DecodeStrict(raw, &review, maxAdmissionBytes) != nil || review.APIVersion != "admission.k8s.io/v1" || review.Kind != "AdmissionReview" || review.Request == nil {
+		if err != nil {
+			httpError(w, http.StatusBadRequest, "AdmissionInvalid")
+			return
+		}
+		problems, err := kubejson.UnmarshalStrict(raw, &review)
+		if err != nil || len(problems) != 0 || review.APIVersion != "admission.k8s.io/v1" || review.Kind != "AdmissionReview" || review.Request == nil {
 			httpError(w, http.StatusBadRequest, "AdmissionInvalid")
 			return
 		}
