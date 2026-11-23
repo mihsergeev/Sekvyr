@@ -1,4 +1,5 @@
 """Actual panel ASGI/database checks using only public synthetic protocol vectors."""
+import asyncio
 import base64
 import copy
 import hashlib
@@ -7,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from app import e2e2
+from app import e2e2, secrets_store
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -18,15 +19,19 @@ def vectors():
     return snapshot, wrapper
 
 
-async def register_view(client, headers, env_id):
+async def request_view_registration(client, headers, env_id):
     snapshot, _ = vectors()
     project = next(row for row in (await client.get("/api/projects", headers=headers)).json() if row["slug"] == "billing")
     h = snapshot["envelope"]["body"]["header"]
-    response = await client.post("/api/e2e2/views", headers=headers, json={
+    return await client.post("/api/e2e2/views", headers=headers, json={
         "project_id": project["id"], "environment_id": env_id,
         "context": {name: h[name] for name in e2e2.SCOPE},
         "publisher_keys": {h["publisher_key_id"]: snapshot["publisher_public_key"]},
         "read_key_epoch": "1", "publisher_policy_epoch": "1"})
+
+
+async def register_view(client, headers, env_id):
+    response = await request_view_registration(client, headers, env_id)
     assert response.status_code == 201
     return response.json()
 
@@ -201,12 +206,70 @@ async def test_body_scoped_legacy_mutation_guard_is_shared_and_precedes_network(
 
 async def test_no_automatic_migration_of_legacy_or_pending_data(client, owner_headers, env_id):
     assert (await client.put(f"/api/environments/{env_id}/secrets", headers=owner_headers, json={"name": "A", "value": "public-canary"})).status_code == 200
-    vector, _ = vectors()
-    project = next(row for row in (await client.get("/api/projects", headers=owner_headers)).json() if row["slug"] == "billing")
-    h = vector["envelope"]["body"]["header"]
-    response = await client.post("/api/e2e2/views", headers=owner_headers, json={"project_id": project["id"], "environment_id": env_id,
-        "context": {name: h[name] for name in e2e2.SCOPE}, "publisher_keys": {h["publisher_key_id"]: vector["publisher_public_key"]}, "read_key_epoch": "1", "publisher_policy_epoch": "1"})
+    response = await request_view_registration(client, owner_headers, env_id)
     assert response.status_code == 409 and response.json()["reason"] == "ExplicitMigrationRequired"
+
+
+@pytest.mark.parametrize("source_field", ["parent_id", "copy_from"])
+async def test_create_legacy_environment_cannot_overtake_e2e2_registration(
+    client, owner_headers, env_id, monkeypatch, source_field
+):
+    from app.api import projects
+
+    reads_source, resume_creation = asyncio.Event(), asyncio.Event()
+    reads_whole = projects._reads_whole
+
+    async def wait_after_source_check(*args):
+        allowed = await reads_whole(*args)
+        reads_source.set()
+        await resume_creation.wait()
+        return allowed
+
+    monkeypatch.setattr(projects, "_reads_whole", wait_after_source_check)
+    project_id = next(row["id"] for row in (await client.get("/api/projects", headers=owner_headers)).json() if row["slug"] == "billing")
+    pending = asyncio.create_task(client.post(
+        f"/api/projects/{project_id}/environments", headers=owner_headers,
+        json={"name": "derived", source_field: env_id},
+    ))
+    try:
+        await asyncio.wait_for(reads_source.wait(), timeout=5)
+        await register_view(client, owner_headers, env_id)
+    finally:
+        resume_creation.set()
+    response = await pending
+    assert response.status_code == 409 and response.json()["reason"] == "UpgradeRequired"
+    environments = await client.get(f"/api/projects/{project_id}/environments", headers=owner_headers)
+    assert all(row["name"] != "derived" for row in environments.json())
+
+
+async def test_view_registration_cannot_overtake_a_plain_writer(
+    client, owner_headers, env_id, monkeypatch
+):
+    checked_legacy_route, release_writer = asyncio.Event(), asyncio.Event()
+    is_e2e = secrets_store.is_e2e
+
+    async def wait_before_writing(*args):
+        checked_legacy_route.set()
+        await release_writer.wait()
+        return await is_e2e(*args)
+
+    monkeypatch.setattr(secrets_store, "is_e2e", wait_before_writing)
+    pending = asyncio.create_task(client.put(
+        f"/api/environments/{env_id}/secrets", headers=owner_headers,
+        json={"name": "CANARY", "value": "plain-test-value"},
+    ))
+    await asyncio.wait_for(checked_legacy_route.wait(), timeout=5)
+    registration = asyncio.create_task(request_view_registration(client, owner_headers, env_id))
+    try:
+        # The registration waits for the writer before it checks for legacy values.
+        await asyncio.wait([registration], timeout=0.2)
+    finally:
+        release_writer.set()
+        written = await pending
+
+    assert written.status_code == 200
+    rejected = await registration
+    assert rejected.status_code == 409 and rejected.json()["reason"] == "ExplicitMigrationRequired"
 
 
 async def test_scoped_witness_fetch_has_no_machine_or_admin_rights(client, owner_headers, env_id, tmp_path, monkeypatch):

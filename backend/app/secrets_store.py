@@ -21,7 +21,7 @@ from collections.abc import Callable
 
 from datetime import datetime, timezone
 
-from sqlalchemy import desc, func, inspect, select
+from sqlalchemy import desc, func, inspect, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import crypto, e2e, envkeys, roles
@@ -163,6 +163,21 @@ async def current_versions(
     return out
 
 
+async def lock_environment(session: AsyncSession, env_id: int) -> Environment | None:
+    condition = Environment.id == env_id
+    if session.get_bind().dialect.name == "sqlite":
+        # SQLite не знает FOR UPDATE: занимаем запись до проверки режима
+        # шифрования окружения и до любых изменений.
+        await session.execute(
+            update(Environment).where(condition).values(id=Environment.id)
+            .execution_options(synchronize_session=False)
+        )
+    return await session.scalar(
+        select(Environment).where(condition).with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    )
+
+
 async def lock_env(session: AsyncSession, env_id: int) -> None:
     """Один писатель на окружение за раз.
 
@@ -170,9 +185,8 @@ async def lock_env(session: AsyncSession, env_id: int) -> None:
     пишут одно и то же. Без блокировки запись, совпавшая со сменой ключа,
     оставалась зашифрованной удаленным поколением и больше не читалась
     (проверено на живой панели), две записи одного ключа брали один номер
-    версии, а две смены ключа сталкивались. Строка окружения блокируется до
-    конца транзакции; SQLite в тестах блокировок строк не знает и пишет по
-    одному и так.
+    версии, а две смены ключа сталкивались. Блокировку берем до чтения
+    окружения и удерживаем до конца транзакции.
 
     Режим FOR NO KEY UPDATE, а не FOR UPDATE: писателей он выстраивает по
     одному так же, но не мешает вставкам строк со ссылкой на окружение. Такая
@@ -191,12 +205,7 @@ async def lock_env(session: AsyncSession, env_id: int) -> None:
     transaction = session.sync_session.get_transaction()
     if held is not None and transaction is not None and held[0] is transaction and env_id in held[1]:
         return
-    found = await session.scalar(
-        select(Environment)
-        .where(Environment.id == env_id)
-        .with_for_update(key_share=True)
-        .execution_options(populate_existing=True)
-    )
+    found = await lock_environment(session, env_id)
     # Пока запрос ждал, окружение могли удалить вместе с проектом. Писать по
     # нему дальше значило упереться во внешний ключ (500), а смена ключа
     # окружения советовала бы восстанавливать базу из бэкапа, хотя база цела.

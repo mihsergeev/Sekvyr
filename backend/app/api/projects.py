@@ -686,6 +686,16 @@ async def create_environment(
         is None
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Проект не найден")
+    # Родитель и источник передаются в теле. Проверка только адреса маршрута
+    # не защищает от регистрации E2E2 между начальной проверкой и записью.
+    # Блокировка источников не дает одновременно создать наследника и E2E2-view.
+    for source_id in sorted({parent_id, source.id if source is not None else None} - {None}):
+        await secrets_store.lock_env(session, source_id)
+    if source is not None and await secrets_store.is_e2e(session, source.id):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "В проекте с шифрованием в браузере значения копируются из браузера",
+        )
     env = Environment(
         project_id=project_id,
         name=body.name,

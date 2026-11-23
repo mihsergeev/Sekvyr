@@ -196,18 +196,15 @@ async def test_agent_read_survives_a_concurrent_rename(client: httpx.AsyncClient
     assert getattr(res, "status_code", res) == 200
 
 
-# Ворота держат включение посреди транзакции: на Postgres его блокировки
-# остановили бы запись, которую тест ждет до открытия ворот. Там это
-# проверяет test_pg_races.test_pg_race_e2e_init_vs_plain_write.
+# На Postgres параллельное включение проверяет test_pg_races.
 @pytest.mark.skipif(bool(PG), reason="на Postgres - test_pg_races")
 async def test_e2e_switch_does_not_swallow_a_plain_write(client: httpx.AsyncClient, owner_headers, unsealed, monkeypatch):
-    """Включение проверило "проект пуст", а открытый текст закоммитился до его
-    коммита: режим не включается поверх открытого значения."""
+    """Запись успела закоммититься до проверки, что проект пуст."""
     h = owner_headers
     project = (await client.post("/api/projects", headers=h, json={"slug": "sealed-app"})).json()
     env = (await client.post(f"/api/projects/{project['id']}/environments", headers=h, json={"name": "prod"})).json()
     gate = Gate("init")
-    gate_async(monkeypatch, audit, "record", gate)
+    gate_async(monkeypatch, secrets_store, "lock_env", gate)
     task = await _gated("init", client.post(f"/api/projects/{project['id']}/e2e", headers=h, json=_wrap_body()), gate)
     await _put(client, h, env["id"], "DB", "plain-text")
     gate.release.set()

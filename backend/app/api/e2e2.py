@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import delete, select, update
 
-from app import access, audit, e2e2, e2e2_rotation, machines
+from app import access, audit, e2e2, e2e2_rotation, machines, secrets_store
 from app.api.machine import CurrentMachine
 from app.api.machines_admin import _require_read, _require_reach
 from app.deps import CurrentUser, MaintainerUser, OwnerUser, SessionDep, UnsealedBox, peer_ip
@@ -155,8 +155,14 @@ async def register(request: Request, user: OwnerUser, session: SessionDep, _box:
     ctx = e2e2.context(e2e2.exact(data["context"], e2e2.SCOPE))
     e2e2.require(data["read_key_epoch"] == "1" and data["publisher_policy_epoch"] == "1", "UnsupportedEpoch")
     keys = e2e2.publisher_keys(data["publisher_keys"])
-    project = await session.scalar(select(Project).where(Project.id == data["project_id"]).with_for_update(key_share=True))
-    environment = await session.scalar(select(Environment).where(Environment.id == data["environment_id"]).with_for_update(key_share=True))
+    project_query = select(Project).where(Project.id == data["project_id"])
+    if session.get_bind().dialect.name == "sqlite":
+        environment = await secrets_store.lock_environment(session, data["environment_id"])
+        project = await session.scalar(project_query)
+    else:
+        # Тот же порядок блокировок, что при включении шифрования во всем проекте.
+        project = await session.scalar(project_query.with_for_update(key_share=True))
+        environment = await secrets_store.lock_environment(session, data["environment_id"])
     if project is None or environment is None or environment.project_id != project.id:
         reject("SourceNotFound", 404)
     children = await session.scalar(select(Environment.id).where(Environment.parent_id == environment.id).limit(1))
