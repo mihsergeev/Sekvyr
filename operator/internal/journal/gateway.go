@@ -31,7 +31,6 @@ type GatewayConfig struct {
 	Clients       []GatewayClient `json:"clients"`
 }
 type Gateway struct {
-	Storage Storage
 	Ledger  *Ledger
 	Clients map[string]GatewayClient
 	slots   chan struct{}
@@ -60,7 +59,7 @@ func NewGateway(storage Storage, registrations []Registration, clients []Gateway
 	if err != nil {
 		return nil, err
 	}
-	g := &Gateway{Storage: storage, Ledger: ledger, Clients: map[string]GatewayClient{}, slots: make(chan struct{}, 4)}
+	g := &Gateway{Ledger: ledger, Clients: map[string]GatewayClient{}, slots: make(chan struct{}, 4)}
 	for _, client := range clients {
 		if client.CommonName == "" || len(client.CommonName) > 256 || len(client.Logs) < 1 || len(client.Logs) > 64 {
 			return nil, Failure("ConfigInvalid")
@@ -164,53 +163,21 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, Failure("AuthenticationDenied"))
 		return
 	}
+	var slots []StoredSlot
 	if sequence == 0 {
 		if _, err = g.Ledger.InitializeCAS(ctx, log, raw); err != nil {
 			writeError(w, err)
 			return
 		}
+		_, slots, err = g.Ledger.readVerified(ctx, log, Cursor{})
 	} else {
-		current, err := g.Ledger.ReadCurrent(ctx, log, Cursor{})
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		next, _ := nextCounter(current.Cursor.JournalSequence)
-		encoded, err := EncodeRecord(record)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if record.PreviousRecordHash != current.Cursor.RecordHash || record.JournalSequence != next {
-			slots, readErr := g.Ledger.slots(ctx, log)
-			if readErr != nil {
-				writeError(w, readErr)
-				return
-			}
-			if sequence >= uint64(len(slots)) || !bytes.Equal(slots[sequence].Raw, encoded) {
-				writeError(w, Failure("CASConflict"))
-				return
-			}
-		} else {
-			if _, err = Apply(current, record); err != nil {
-				writeError(w, err)
-				return
-			}
-			if _, err = g.Storage.PutIfAbsent(ctx, log, sequence, encoded); err != nil {
-				if Reason(err) != "CASConflict" && Reason(err) != "StorageUnavailable" {
-					writeError(w, err)
-					return
-				}
-				slots, readErr := g.Ledger.slots(ctx, log)
-				if readErr != nil || sequence >= uint64(len(slots)) || !bytes.Equal(slots[sequence].Raw, encoded) {
-					writeError(w, err)
-					return
-				}
-			}
-		}
+		_, slots, err = g.Ledger.appendRecord(ctx, log, sequence, record)
 	}
-	slots, err := g.Ledger.slots(ctx, log)
-	if err != nil || sequence >= uint64(len(slots)) {
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if sequence >= uint64(len(slots)) {
 		writeError(w, Failure("StorageUnavailable"))
 		return
 	}
@@ -224,28 +191,14 @@ func (g *Gateway) stream(ctx context.Context, w http.ResponseWriter, r *http.Req
 		writeError(w, Failure("RequestInvalid"))
 		return
 	}
-	slots, err := g.Storage.ReadAll(ctx, log)
+	state, slots, err := g.Ledger.readVerified(ctx, log, Cursor{})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	hash := ZeroHash
-	if len(slots) > 0 {
-		reg, _ := g.Ledger.registration(log)
-		s, err := Replay(reg, slots)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if _, err = g.Ledger.ReadCurrent(ctx, log, reg.MinimumCursor); err != nil {
-			writeError(w, err)
-			return
-		}
-		hash = s.Cursor.RecordHash
-	}
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	encoder := json.NewEncoder(w)
-	meta := streamMeta{Format: "sekvyr-journal-stream-begin-v1", Nonce: nonce, Count: len(slots), LastRecordHash: hash}
+	meta := streamMeta{Format: "sekvyr-journal-stream-begin-v1", Nonce: nonce, Count: len(slots), LastRecordHash: state.Cursor.RecordHash}
 	if encoder.Encode(meta) != nil {
 		return
 	}

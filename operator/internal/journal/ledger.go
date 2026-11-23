@@ -69,37 +69,45 @@ func (l *Ledger) slots(ctx context.Context, log string) ([]StoredSlot, error) {
 	return slots, nil
 }
 func (l *Ledger) ReadCurrent(ctx context.Context, log string, minimum Cursor) (CurrentState, error) {
-	reg, err := l.registration(log)
+	state, _, err := l.readVerified(ctx, log, minimum)
 	if err != nil {
 		return CurrentState{}, err
+	}
+	return cloneState(state), nil
+}
+
+func (l *Ledger) readVerified(ctx context.Context, log string, minimum Cursor) (CurrentState, []StoredSlot, error) {
+	reg, err := l.registration(log)
+	if err != nil {
+		return CurrentState{}, nil, err
 	}
 	slots, err := l.slots(ctx, log)
 	if err != nil {
-		return CurrentState{}, err
+		return CurrentState{}, nil, err
 	}
 	state, err := Replay(reg, slots)
 	if err != nil {
-		return CurrentState{}, err
+		return CurrentState{}, nil, err
 	}
 	floors := []Cursor{reg.MinimumCursor}
 	if minimum != (Cursor{}) {
 		if !validCursor(minimum) {
-			return CurrentState{}, Failure("FloorInvalid")
+			return CurrentState{}, nil, Failure("FloorInvalid")
 		}
 		floors = append(floors, minimum)
 	}
 	for _, floor := range floors {
 		n, _ := e2e2.Counter(floor.JournalSequence, true)
 		if n >= uint64(len(slots)) {
-			return CurrentState{}, Failure("JournalBelowCheckpoint")
+			return CurrentState{}, nil, Failure("JournalBelowCheckpoint")
 		}
 		record, _ := DecodeRecord(slots[n].Raw)
 		hash, _ := RecordHash(record)
 		if hash != floor.RecordHash {
-			return CurrentState{}, Failure("JournalCheckpointFork")
+			return CurrentState{}, nil, Failure("JournalCheckpointFork")
 		}
 	}
-	return cloneState(state), nil
+	return state, slots, nil
 }
 func Replay(reg Registration, slots []StoredSlot) (CurrentState, error) {
 	var state CurrentState
@@ -199,8 +207,8 @@ func (l *Ledger) InitializeCAS(ctx context.Context, log string, raw []byte) (Cur
 		return CurrentState{}, err
 	}
 	if _, err = l.Storage.PutIfAbsent(ctx, log, 0, encoded); err != nil {
-		if state, ok, _ := l.resolveExact(ctx, log, 0, encoded); ok {
-			return state, nil
+		if state, slots, readErr := l.readVerified(ctx, log, Cursor{}); readErr == nil && exactSlot(slots, 0, encoded) {
+			return cloneState(state), nil
 		}
 		return CurrentState{}, err
 	}
@@ -222,67 +230,63 @@ func (l *Ledger) append(ctx context.Context, log string, expected Cursor, record
 	record.LogID = log
 	record.JournalSequence = seq
 	record.PreviousRecordHash = expected.RecordHash
-	raw, err := EncodeRecord(record)
-	if err != nil {
-		return CurrentState{}, err
-	}
-	current, err := l.ReadCurrent(ctx, log, Cursor{})
-	if err != nil {
-		return CurrentState{}, err
-	}
-	if current.Cursor != expected {
-		if state, ok, resolveErr := l.resolveExact(ctx, log, n, raw); ok {
-			return state, nil
-		} else if resolveErr != nil {
-			return CurrentState{}, resolveErr
-		}
-		return CurrentState{}, Failure("CASConflict")
-	}
-	if _, err = Apply(current, record); err != nil {
-		return CurrentState{}, err
-	}
-	if _, err = l.Storage.PutIfAbsent(ctx, log, n, raw); err != nil {
-		if Reason(err) == "CASConflict" || Reason(err) == "StorageUnavailable" {
-			if state, ok, resolveErr := l.resolveExact(ctx, log, n, raw); ok {
-				return state, nil
-			} else if resolveErr != nil {
-				return CurrentState{}, resolveErr
-			}
-		}
-		return CurrentState{}, err
-	}
-	hash, _ := RecordHash(record)
-	return l.ReadCurrent(ctx, log, Cursor{JournalSequence: seq, RecordHash: hash})
+	state, _, err := l.appendRecord(ctx, log, n, record)
+	return cloneState(state), err
 }
 
-// resolveExact acknowledges only the original canonical bytes in the original
-// slot, after a complete online replay. It never rebases or creates another slot.
-func (l *Ledger) resolveExact(ctx context.Context, log string, sequence uint64, raw []byte) (CurrentState, bool, error) {
-	state, err := l.ReadCurrent(ctx, log, Cursor{})
+func (l *Ledger) appendRecord(ctx context.Context, log string, sequence uint64, record Record) (CurrentState, []StoredSlot, error) {
+	raw, err := EncodeRecord(record)
 	if err != nil {
-		return CurrentState{}, false, err
+		return CurrentState{}, nil, err
 	}
-	slots, err := l.slots(ctx, log)
+	current, slots, err := l.readVerified(ctx, log, Cursor{})
 	if err != nil {
-		return CurrentState{}, false, err
+		return CurrentState{}, nil, err
 	}
-	reg, _ := l.registration(log)
-	if _, err = Replay(reg, slots); err != nil {
-		return CurrentState{}, false, err
+	expected := Cursor{JournalSequence: fmtCounter(sequence - 1), RecordHash: record.PreviousRecordHash}
+	if current.Cursor != expected {
+		if exactSlot(slots, sequence, raw) {
+			return current, slots, nil
+		}
+		return CurrentState{}, nil, Failure("CASConflict")
 	}
-	if sequence >= uint64(len(slots)) || !bytes.Equal(slots[sequence].Raw, raw) {
-		return state, false, nil
+	if err = checkAppendCapacity(slots, len(raw)); err != nil {
+		return CurrentState{}, nil, err
 	}
-	record, err := DecodeRecord(raw)
-	if err != nil {
-		return CurrentState{}, false, err
+	if _, err = Apply(current, record); err != nil {
+		return CurrentState{}, nil, err
 	}
-	hash, err := RecordHash(record)
-	if err != nil {
-		return CurrentState{}, false, err
+	if _, err = l.Storage.PutIfAbsent(ctx, log, sequence, raw); err != nil {
+		if Reason(err) == "CASConflict" || Reason(err) == "StorageUnavailable" {
+			state, slots, readErr := l.readVerified(ctx, log, Cursor{})
+			if readErr != nil {
+				return CurrentState{}, nil, readErr
+			}
+			if exactSlot(slots, sequence, raw) {
+				return state, slots, nil
+			}
+		}
+		return CurrentState{}, nil, err
 	}
-	latest, err := l.ReadCurrent(ctx, log, Cursor{JournalSequence: fmtCounter(sequence), RecordHash: hash})
-	return latest, err == nil, err
+	hash, _ := RecordHash(record)
+	return l.readVerified(ctx, log, Cursor{JournalSequence: record.JournalSequence, RecordHash: hash})
+}
+
+// checkAppendCapacity accounts for the new record before its irreversible write.
+// The verified prefix is bounded by the same limits used for replay.
+func checkAppendCapacity(slots []StoredSlot, size int) error {
+	remaining := MaxReplayBytes
+	for _, slot := range slots {
+		remaining -= len(slot.Raw)
+	}
+	if len(slots) >= MaxRecords || size > remaining {
+		return Failure("JournalCapacity")
+	}
+	return nil
+}
+
+func exactSlot(slots []StoredSlot, sequence uint64, raw []byte) bool {
+	return sequence < uint64(len(slots)) && bytes.Equal(slots[sequence].Raw, raw)
 }
 func (l *Ledger) AppendSnapshotCAS(ctx context.Context, log string, expected Cursor, raw []byte) (CurrentState, error) {
 	var env e2e2.Envelope
@@ -333,19 +337,12 @@ func (l *Ledger) AppendFenceActivationCAS(ctx context.Context, log string, expec
 	return l.append(ctx, log, expected, Record{Kind: "fence-activation", FenceActivation: &activation})
 }
 func (l *Ledger) ReadRecord(ctx context.Context, log string, sequence string) ([]byte, error) {
-	if _, err := l.ReadCurrent(ctx, log, Cursor{}); err != nil {
-		return nil, err
-	}
 	n, err := e2e2.Counter(sequence, true)
 	if err != nil {
 		return nil, Failure("RecordUnknown")
 	}
-	slots, err := l.slots(ctx, log)
+	_, slots, err := l.readVerified(ctx, log, Cursor{})
 	if err != nil {
-		return nil, err
-	}
-	reg, _ := l.registration(log)
-	if _, err = Replay(reg, slots); err != nil {
 		return nil, err
 	}
 	if n >= uint64(len(slots)) {

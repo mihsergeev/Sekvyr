@@ -57,6 +57,131 @@ func (nilRandom) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
+type changingStorage struct {
+	Storage
+	first []StoredSlot
+	later []StoredSlot
+	reads int
+}
+
+func (s *changingStorage) ReadAll(context.Context, string) ([]StoredSlot, error) {
+	s.reads++
+	if s.reads == 1 {
+		return s.first, nil
+	}
+	return s.later, nil
+}
+
+func TestGatewayStreamValidatesTheReturnedSnapshot(t *testing.T) {
+	f := setupJournal(t)
+	f.initial(t)
+	registration := f.registration
+	registration.MinimumCursor = f.state.Cursor
+	current := f.store.slots
+	expired := append([]StoredSlot(nil), current...)
+	expired[1].Receipt.RetainUntil = "2000-01-01T00:00:00Z"
+	for _, tc := range []struct {
+		name   string
+		first  []StoredSlot
+		status int
+		reason string
+	}{
+		{name: "below floor", first: current[:1], status: 503, reason: "JournalBelowCheckpoint"},
+		{name: "empty", status: 503, reason: "JournalMissingOrCapacity"},
+		{name: "expired retention", first: expired, status: 503, reason: "RetentionInvalid"},
+		{name: "valid", first: current, status: 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			storage := &changingStorage{Storage: f.store, first: tc.first, later: current}
+			gateway, err := NewGateway(storage, []Registration{registration}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodGet, "/v1/storage/logs/"+registration.LogID+"/journal", nil)
+			request.Header.Set("X-Sekvyr-Journal-Nonce", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+			response := httptest.NewRecorder()
+			gateway.stream(request.Context(), response, request, registration.LogID)
+			if response.Code != tc.status || storage.reads != 1 {
+				t.Fatalf("status=%d, reads=%d, want status=%d and one validated snapshot", response.Code, storage.reads, tc.status)
+			}
+			if tc.reason != "" {
+				var body map[string]string
+				if json.Unmarshal(response.Body.Bytes(), &body) != nil || body["reason"] != tc.reason {
+					t.Fatalf("unexpected response %s", response.Body.String())
+				}
+			} else if !bytes.Contains(response.Body.Bytes(), []byte(registration.MinimumCursor.RecordHash)) {
+				t.Fatal("stream omitted the validated cursor")
+			}
+		})
+	}
+}
+
+func TestReadRecordUsesTheValidatedSnapshot(t *testing.T) {
+	f := setupJournal(t)
+	f.initial(t)
+	registration := f.registration
+	registration.MinimumCursor = f.state.Cursor
+	storage := &changingStorage{Storage: f.store, first: f.store.slots, later: f.store.slots[:1]}
+	ledger, err := New(storage, []Registration{registration}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := ledger.ReadRecord(context.Background(), registration.LogID, "1")
+	if err != nil || !bytes.Equal(raw, f.store.slots[1].Raw) || storage.reads != 1 {
+		t.Fatalf("ReadRecord did not use one validated snapshot, reads=%d, error=%v", storage.reads, err)
+	}
+}
+
+func TestGatewayAppendReturnsReceiptOnlyFromVerifiedSlot(t *testing.T) {
+	f := setupJournal(t)
+	f.initial(t)
+	log := f.state.Scope.LogID
+	valid := f.store.slots
+	corrupt := append([]StoredSlot(nil), valid...)
+	fork, err := DecodeRecord(valid[1].Raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fork.PreviousRecordHash = ZeroHash
+	corrupt[1].Raw, err = EncodeRecord(fork)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupt[1].Receipt.VersionID = "unverified-slot-version"
+	for _, tc := range []struct {
+		name   string
+		first  []StoredSlot
+		status int
+	}{
+		{"exact retry uses verified receipt", valid, http.StatusOK},
+		{"new write rejects invalid readback", valid[:1], http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			storage := &changingStorage{Storage: &memoryStorage{slots: tc.first}, first: tc.first, later: corrupt}
+			gateway, err := NewGateway(storage, []Registration{f.registration}, []GatewayClient{{CommonName: "publisher", Logs: []string{log}, WriteKinds: []string{"snapshot"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodPut, "/v1/storage/logs/"+log+"/slots/1", bytes.NewReader(valid[1].Raw))
+			request.Header.Set("If-None-Match", "*")
+			request.Header.Set("Content-Type", "application/json")
+			cert := &x509.Certificate{Subject: pkix.Name{CommonName: "publisher"}}
+			request.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}, VerifiedChains: [][]*x509.Certificate{{cert}}}
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+			if response.Code != tc.status || bytes.Contains(response.Body.Bytes(), []byte(corrupt[1].Receipt.VersionID)) {
+				t.Fatalf("status=%d, body=%s", response.Code, response.Body.String())
+			}
+			if tc.status == http.StatusOK {
+				var receipt RetentionReceipt
+				if json.Unmarshal(response.Body.Bytes(), &receipt) != nil || receipt != valid[1].Receipt || storage.reads != 1 {
+					t.Fatal("retry receipt did not come from the already verified slot")
+				}
+			}
+		})
+	}
+}
+
 func TestGatewayMTLSConditionalAppendAndStreamFailures(t *testing.T) {
 	f := setupJournal(t)
 	gateway, err := NewGateway(f.store, []Registration{f.registration}, []GatewayClient{{CommonName: "public-test-client", Logs: []string{f.state.Scope.LogID}, WriteKinds: []string{"snapshot"}}})

@@ -227,6 +227,25 @@ func TestJournalConcurrentCanonicalSlotAndLostAcknowledgement(t *testing.T) {
 		t.Fatal("restore below independent floor accepted", err)
 	}
 }
+
+func TestAppendCapacityReservesSpaceForTheIncomingRecord(t *testing.T) {
+	// The same allocation can stand in for many slots in the byte accounting.
+	payload := make([]byte, MaxRecordBytes)
+	var slots []StoredSlot
+	remaining := MaxReplayBytes
+	for remaining > len(payload) {
+		slots = append(slots, StoredSlot{Raw: payload})
+		remaining -= len(payload)
+	}
+	if err := checkAppendCapacity(slots, remaining); err != nil {
+		t.Fatal("an append ending exactly at the replay limit must fit", err)
+	}
+	slots = append(slots, StoredSlot{Raw: payload[:remaining-1]})
+	if err := checkAppendCapacity(slots, 2); Reason(err) != "JournalCapacity" {
+		t.Fatal("an append exceeding replay capacity by one byte must be rejected", err)
+	}
+}
+
 func TestJournalAuthorityRotationReplaysHistoricalKeysAndActivatesAtomically(t *testing.T) {
 	f := setupJournal(t)
 	f.initial(t)
