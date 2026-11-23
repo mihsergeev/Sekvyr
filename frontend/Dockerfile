@@ -13,7 +13,7 @@ FROM ghcr.io/nginx/nginx-unprivileged:1.31.9-alpine@sha256:60214a103e6f38e953ff9
 
 # Apply stable fixes for the libraries bundled in the pinned base.
 USER root
-RUN apk upgrade --no-cache brotli-libs curl libcurl libexpat libxslt musl musl-utils zlib
+RUN apk upgrade --no-cache brotli-libs curl libcurl libexpat libxml2 libxslt musl musl-utils zlib
 USER 101
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
