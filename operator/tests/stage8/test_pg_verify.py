@@ -15,7 +15,7 @@ from stage8 import pg_verify as pg
 NS = "example-panel"
 IMAGE = "example.invalid/verification@sha256:" + "a" * 64
 AMD = "sha256:" + "b" * 64
-LOG = "............... [100%]\n15 passed in 5.12s\n"
+LOG = "." * pg.PASSED + " [100%]\n" + str(pg.PASSED) + " passed in 5.12s\n"
 
 
 def resource(kind, name, namespace=NS, **fields):
@@ -115,7 +115,7 @@ class PGVerificationTests(unittest.TestCase):
 
     def test_owned_job_controls_private_logs_and_exact_network(self):
         receipt = self.run_trial()
-        self.assertEqual((receipt["passed"], receipt["skipped"]), (15, 0))
+        self.assertEqual((receipt["passed"], receipt["skipped"]), (pg.PASSED, 0))
         self.assertEqual((self.directory / "pytest.log").read_text(), LOG)
         self.assertTrue((self.directory / "passed.json").is_file())
         ingress, egress, job = self.cluster.created

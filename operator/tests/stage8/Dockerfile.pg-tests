@@ -1,0 +1,38 @@
+# Stage 8 PostgreSQL verification image (pg_verify.py).
+#
+# The backend tests run against the exact reviewed backend image: this file adds
+# only the test sources and the test runner. Build from the repository root of
+# the same tag as BACKEND_IMAGE, for linux/amd64, without attestations:
+#
+#   docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+#     -f operator/tests/stage8/Dockerfile.pg-tests \
+#     --build-arg BACKEND_IMAGE=<registry>/sekvyr-backend@sha256:<digest> \
+#     -t docker.io/library/sekvyr-backend-stage8-tests:<version> --load .
+#
+# Then pin the exported root digest in assets.py (REVIEWED_BACKEND_TEST_IMAGE).
+ARG BACKEND_IMAGE=ghcr.io/mihsergeev/sekvyr-backend@sha256:28d194604745eb036e63f17df2edf543059804eaba7fd6f9b15a0e21eeb824c9
+
+# Same base as the backend runtime stage.
+FROM python:3.12.16-alpine3.24@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8 AS runner
+RUN pip install --no-cache-dir --root-user-action=ignore --target /opt/test-deps \
+        pytest==9.2.0 pytest-asyncio==1.5.0 && \
+    rm -rf /opt/test-deps/bin && \
+    chmod -R a+rX,go-w /opt/test-deps
+
+FROM ${BACKEND_IMAGE}
+COPY --from=runner /opt/test-deps /opt/test-deps
+COPY backend/pyproject.toml /srv/pyproject.toml
+COPY backend/tests /srv/tests
+# The Job runs with a read-only root filesystem: no byte-code is written later.
+RUN chmod -R a+rX,go-w /srv/tests /srv/pyproject.toml && \
+    PYTHONPATH=/srv:/opt/test-deps python -m compileall -q /srv/tests /opt/test-deps
+# pg_verify.py loads pytest_asyncio explicitly with -p. Entry-point autoload
+# would register the same plugin a second time and abort the run.
+ENV PYTHONPATH=/srv:/opt/test-deps PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+# Importing the app prepares its default SQLite directory. The Job mounts only
+# /tmp writable; the PostgreSQL tests override these paths per test anyway.
+ENV SEKVYR_DB_URL=sqlite+aiosqlite:////tmp/data/sekvyr.db SEKVYR_DATA_DIR=/tmp/data
+WORKDIR /srv
+USER 10001:10001
+ENTRYPOINT []
+CMD ["python", "-m", "pytest", "--version"]

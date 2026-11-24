@@ -18,11 +18,14 @@ _PROFILES = (
 # Root fills measured reviewed build identities, never inferred from live state.
 # No importer, creator or recovery is usable while any pin remains unset.
 REVIEWED_ARTIFACTS = {
-    "operator_image": "ghcr.io/mihsergeev/sekvyr-operator@sha256:eb787ef9ceef7b330dda93dd3480b302f9a81b5d91a602732f745451214a5e11",
-    "backend_image": "ghcr.io/mihsergeev/sekvyr-backend@sha256:6597c522d140a884080438b1bb1e9920d280ea24275826c17772186b583f5962",
-    "recovery_sha256": "2a12d5950087e770a06889e3f7e5c9cd5721e792461352820c419e39bcdbaca1",
-    "provision_sha256": "faf4f8246bf338ec2508e171fc9910da8ad633c93b5b92102fa1f770f4c26f84",
+    "operator_image": "ghcr.io/mihsergeev/sekvyr-operator@sha256:ce947b4a3bc7a3d653f84e2c20d861f4ab648e09e70ea8a9eb7ca33150b52c76",
+    "backend_image": "ghcr.io/mihsergeev/sekvyr-backend@sha256:28d194604745eb036e63f17df2edf543059804eaba7fd6f9b15a0e21eeb824c9",
+    "recovery_sha256": "758540e5b720df65da5e5c14bbf2d22571789fe7b9f21bfea35f6f14197556b4",
+    "provision_sha256": "be455d90d9d8c93d0ce93561ee0b33f5bc00c742b95aa398564357742209c2c2",
 }
+# Release versions of the pinned operator and backend images above.
+OPERATOR_VERSION = "0.1.0-rc.4"
+BACKEND_VERSION = "1.1.0-rc.7"
 _RECEIPT_FORMAT = "sekvyr-stage8-kind-profile-v1"
 PROFILE_RECEIPT = "stage8-profile.json"
 
@@ -53,5 +56,5 @@ def receipt(profile, artifacts, root, task, root_creation_sha):
         and re.fullmatch(r"[0-9a-f]{64}", root_creation_sha), "Exact Stage 8 profile receipt required")
     return {"format": _RECEIPT_FORMAT, "sourceStage": 8, "production": False,
         "profile": profile.name, "kubernetes": profile.version, "nodeImage": profile.node,
-        "artifacts": artifacts, "operatorVersion": "0.1.0-rc.1", "backendVersion": "1.1.0-rc.1",
+        "artifacts": artifacts, "operatorVersion": OPERATOR_VERSION, "backendVersion": BACKEND_VERSION,
         "rootTask": str(root), "runtimeTask": str(task), "rootCreationReceiptSHA256": root_creation_sha}

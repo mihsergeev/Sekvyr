@@ -19,7 +19,9 @@ DEADLINE = 270
 WORKDIR = "/srv"
 UID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\Z")
 DNS = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
-SUMMARY = re.compile(r"15 passed(?:, [1-9][0-9]* warnings?)? in [0-9]+(?:\.[0-9]+)?s\Z")
+# tests/test_pg_migrations.py (5) and tests/test_pg_races.py (12) in the backend test image.
+PASSED = 17
+SUMMARY = re.compile(str(PASSED) + r" passed(?:, [1-9][0-9]* warnings?)? in [0-9]+(?:\.[0-9]+)?s\Z")
 
 
 def object_json(output):
@@ -185,7 +187,7 @@ def verify_summary(raw):
     require(0 < len(raw) < MAX_LOG, "Verification log is empty or reached its bound")
     lines = raw.decode("utf-8", errors="replace").strip().splitlines()
     require(bool(lines) and SUMMARY.fullmatch(lines[-1]) is not None,
-        "Expected exactly 15 PostgreSQL tests passed with zero skips")
+        "Expected exactly %d PostgreSQL tests passed with zero skips" % PASSED)
 
 
 def run(cluster, *, profile):
@@ -232,7 +234,7 @@ def run(cluster, *, profile):
     write_private(directory / "pytest.log", logs)
     image_identity = completed(job, pod, image, amd, owner=owner, discovery=discovery)
     verify_summary(logs)
-    receipt = {"passed": 15, "skipped": 0, "schema": "alembic", "jobCompleted": True,
+    receipt = {"passed": PASSED, "skipped": 0, "schema": "alembic", "jobCompleted": True,
         "ownedPodImageVerified": True, "runtimeImageIdentity": image_identity,
         "logSHA256": hashlib.sha256(logs).hexdigest(), "production": False}
     write_private(directory / "passed.json", canonical(receipt))

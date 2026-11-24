@@ -14,6 +14,7 @@ from helm_lifecycle import HelmLifecycle, identity
 import network_paths
 
 from .assets import owned_file
+from .profiles import OPERATOR_VERSION
 from .cli_actor import run as run_actor
 from .cli_coordinator import owned_capability
 from .provision_adapter import digest, require, safe_public, strict
@@ -48,7 +49,7 @@ def _chart_files(raw):
             files[name] = archive.extractfile(member).read()
             require(len(files[name]) == member.size, "Stage8EntryTruncatedChart")
     metadata = yaml.safe_load(files[CHART + "/Chart.yaml"])
-    require(metadata["name"] == CHART and metadata["version"] == metadata["appVersion"] == "0.1.0-rc.1"
+    require(metadata["name"] == CHART and metadata["version"] == metadata["appVersion"] == OPERATOR_VERSION
         and not metadata.get("dependencies"), "Stage8EntryChartVersionMismatch")
     return files
 
