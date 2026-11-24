@@ -2,25 +2,10 @@ name: Operator verification
 
 on:
   workflow_call:
+  # Release preparation requires a push run for the exact RC commit, so pushes
+  # to protected branches always run, whichever files the last commit changed.
   push:
     branches: [main, master, "rc/**"]
-    paths:
-      - "operator/**"
-      - ".github/workflows/operator.yml"
-      - "backend/Dockerfile"
-      - "backend/runtime/**"
-      - "ops/selfcheck.py"
-      - "ops/tests/**"
-      - "backend/app/e2e2*.py"
-      - "backend/app/api/e2e2.py"
-      - "backend/app/api/machine.py"
-      - "backend/app/api/machines_admin.py"
-      - "backend/app/machines.py"
-      - "backend/app/main.py"
-      - "backend/alembic/**"
-      - "backend/tests/test_e2e2*.py"
-      - "backend/tests/test_*machine*.py"
-      - "backend/tests/test_pg_migrations.py"
   pull_request:
     paths:
       - "operator/**"
