@@ -144,6 +144,20 @@ class CLICoordinator(legacy.Coordinator):
         if failed:
             raise RuntimeError("CLICoordinatorCleanupIncomplete") from None
 
+# Without a genesis slot there is nothing the gateway can verify, so it refuses
+# to stream the log instead of answering with an empty stream.
+UNWRITTEN_LOG = {"reason": "JournalMissingOrCapacity"}
+
+
+def require_unwritten_log(gateway_client, log_id, reason):
+    """Any written log streams with 200; only a log without slots answers this
+    exact refusal. Slot 0 is then written with If-None-Match and read back."""
+    nonce = base64.urlsafe_b64encode(os.urandom(32)).decode("ascii").rstrip("=")
+    status, raw, _ = gateway_client.request("GET", gateway_client.path(log_id),
+        headers={"X-Sekvyr-Journal-Nonce": nonce}, expected=(200, 503), maximum=64 << 20)
+    require(status == 503 and strict(raw, 4096) == UNWRITTEN_LOG, reason)
+
+
 @safe_public
 def prepare_main_genesis(task, *, profile, gateway_client):
     """Explicit empty-main-log initialization using CLI bytes; no old-log adoption."""
@@ -160,8 +174,7 @@ def prepare_main_genesis(task, *, profile, gateway_client):
             and bundle.raw("registration.json") == canonical(protocol.registration)
             and bundle.value("records.json") == [protocol.genesis_record], "CLIOriginalGenesisMismatch")
         from gateway_probe import framed
-        nonce, (status, raw, _) = gateway_client.journal(protocol.scope["log_id"])
-        require(status == 200 and framed(raw, nonce, "0" * 64) == [], "CLIMainLogAlreadyInitialized")
+        require_unwritten_log(gateway_client, protocol.scope["log_id"], "CLIMainLogAlreadyInitialized")
         owner.guard()
         status, response, _ = gateway_client.append(protocol.scope["log_id"], "0",
             bundle.raw("record.json"), expected=(200,))

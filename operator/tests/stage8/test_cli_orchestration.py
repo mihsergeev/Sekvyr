@@ -118,9 +118,9 @@ class GenesisGuards(TempTest):
             begin = canonical(dict(common, format="sekvyr-journal-stream-begin-v1"))
             end = canonical(dict(common, format="sekvyr-journal-stream-end-v1"))
             return common["nonce"], (200, b"\n".join([begin, *map(canonical, slots), end]) + b"\n", {})
-        empty = stream([], "0" * 64)
+        gateway.request.return_value = (503, b'{"reason":"JournalMissingOrCapacity"}\n', {})
         full = stream([{"record": record}], registration["genesis_hash"])
-        gateway.journal.side_effect = [empty, full]
+        gateway.journal.side_effect = [full]
         gateway.append.return_value = (200, canonical({"mode": "COMPLIANCE", "version_id": "public-opaque"}), {})
         return owner, protocol, provider, gateway, original, full
 
@@ -142,10 +142,18 @@ class GenesisGuards(TempTest):
 
     def test_existing_main_log_is_not_adopted_even_if_bytes_are_the_same(self):
         owner, protocol, provider, gateway, _, full = self.genesis()
-        gateway.journal.side_effect = [full]
+        gateway.request.return_value = full[1]
         with self.assertRaises(ProvisionError): self.call(owner, protocol, provider, gateway)
         gateway.append.assert_not_called()
         provider.close.assert_called_once()
+
+    def test_only_the_exact_unwritten_log_refusal_allows_genesis(self):
+        for response in ((503, b'{"reason":"StorageUnavailable"}', {}), (503, b'{"reason":"JournalBelowCheckpoint"}', {}),
+                (503, b'{"reason":"JournalMissingOrCapacity","extra":1}', {}), (429, b'{"reason":"JournalBusy"}', {})):
+            owner, protocol, provider, gateway, _, _ = self.genesis()
+            gateway.request.return_value = response
+            with self.assertRaises(ProvisionError): self.call(owner, protocol, provider, gateway)
+            gateway.append.assert_not_called()
 
     def test_mismatched_cli_genesis_or_registration_cannot_reach_gateway(self):
         owner, protocol, provider, gateway, _, _ = self.genesis()

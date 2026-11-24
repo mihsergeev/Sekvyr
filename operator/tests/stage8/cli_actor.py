@@ -23,7 +23,7 @@ from plain_soak import run as projected_token_soak
 from protocol import ProtocolAuthority, record_hash
 from rollback_cases import RollbackCases
 
-from .cli_coordinator import CLICoordinator, owned_capability, prepare_main_genesis
+from .cli_coordinator import CLICoordinator, owned_capability, prepare_main_genesis, require_unwritten_log
 from .cli_e2e_cases import CLIE2E2Cases
 from .jwks import RemoteKindJWKS
 from .pg_verify import run as verify_postgres
@@ -74,8 +74,7 @@ def _initialize_auxiliary_logs(owner, admin):
     for label, entry in sorted(logs.items()):
         registration, record = entry["registration"], entry["record"]
         log = registration["log_id"]
-        nonce, (status, stream, _) = admin.journal(log)
-        require(status == 200 and framed(stream, nonce, "0" * 64) == [], "CLIActorAuxiliaryLogAlreadyInitialized")
+        require_unwritten_log(admin, log, "CLIActorAuxiliaryLogAlreadyInitialized")
         owner.guard()
         status, raw, _ = admin.append(log, "0", canonical(record), expected=(200,))
         receipt = strict(raw, 16 << 10)
