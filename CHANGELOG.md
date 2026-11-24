@@ -4,6 +4,59 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0-rc.7] - 2026-11-24
+
+### Security
+
+- Take the Kubernetes workload identity from the ServiceAccount in `sub`, and
+  revoke a cluster's workload tokens when its keys, issuer or audience change.
+- Check a maintainer's reach over expired machines and when disabling a
+  machine. Attaching or renewing a grant requires reading the whole
+  environment for the granted term.
+- Serialize password, two-factor and login rate-limit changes. Check the
+  session, role and vault state again before returning an emergency archive.
+- Check the actor and target again after hashing a password reset, and keep
+  one lock order when disabling an author with pending changes.
+- Keep folder restrictions in environment events, snapshot counts, parent
+  environments and overrides.
+- Let a seal win over in-flight unseal, setup and value reads, including
+  machine reads and E2E2 deliveries.
+- Bind project key wraps for machines to the machine key they were made for.
+- Keep the E2E2 index and authority projection monotonic, and serialize view
+  registration with environment creation and plaintext writes.
+- Show deny rules separately on the server page and keep them when revoking
+  all grants.
+- Ignore late responses after the page, project key or session changed.
+- Operator: serve journal slots from one verified snapshot, use one HTTPS
+  origin rule, pin the journal gateway CA for the fencer, publish witness
+  records atomically, check authorization again at every write and refuse
+  objects that are being deleted.
+- Agent 1.0.5: keep one node key, refuse cross-origin redirects with
+  credentials, bind the offline copy to its panel, credential and
+  environment, and make updates and re-enrollment recoverable.
+- Host scripts treat files in the panel data directory as untrusted input.
+  The backup password is no longer printed, restore checks that the dump is
+  complete, and the watchdog no longer takes curl options from the heartbeat.
+- Upgrade the frontend libxml2 package for CVE-2026-86144.
+
+### Fixed
+
+- The fencer decodes admission requests as Kubernetes JSON, so Secrets with
+  many keys and negative tolerations are no longer refused.
+- The installers keep unrelated files when cloning, and updates start only
+  the images that passed the preflight check.
+- The watchdog retries an alert until a channel accepts it.
+
+### Changed
+
+- Vault setup and root key rotation take two steps: prepare the key or
+  shares, save them, then confirm. Retrying a confirmation after a lost reply
+  applies the same key.
+- The agent cache format changes. After upgrading, let the agent sync once
+  while the panel is reachable to create the copy it uses during an outage.
+- Operator, chart and offline provision tool 0.1.0-rc.4 match this RC. The
+  fencer reads the pinned gateway CA ConfigMap and needs `get` access to it.
+
 ## [1.1.0-rc.6] - 2026-11-19
 
 ### Security
