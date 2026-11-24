@@ -88,7 +88,9 @@ def process(pid):
 
 
 def network_hash(value):
-    return digest(canonical({key: item for key, item in value.items() if key != "Containers"}))
+    # Containers and Status (Docker 28+: per-subnet IPsInUse counters) change
+    # whenever an endpoint attaches. Neither is network configuration.
+    return digest(canonical({key: item for key, item in value.items() if key not in ("Containers", "Status")}))
 
 
 def mounts_hash(value):

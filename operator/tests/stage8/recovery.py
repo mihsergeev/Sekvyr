@@ -11,7 +11,8 @@ import remote_kind_recovery as legacy
 import recovery_process as supervisor
 
 _PREFIX_SHA = "28a6e5debf45794bf8aaebe1322ad2a9d6cdc1d95233ad0232f42e013b21f719"
-_BODY_SHA = "ec3b18c025d8e191293116a20538114eb5a9f256a9909137ebb5d731f5f6fd52"
+# Network config hash ignores Docker 28+ Status counters, as network_hash does.
+_BODY_SHA = "6e982bf518bf3f8adaf1f3c7fc56af0ddc549497f83447c1f7b970ad663cbfd2"
 _JOIN = "    join_network(p,guard)\n"
 
 def root_setup_source(profile):

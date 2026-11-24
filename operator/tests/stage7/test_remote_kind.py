@@ -339,6 +339,19 @@ class CreatorGuards(unittest.TestCase):
             self.assertEqual(events, ["kind-create", "caps", "CRD", "CRD"])
             baseline_check.assert_called_once()
 
+    def test_network_hash_ignores_attach_counters_but_not_configuration(self):
+        network = {"Id": "a" * 64, "Name": "kind", "Driver": "bridge", "IPAM": {"Config": [{"Subnet": "172.22.0.0/16"}]},
+            "Containers": {}, "Status": {"IPAM": {"Subnets": {"172.22.0.0/16": {"IPsInUse": 3}}}}}
+        attached = copy.deepcopy(network)
+        attached["Containers"] = {"b" * 64: {"Name": "node"}}
+        attached["Status"]["IPAM"]["Subnets"]["172.22.0.0/16"]["IPsInUse"] = 4
+        self.assertEqual(cap.network_hash(network), cap.network_hash(attached))
+        changed = copy.deepcopy(network)
+        changed["IPAM"]["Config"][0]["Subnet"] = "172.23.0.0/16"
+        self.assertNotEqual(cap.network_hash(network), cap.network_hash(changed))
+        # The root recovery guard repeats this normalization inside its template.
+        self.assertIn("normalized={k:n for k,n in net.items() if k not in ('Containers','Status')}", recovery.ROOT_SETUP)
+
     def test_baseline_normalizes_only_mount_order_and_preserves_env_args_network_and_start(self):
         value = {"Image": "sha256:" + "a" * 64, "Path": "/public-app", "Args": ["original"], "Config": {"Env": ["PUBLIC_A=first", "PUBLIC_A=second"]},
             "HostConfig": {"Memory": 123}, "Mounts": [{"Source": "one", "Destination": "/one", "RW": False}, {"Source": "two", "Destination": "/two", "RW": True}],

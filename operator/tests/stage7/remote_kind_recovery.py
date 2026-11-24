@@ -95,7 +95,7 @@ def root_setup(p):
         need(sorted(m['Name'] for m in v.get('Mounts',[]) if m.get('Type')=='volume')==sorted(pin['volumes']))
         need(set(v['NetworkSettings']['Networks'])=={'kind'} and v['NetworkSettings']['Networks']['kind']['NetworkID']==made['network']['id'])
         networks=json.loads(docker('network','inspect',made['network']['id'])); need(len(networks)==1)
-        net=networks[0]; normalized={k:n for k,n in net.items() if k!='Containers'}
+        net=networks[0]; normalized={k:n for k,n in net.items() if k not in ('Containers','Status')}
         need(net['Id']==made['network']['id'] and set(net.get('Containers',{}))=={pin['id']})
         need(hashlib.sha256(json.dumps(normalized,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()==made['network']['configSHA256'])
         images=json.loads(docker('image','inspect',pre['nodeImage'])); need(len(images)==1 and images[0]['Id']==made['nodeOCIImageID']==v['Image'])
