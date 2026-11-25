@@ -10,7 +10,7 @@
 #     -t docker.io/library/sekvyr-backend-stage8-tests:<version> --load .
 #
 # Then pin the exported root digest in assets.py (REVIEWED_BACKEND_TEST_IMAGE).
-ARG BACKEND_IMAGE=ghcr.io/mihsergeev/sekvyr-backend@sha256:28d194604745eb036e63f17df2edf543059804eaba7fd6f9b15a0e21eeb824c9
+ARG BACKEND_IMAGE=ghcr.io/mihsergeev/sekvyr-backend@sha256:73f6d4960f6afbc2e9dc448d68b35dc54af7a10057759090819fd6917625d5a3
 
 # Same base as the backend runtime stage.
 FROM python:3.12.16-alpine3.24@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8 AS runner

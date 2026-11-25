@@ -14,7 +14,7 @@ from .profiles import reviewed
 import remote_assets_import as legacy
 
 # Filled only after Root reviews the final verification-image export.
-REVIEWED_BACKEND_TEST_IMAGE = "docker.io/library/sekvyr-backend-stage8-tests@sha256:cf5a6124d67907232f19585545cdb8b8e5cc7b9d68077f80ca8933eb2730f0d4"
+REVIEWED_BACKEND_TEST_IMAGE = "docker.io/library/sekvyr-backend-stage8-tests@sha256:b97d1f65af2b35b8e511f536f12e0b3f9ae822b2832114f458f9dc4320d89c28"
 LEGACY_ROLES = {"postgres", "seaweed", "python", "agent"}
 CLIS = (("checkpoint-recovery", "recovery_sha256"), ("provision", "provision_sha256"))
 

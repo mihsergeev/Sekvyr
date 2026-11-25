@@ -18,14 +18,14 @@ _PROFILES = (
 # Root fills measured reviewed build identities, never inferred from live state.
 # No importer, creator or recovery is usable while any pin remains unset.
 REVIEWED_ARTIFACTS = {
-    "operator_image": "ghcr.io/mihsergeev/sekvyr-operator@sha256:ce947b4a3bc7a3d653f84e2c20d861f4ab648e09e70ea8a9eb7ca33150b52c76",
-    "backend_image": "ghcr.io/mihsergeev/sekvyr-backend@sha256:28d194604745eb036e63f17df2edf543059804eaba7fd6f9b15a0e21eeb824c9",
+    "operator_image": "ghcr.io/mihsergeev/sekvyr-operator@sha256:7bb4226764637bc8540b01c81e09e450ae218e75edf4a0a650bb9d4546a2bb86",
+    "backend_image": "ghcr.io/mihsergeev/sekvyr-backend@sha256:73f6d4960f6afbc2e9dc448d68b35dc54af7a10057759090819fd6917625d5a3",
     "recovery_sha256": "758540e5b720df65da5e5c14bbf2d22571789fe7b9f21bfea35f6f14197556b4",
-    "provision_sha256": "be455d90d9d8c93d0ce93561ee0b33f5bc00c742b95aa398564357742209c2c2",
+    "provision_sha256": "9ce8021d3a7fdb163c8219cc07baf3dda81537ccf0b8909f3aafb31ae79dbfaf",
 }
 # Release versions of the pinned operator and backend images above.
-OPERATOR_VERSION = "0.1.0-rc.4"
-BACKEND_VERSION = "1.1.0-rc.7"
+OPERATOR_VERSION = "0.1.0"
+BACKEND_VERSION = "1.1.0"
 _RECEIPT_FORMAT = "sekvyr-stage8-kind-profile-v1"
 PROFILE_RECEIPT = "stage8-profile.json"
 
