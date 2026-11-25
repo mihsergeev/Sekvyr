@@ -2,9 +2,9 @@
 
 [Русская версия](kubernetes-architecture.ru.md) | [README](../README.md) | [Installation](../operator/docs/install.en.html) | [Operations and recovery](../operator/docs/operations.en.html)
 
-This is the E2E2 publication and delivery path for panel `1.1.0-rc.1` and
-operator/chart `0.1.0-rc.1`. These are release candidates. Stable panel `1.0.3`
-does not provide this API, and agent `1.0.3` does not gain E2E2 support from it.
+This is the E2E2 publication and delivery path for panel `1.1.0` and
+operator/chart `0.1.0`. Panel `1.0.3` and earlier do not provide this API,
+and agent `1.0.3` does not gain E2E2 support from it.
 This architecture is not a production-ready HA or WORM guarantee.
 
 The goal is to deliver an authorized, complete configuration to a Kubernetes

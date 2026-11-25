@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-11-25
+
+The first stable release of the 1.1.0 line. It contains every change listed
+for 1.1.0-rc.1 to 1.1.0-rc.7 below. Operator, Helm chart and offline provision
+tool 0.1.0 ship with it.
+
+### Changed
+
+- Publish stable releases through the same reviewed promotion as release
+  candidates: a signed manifest of the scanned panel, PostgreSQL and operator
+  images, a reviewed draft, and promotion of the exact digests with
+  attestations. The version and `latest` tags point to those digests. The
+  Release workflow no longer rebuilds panel images from the tag.
+- Operator, chart and offline provision tool 0.1.0 match this release. The
+  bundled signed node agent stays 1.0.5; the Kubernetes agent image stays 1.0.3.
+
 ## [1.1.0-rc.7] - 2026-11-24
 
 ### Security
@@ -356,6 +372,7 @@ First public release.
   the panel from source by itself. The agent image for Kubernetes is built for
   amd64 and arm64.
 
+[1.1.0]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.1.0
 [1.0.3]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.0.3
 [1.0.2]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.0.2
 [1.0.1]: https://github.com/mihsergeev/Sekvyr/releases/tag/v1.0.1

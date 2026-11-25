@@ -71,10 +71,11 @@ checks that it stays that way.
 and the panel verifies the signature against the cluster keys. For those who
 already run External Secrets Operator, that path works too.
 
-**Operator RC.** Operator/chart `0.1.0-rc.1` requires matching panel
-`1.1.0-rc.1` for the new E2E2 API; published panel `1.0.3` does not provide it.
-See [installation](operator/docs/install.en.html) and
-[operations](operator/docs/operations.en.html). Agent `1.0.3` is unchanged.
+**Operator.** Operator/chart `0.1.0` requires panel `1.1.0` for the E2E2 API;
+panel `1.0.3` and earlier do not provide it. See
+[installation](operator/docs/install.en.html) and
+[operations](operator/docs/operations.en.html). The Kubernetes agent image
+stays `1.0.3`.
 
 **Operations.** Encrypted backups with a freshness check, one-command restore,
 emergency access to values without the panel, Telegram and webhook alerts, a
@@ -142,8 +143,8 @@ checkpoint, then synchronizes a Kubernetes Secret for the application.
 [Read the architecture](docs/kubernetes-architecture.md) for the numbered flow,
 each component's purpose, local trusted-host and independent witness/journal
 deployments, optional S3 Object Lock, failure behavior and trust boundaries.
-This is the panel `1.1.0-rc.1` / operator `0.1.0-rc.1` RC path; stable `1.0.3`
-does not support it. Kubernetes Secrets contain plaintext, and rollout is an
+This path needs panel `1.1.0` and operator `0.1.0`; panel `1.0.3` and earlier
+do not support it. Kubernetes Secrets contain plaintext, and rollout is an
 explicit opt-in. Production HA or WORM is not provided by default.
 
 ## Security

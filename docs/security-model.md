@@ -354,10 +354,12 @@ how that rule is kept. Who can attack the panel and what stops them is in the
 
 ## Not there yet
 
-- **A production operator release is not announced.** Unreleased operator/chart
-  `0.1.0-rc.1` with `SekvyrSecret` and matching panel `1.1.0-rc.1` are described in
-  the [RC installation guide](../operator/docs/install.en.html). Published panel
-  `1.0.3` has no new E2E2 API; agent `1.0.3` remains unchanged.
+- **Production HA for the operator.** Operator/chart `0.1.0` with
+  `SekvyrSecret` and matching panel `1.1.0` are described in the
+  [installation guide](../operator/docs/install.en.html). Its HA profile is a
+  trial: production WORM storage and independent fault domains are not
+  provided. Panel `1.0.3` and earlier have no E2E2 API; the Kubernetes agent
+  image `1.0.3` remains unchanged.
 - **Switching an existing project to browser-side encryption.** For now it can
   be turned on only for an empty project: re-encrypting live values in the
   browser is not done yet.
