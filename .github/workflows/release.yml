@@ -1,11 +1,15 @@
 name: Release
 
-# По тегу vX.Y.Z собирает и публикует в GHCR образы панели (backend, frontend)
-# и образ агента для Kubernetes. Сначала проверка: тег стоит на публичном main,
-# версия в коде та же, самопроверка чистая, подпись агента сходится с
-# agent/pubkey.txt, а агент, собранный так же, как в образе панели, - с
-# подписанным agent/manifest.json. Образ, который отвечал бы 500 вместо агента,
-# выпускать нельзя.
+# По тегу vX.Y.Z проверяет выпуск и публикует образ агента для Kubernetes, если
+# версия агента совпадает с тегом. Образы панели, PostgreSQL и оператора сюда
+# не входят: их байты проходят просмотр и подписанный манифест в panel-rc.yml,
+# и promote оттуда же ставит теги версии и latest. Пересборка по тегу дала бы
+# другие, никем не просмотренные байты.
+#
+# Сначала проверка: тег стоит на публичном main, версия в коде та же,
+# самопроверка чистая, подпись агента сходится с agent/pubkey.txt, а агент,
+# собранный так же, как в образе панели, - с подписанным agent/manifest.json.
+# Образ, который отвечал бы 500 вместо агента, выпускать нельзя.
 #
 # Права токена выдаются заданиям по отдельности: проверка только читает, а
 # писать в реестр может только публикация и только после проверки.
@@ -82,7 +86,8 @@ jobs:
 
   publish:
     needs: [verify, functional-ci, operator-ci]
-    # Prereleases use their own reviewed OCI promotion workflow.
+    # Panel, PostgreSQL and operator images of every release use panel-rc.yml.
+    # Here only an agent with the same new version is published.
     if: ${{ !contains(github.ref_name, '-') && !contains(github.ref_name, '+') }}
     runs-on: ubuntu-latest
     permissions:
@@ -110,36 +115,8 @@ jobs:
           fi
 
       # VERSION и REVISION уходят в метки образа (org.opencontainers.image.*):
-      # по ним видно, из какого выпуска и коммита образ.
-      # Панель сохраняет прежний single-platform scope. До всех scan gates
+      # по ним видно, из какого выпуска и коммита образ. До всех scan gates
       # build только загружает локальные образы; registry push здесь запрещен.
-      - name: Build backend locally
-        id: backend
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: backend/Dockerfile
-          platforms: linux/amd64
-          load: true
-          push: false
-          build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
-            REVISION=${{ github.sha }}
-          tags: sekvyr-release-backend:candidate
-
-      - name: Build frontend locally
-        id: frontend
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: ./frontend
-          platforms: linux/amd64
-          load: true
-          push: false
-          build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
-            REVISION=${{ github.sha }}
-          tags: sekvyr-release-frontend:candidate
-
       # Агент имеет собственную подписанную версию. Выпуск одной панели не
       # перепубликует прежний agent tag и не меняет его revision/latest.
       # Совместный выпуск агента возможен только с совпадающей новой версией;
@@ -175,9 +152,8 @@ jobs:
           tags: sekvyr-release-agent:arm64
 
       - name: Verify local image identities, platforms and release labels
+        if: steps.meta.outputs.version == steps.meta.outputs.agent
         env:
-          BACKEND_ID: ${{ steps.backend.outputs.imageid }}
-          FRONTEND_ID: ${{ steps.frontend.outputs.imageid }}
           AGENT_AMD64_ID: ${{ steps.agent_amd64.outputs.imageid }}
           AGENT_ARM64_ID: ${{ steps.agent_arm64.outputs.imageid }}
           VERSION: ${{ steps.meta.outputs.version }}
@@ -194,41 +170,11 @@ jobs:
               .[0].Config.Labels["org.opencontainers.image.version"] == $version and
               .[0].Config.Labels["org.opencontainers.image.revision"] == $revision' >/dev/null
           }
-          verify "$BACKEND_ID" linux/amd64 "$VERSION"
-          verify "$FRONTEND_ID" linux/amd64 "$VERSION"
-          if [ "$VERSION" = "$AGENT_VERSION" ]; then
-            verify "$AGENT_AMD64_ID" linux/amd64 "$AGENT_VERSION"
-            verify "$AGENT_ARM64_ID" linux/arm64 "$AGENT_VERSION"
-          fi
+          verify "$AGENT_AMD64_ID" linux/amd64 "$AGENT_VERSION"
+          verify "$AGENT_ARM64_ID" linux/arm64 "$AGENT_VERSION"
 
       # Scan точных local IDs, без remote fallback и без исключения unfixed.
-      # Все четыре условных gate завершаются ДО login/первого registry write.
-      - name: Scan backend before publication
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        env:
-          TRIVY_IMAGE_SRC: docker
-          TRIVY_PLATFORM: linux/amd64
-          TRIVY_IGNORE_UNFIXED: "false"
-        with:
-          image-ref: ${{ steps.backend.outputs.imageid }}
-          severity: HIGH,CRITICAL
-          version: v0.76.1
-          ignore-unfixed: false
-          exit-code: "1"
-
-      - name: Scan frontend before publication
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        env:
-          TRIVY_IMAGE_SRC: docker
-          TRIVY_PLATFORM: linux/amd64
-          TRIVY_IGNORE_UNFIXED: "false"
-        with:
-          image-ref: ${{ steps.frontend.outputs.imageid }}
-          severity: HIGH,CRITICAL
-          version: v0.76.1
-          ignore-unfixed: false
-          exit-code: "1"
-
+      # Оба gate завершаются ДО login/первого registry write.
       - name: Scan agent amd64 before publication
         if: steps.meta.outputs.version == steps.meta.outputs.agent
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -258,36 +204,12 @@ jobs:
           exit-code: "1"
 
       - name: Log in to GHCR after every scan passed
+        if: steps.meta.outputs.version == steps.meta.outputs.agent
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push the scanned panel images without rebuilding
-        env:
-          OWNER: ${{ steps.meta.outputs.owner }}
-          VERSION: ${{ steps.meta.outputs.version }}
-          FINAL: ${{ steps.meta.outputs.final }}
-          BACKEND_ID: ${{ steps.backend.outputs.imageid }}
-          FRONTEND_ID: ${{ steps.frontend.outputs.imageid }}
-        run: |
-          set -euo pipefail
-          publish() {
-            local id="$1" repository="ghcr.io/$OWNER/sekvyr-$2"
-            [[ "$id" =~ ^sha256:[0-9a-f]{64}$ ]]
-            test "$(docker image inspect -f '{{.Id}}' "$id")" = "$id"
-            docker tag "$id" "$repository:$VERSION"
-            test "$(docker image inspect -f '{{.Id}}' "$repository:$VERSION")" = "$id"
-            docker push "$repository:$VERSION"
-            if [ "$FINAL" = true ]; then
-              docker tag "$id" "$repository:latest"
-              test "$(docker image inspect -f '{{.Id}}' "$repository:latest")" = "$id"
-              docker push "$repository:latest"
-            fi
-          }
-          publish "$BACKEND_ID" backend
-          publish "$FRONTEND_ID" frontend
 
       - name: Push scanned agent platforms and compose their immutable manifest
         if: steps.meta.outputs.version == steps.meta.outputs.agent

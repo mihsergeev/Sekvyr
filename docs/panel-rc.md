@@ -1,15 +1,16 @@
-# Publishing a reviewed panel RC
+# Publishing a reviewed panel release
 
-Use the signed backend, frontend and PostgreSQL image digests from the immutable
-GitHub release.
+Release candidates (`X.Y.Z-rc.N`) and stable releases (`X.Y.Z`) take the same
+path. Use the signed backend, frontend and PostgreSQL image digests from the
+immutable GitHub release. Only a release candidate is a GitHub prerelease.
 
 ## Prepare and review
 
-1. Push the exact RC commit to `rc/panel-v<version>`. Wait for CI and the
+1. Push the exact release commit to `rc/panel-v<version>`. Wait for CI and the
    backend, frontend, PostgreSQL and operator native builds and scans to pass. Record the
    candidate run ID and attempt. If a rebuild is needed, rerun **all** candidate
    jobs so their artifacts belong to one attempt.
-2. Tag that commit as `v<version>`. Run **Build and promote reviewed RC images**
+2. Tag that commit as `v<version>`. Run **Build and promote reviewed releases**
    with `--ref v<version> -f phase=prepare -f candidate_run=<id> -f candidate_attempt=<n>`.
    The workflow verifies the candidate and CI, assembles the image archives,
    and signs `release-manifest.json`. The manifest records the source revision,
@@ -19,10 +20,10 @@ GitHub release.
    Keep the manifest and its Sigstore bundle with the OCI archives and SBOMs.
    Confirm immutable releases are enabled in the repository settings. Create a
    draft for the existing tag with exactly the prepared assets and the reviewed
-   release notes.
+   release notes. Add `--prerelease` only for a release candidate.
 
    ```sh
-   gh release create "$tag" reviewed/* --draft --prerelease --verify-tag \
+   gh release create "$tag" reviewed/* --draft --verify-tag \
      --title "$tag" --notes-file notes.md
    gh release view "$tag" --json databaseId --jq .databaseId
    sha256sum reviewed/release-manifest.json
@@ -36,17 +37,24 @@ It fetches the exact draft assets, verifies the signature and hashes, and
 copies and checks the images by digest before attesting them. If a push fails,
 dispatch the same inputs again. The draft has the reviewed bytes needed for the
 retry even after the candidate and prepare artifacts expire. An immutable
-published RC also works as a source for restoring its image digests.
+published release also works as a source for restoring its image digests.
+
+A stable release also gets the `<version>` and `latest` tags on the same
+promoted digests. Nothing is rebuilt, and a published version tag never moves:
+a retry only confirms it. Release candidates get no tags and are installed by
+digest. The **Release** workflow on a `v<version>` tag only checks the tag and
+publishes the Kubernetes agent image when the agent has the same new version.
 
 After a successful promotion, compare the release ID and manifest hash in the
 workflow summary with the approved draft. Check the draft still has the exact
-reviewed assets, then publish it as a prerelease. Verify the release and the
-published manifest with `gh release verify "$tag"` and
+reviewed assets, then publish it: a release candidate with
+`--prerelease --latest=false`, a stable release with `--latest`. Verify the
+release and the published manifest with `gh release verify "$tag"` and
 `gh release verify-asset "$tag" reviewed/release-manifest.json`.
 
-## Install from a reviewed RC
+## Install from a reviewed release
 
-Check out the RC source tag and verify the downloaded release manifest with
+Check out the release source tag and verify the downloaded release manifest with
 `gh release verify-asset "$tag" release-manifest.json`. Verify its workflow
 signature and the attestations for all image digests before deploying. In the
 following example, `repo` is the GitHub repository, `tag` the published tag,
@@ -79,9 +87,9 @@ using the usual backup and deploy procedure.
 
 ## Upgrade a digest-pinned installation
 
-For the next RC, verify its manifest and image attestations as above and write
+For the next release, verify its manifest and image attestations as above and write
 the resulting override to a new file. Back up the running installation with
-`ops/backup.sh` using its current configuration. Check out the new RC source tag,
+`ops/backup.sh` using its current configuration. Check out the new source tag,
 replace the active override with the new file and check all three pins with
 `docker compose config --images`. Before starting the new containers, run
 `python3 ops/check_compose_networks.py` with the new override. Confirm the running
@@ -94,7 +102,7 @@ from a digest-pinned RC to a compatible newer stable release, back up the
 running RC before changing `COMPOSE_FILE`. Then remove the digest override
 from `COMPOSE_FILE` and run `ops/update.sh <stable-tag>`.
 
-## Publish the matching operator RC
+## Publish the matching operator release
 
 Use the same candidate run and attempt. Dispatch `prepare` from
 `sekvyr-operator-v<operator-version>` on the same commit. Preparation also

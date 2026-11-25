@@ -1,4 +1,7 @@
-"""Pin scanned candidate artifacts and load a reviewed RC from a GitHub release."""
+"""Pin scanned candidate artifacts and load a reviewed release from a GitHub release.
+
+Release candidates (X.Y.Z-rc.N) and stable releases (X.Y.Z) use the same path.
+"""
 
 import argparse
 import json
@@ -19,6 +22,7 @@ OPERATOR_PLATFORMS = {"operator": ("amd64", "arm64")}
 MANIFEST = "release-manifest.json"
 BUNDLE = "release-manifest.sigstore.json"
 NATIVE_FILES = {"candidate.oci.tar", "sbom.cdx.json", "SHA256SUMS"}
+TAG = re.compile(r"refs/tags/(sekvyr-operator-)?v([0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?)")
 
 
 def asset_files(platforms):
@@ -45,6 +49,17 @@ def valid_digest(value):
 
 def valid_id(value):
     return type(value) is int and value > 0
+
+
+def prerelease(version):
+    """Only a release candidate is published as a GitHub prerelease."""
+    return "-" in version
+
+
+def release_tag(ref):
+    match = TAG.fullmatch(ref)
+    check(match, "dispatch from the exact release tag")
+    return bool(match[1]), match[2]
 
 
 def api(repo, endpoint, *args):
@@ -163,7 +178,8 @@ def checked_manifest(output, repo, version, revision, *, operator=False):
 def reviewed(repo, version, revision, release_id, reviewed_sha256, output, *, operator=False):
     tag = f"{'sekvyr-operator-' if operator else ''}v{version}"
     release = api(repo, f"releases/{release_id}")
-    check(release["id"] == release_id and release["tag_name"] == tag and release["prerelease"]
+    check(release["id"] == release_id and release["tag_name"] == tag
+          and release["prerelease"] is prerelease(version)
           and (release["draft"] or release["immutable"]), "expected a draft or immutable release for this tag")
     assets = release["assets"]
     expected = (operator_files(version) if operator else FILES) | {MANIFEST, BUNDLE}
@@ -199,9 +215,7 @@ def main():
     parser.add_argument("--manifest-sha256")
     args = parser.parse_args()
     repo, revision = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_SHA"]
-    match = re.fullmatch(r"refs/tags/(sekvyr-operator-)?v([0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+)", os.environ["GITHUB_REF"])
-    check(match, "dispatch from the exact RC tag")
-    operator, version = bool(match[1]), match[2]
+    operator, version = release_tag(os.environ["GITHUB_REF"])
     declared = (Path("operator/VERSION").read_text().strip() if operator
                 else json.loads(Path("frontend/package.json").read_bytes())["version"])
     check(version == declared, "tag does not match the source version")

@@ -1,4 +1,4 @@
-name: Build and promote reviewed RC images
+name: Build and promote reviewed releases
 
 on:
   push:
@@ -84,12 +84,12 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#rc/panel-v}"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]
           test "$version" = "$(sed -n 's/^version = "\(.*\)"$/\1/p' backend/pyproject.toml)"
           test "$version" = "$(jq -r .version frontend/package.json)"
           if [[ "$COMPONENT" = operator ]]; then
             version="$(cat operator/VERSION)"
-            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]
             docker buildx build --platform "linux/$ARCH" --file "$DOCKERFILE" \
               --target provision-artifacts --output type=local,dest=provision "$CONTEXT"
             test "$(./provision/sekvyr-provision version)" = "$version"
@@ -252,6 +252,39 @@ jobs:
         with:
           subject-name: ${{ steps.stage.outputs.operator }}
           subject-digest: ${{ steps.stage.outputs.operator_digest }}
+      # A stable release also gets its version and latest tags, on the same
+      # promoted and attested digests. Nothing is rebuilt. A published version
+      # tag never moves: a retry may only confirm it. Release candidates are
+      # installed by digest and get no tags.
+      - name: Tag the promoted digests of a stable release
+        if: ${{ !contains(github.ref_name, '-rc.') }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/panel"
+          version=$(jq -er .version release-manifest.json)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mapfile -t components < <(jq -er '.images | keys[]' release-manifest.json)
+          for component in "${components[@]}"; do
+            ref=$(jq -er --arg component "$component" '.images[$component]' release-manifest.json)
+            repository=${ref%@*}
+            digest=${ref##*@}
+            if skopeo inspect --raw "docker://$repository:$version" > existing.raw 2> inspect.err; then
+              test "sha256:$(sha256sum < existing.raw | cut -d' ' -f1)" = "$digest"
+            elif grep -qi 'manifest unknown' inspect.err; then
+              skopeo copy --all --preserve-digests --retry-times 3 \
+                "oci-archive:$component-image.oci.tar" "docker://$repository:$version"
+            else
+              cat inspect.err >&2
+              exit 1
+            fi
+            skopeo copy --all --preserve-digests --retry-times 3 \
+              "oci-archive:$component-image.oci.tar" "docker://$repository:latest"
+            for tag in "$version" latest; do
+              raw=$(skopeo inspect --raw "docker://$repository:$tag" | sha256sum | cut -d' ' -f1)
+              test "sha256:$raw" = "$digest"
+            done
+            printf '%s: %s and latest -> %s\n' "$repository" "$version" "$digest" >> "$GITHUB_STEP_SUMMARY"
+          done
       - name: Identify the reviewed images for publication
         run: |
           {

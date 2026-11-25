@@ -187,5 +187,23 @@ class ReleaseInputsTest(unittest.TestCase):
                 release.reviewed(repo, VERSION, REVISION, 11, manifest_hash, root / "replaced-image")
 
 
+    def test_stable_and_candidate_tags_share_one_path(self):
+        self.assertEqual(release.release_tag("refs/tags/v1.2.3"), (False, "1.2.3"))
+        self.assertEqual(release.release_tag("refs/tags/v1.2.3-rc.4"), (False, "1.2.3-rc.4"))
+        self.assertEqual(release.release_tag("refs/tags/sekvyr-operator-v0.2.0"), (True, "0.2.0"))
+        for ref in ("refs/tags/v1.2", "refs/tags/v1.2.3-beta.1", "refs/tags/v1.2.3+build",
+                    "refs/heads/v1.2.3", "refs/tags/release-v1.2.3", "refs/tags/v1.2.3\n"):
+            with self.assertRaisesRegex(ValueError, "exact release tag"):
+                release.release_tag(ref)
+
+    def test_only_a_candidate_draft_is_a_prerelease(self):
+        for version, flag, accepted in (("1.2.3", False, True), ("1.2.3", True, False),
+                                        ("1.2.3-rc.4", True, True), ("1.2.3-rc.4", False, False)):
+            draft = {"id": 11, "tag_name": f"v{version}", "prerelease": flag, "draft": True, "assets": []}
+            with TemporaryDirectory() as directory, patch.object(release, "api", return_value=draft):
+                with self.assertRaisesRegex(ValueError, "missing or unexpected release assets" if accepted
+                                            else "expected a draft or immutable release"):
+                    release.reviewed("example/sekvyr", version, REVISION, 11, "f" * 64, Path(directory) / "out")
+
 if __name__ == "__main__":
     unittest.main()
