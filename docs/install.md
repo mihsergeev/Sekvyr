@@ -2,7 +2,7 @@
 
 [Русская версия](install.ru.md)
 
-For a panel release candidate, see [installation by digest](panel-rc.md#install-from-a-reviewed-rc).
+To pin a reviewed release by its image digests, see [installation by digest](panel-rc.md#install-from-a-reviewed-release).
 
 ## One command
 

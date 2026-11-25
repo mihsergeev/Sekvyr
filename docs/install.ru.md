@@ -2,7 +2,7 @@
 
 [English version](install.md)
 
-Для RC панели есть [инструкция по установке по дайджестам](panel-rc.md#install-from-a-reviewed-rc).
+Чтобы закрепить проверенный выпуск по дайджестам образов, есть [инструкция по установке по дайджестам](panel-rc.md#install-from-a-reviewed-release).
 
 ## Одной командой
 
