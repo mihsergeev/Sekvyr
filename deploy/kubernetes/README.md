@@ -6,8 +6,8 @@ The existing init/sidecar and ESO paths are described below. The new operator
 has separate [installation/bootstrap](../../operator/docs/install.en.html) and
 [operations/rotation/rollback](../../operator/docs/operations.en.html) guides.
 It uses its own CRDs, administrative UID pins and rollout disabled by default.
-Its E2E2 API needs a separately reviewed unreleased backend; published 1.0.3
-is not modified retroactively.
+Its E2E2 API needs panel 1.1.0 or later; panel 1.0.3 and earlier have no
+E2E2 API.
 
 Projected ServiceAccount tokens avoid a permanent machine client id/secret
 pair. JWTs, machine sessions and node keys remain sensitive: a stolen bearer

@@ -6,8 +6,8 @@
 читайте [установку и bootstrap](../../operator/docs/install.ru.html) и
 [эксплуатацию, ротации и rollback](../../operator/docs/operations.ru.html).
 Оператор имеет собственные CRD, административные UID pins и выключенный по
-умолчанию rollout. Его E2E2 API требует отдельно рассмотренного unreleased
-backend; опубликованный 1.0.3 задним числом не меняется.
+умолчанию rollout. Его E2E2 API требует панели 1.1.0 или новее, в панели
+1.0.3 и раньше E2E2 API нет.
 
 Projected ServiceAccount token позволяет не хранить постоянную машинную пару
 client id/secret. Сам JWT, выданная machine session и node key остаются
