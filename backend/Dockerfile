@@ -6,7 +6,7 @@
 # -buildid= обязателен: build ID считается от содержимого исходников, и без
 # него правка одного комментария давала другой бинарь, а с ним и 500 вместо
 # агента, пока сборку не подпишут заново.
-FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf AS agent
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS agent
 WORKDIR /src
 COPY agent/ ./
 RUN set -eu; \
@@ -17,7 +17,7 @@ RUN set -eu; \
     done
 
 # Build the fixed SQLite as an APK with the target architecture and stable ABI.
-FROM python:3.12.16-alpine3.24@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8 AS sqlite-build
+FROM python:3.12.16-alpine3.24@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89 AS sqlite-build
 RUN apk upgrade --no-cache && \
     apk add --no-cache alpine-sdk abuild=3.17.0-r0 readline-dev unzip
 COPY backend/runtime/sqlite/ /build/sqlite/
@@ -26,7 +26,7 @@ ARG SOURCE_DATE_EPOCH=1792161920
 RUN --mount=type=tmpfs,target=/tmp/signing \
     SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" sh /build/sqlite/build-apk.sh
 
-FROM python:3.12.16-alpine3.24@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8 AS runtime
+FROM python:3.12.16-alpine3.24@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89 AS runtime
 
 # Панель работает не от root. su-exec нужен entrypoint'у: он стартует от root ровно
 # затем, чтобы выровнять владельца смонтированного тома, и сразу сбрасывает
